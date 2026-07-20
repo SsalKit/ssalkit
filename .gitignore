@@ -1,0 +1,63 @@
+## Visual Studio / .NET 표준 .gitignore
+
+# 사용자별 파일
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# 빌드 결과물
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+msbuild.log
+msbuild.err
+msbuild.wrn
+
+# Visual Studio 캐시/옵션 디렉터리
+.vs/
+.vscode/
+
+# Rider
+.idea/
+*.sln.iml
+
+# NuGet 관련
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# 테스트 결과
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# 기타 임시/백업 파일
+*.tmp
+*.bak
+*.swp
+*~
+[Dd]esktop.ini
+Thumbs.db
+.DS_Store
+
+# StyleCop
+StyleCopReport.xml
+
+# 로컬 개발용 문서 (git 미추적)
+claude.local.md
+
+# Verify snapshot testing scratch output
+*.received.*

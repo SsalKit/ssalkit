@@ -1,0 +1,291 @@
+using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+
+namespace SsalKit.DependencyInjection.Generator.Tests;
+
+public class ServiceAttributeAnalyzerTests
+{
+    private const string Usings = """
+        using SsalKit.DependencyInjection;
+        using Microsoft.Extensions.DependencyInjection;
+
+        """;
+
+    [Fact]
+    public async Task SSAL001_AbstractClass_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public abstract class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL001", diagnostic.Id);
+        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Error, diagnostic.Severity);
+    }
+
+    [Fact]
+    public async Task SSAL001_StaticClass_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service]
+            public static class Foo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Contains(diagnostics, d => d.Id == "SSAL001");
+    }
+
+    [Fact]
+    public async Task SSAL001_ConcreteClass_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL001");
+    }
+
+    [Fact]
+    public async Task SSAL002_AsTypeNotImplemented_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IOther { }
+
+            [Service(As = typeof(IOther))]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL002", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL002_AsTypeImplemented_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL002");
+    }
+
+    [Fact]
+    public async Task SSAL002_AsBaseClass_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public class Base { }
+
+            [Service(As = typeof(Base))]
+            public class Foo : Base { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL002");
+    }
+
+    [Fact]
+    public async Task SSAL003_GenericClass_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service]
+            public class Foo<T> { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL003", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL003_NonGenericClass_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service]
+            public class Foo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL003");
+    }
+
+    [Fact]
+    public async Task SSAL004_DuplicateAttributesOnSameClass_ReportsWarning()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL004", diagnostic.Id);
+        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Warning, diagnostic.Severity);
+    }
+
+    [Fact]
+    public async Task SSAL004_SameServiceType_DifferentImplementationTypes_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        // Different implementation types => not a duplicate (ServiceType, ImplementationType, Key) triple.
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
+    }
+
+    [Fact]
+    public async Task SSAL004_DifferentAsTypes_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IBar { }
+
+            [Service(As = typeof(IFoo))]
+            [Service(As = typeof(IBar))]
+            public class Foo : IFoo, IBar { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
+    }
+
+    [Fact]
+    public async Task SSAL004_DifferentKeys_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo), Key = "a")]
+            [Service(As = typeof(IFoo), Key = "b")]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
+    }
+
+    [Fact]
+    public async Task SSAL005_KeyedTryAddEnumerable_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable, Key = "k")]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL005", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL005_TryAddEnumerableWithoutKey_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL005");
+    }
+
+    [Fact]
+    public async Task SSAL005_KeyedWithoutTryAddEnumerable_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAdd, Key = "k")]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL005");
+    }
+
+    [Fact]
+    public async Task NoServiceAttribute_ReportsNoDiagnostics()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public class Foo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Empty(diagnostics);
+    }
+}
