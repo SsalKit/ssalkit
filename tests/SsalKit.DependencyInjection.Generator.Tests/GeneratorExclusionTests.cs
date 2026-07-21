@@ -240,6 +240,80 @@ public class GeneratorExclusionTests
     }
 
     [Fact]
+    public void InaccessibleTypeofKey_IsExcludedEntirely()
+    {
+        // Regression test: a `Key = typeof(PrivateMarker)` whose type is inaccessible from the
+        // generated code must drop the whole registration entry, not just silently emit a
+        // non-keyed registration -- otherwise the emitted `typeof(...)` reference would fail to
+        // compile with CS0122 in the consuming project.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker))]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void InaccessibleTypeofKey_ExcludesOnlyThatAttribute_KeepsOtherValidOnes()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker))]
+                [Service]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
+        Assert.DoesNotContain("PrivateMarker", generated);
+        Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Outer.Foo>();", generated);
+    }
+
+    [Fact]
+    public void InaccessibleGenericTypeArgumentOnServiceType_IsExcludedEntirely()
+    {
+        // Regression test: the recursive accessibility check must also cover the type arguments of
+        // an implemented interface, not just the interface itself.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IHandler<T> { }
+
+            public class Outer
+            {
+                private class PrivateNested { }
+
+                [Service]
+                public class Foo : IHandler<PrivateNested> { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
     public void UndefinedLifetime_ExcludesOnlyThatAttribute_KeepsOtherValidOnes()
     {
         const string source = Usings + """

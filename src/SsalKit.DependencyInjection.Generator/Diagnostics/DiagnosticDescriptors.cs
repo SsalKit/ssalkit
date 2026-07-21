@@ -71,7 +71,7 @@ internal static class DiagnosticDescriptors
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "The generated registration extension method lives in a separate file, in the Microsoft.Extensions.DependencyInjection namespace, in the same assembly; it can only reference types (and their containing types) that are at least internal and not file-local.");
+        description: "The generated registration extension method lives in a separate file, in the Microsoft.Extensions.DependencyInjection namespace, in the same assembly; it can only reference types -- including a 'typeof(...)' Key value and any generic type arguments -- that are (along with their containing types) at least internal and not file-local.");
 
     public static readonly DiagnosticDescriptor UndefinedEnumValue = new(
         id: "SSAL008",

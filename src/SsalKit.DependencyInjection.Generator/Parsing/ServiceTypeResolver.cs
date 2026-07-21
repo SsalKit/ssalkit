@@ -24,7 +24,10 @@ internal static class ServiceTypeResolver
     /// <see cref="INamedTypeSymbol.Interfaces"/> exactly as if it had been listed by hand. Without
     /// this exclusion, every <c>[Service]</c> record would silently gain a nonsensical
     /// registration of itself as <c>IEquatable&lt;TSelf&gt;</c> and -- with 2+ real interfaces --
-    /// would incorrectly tip a Singleton/Scoped registration into the forwarding path.
+    /// would incorrectly tip a Singleton/Scoped registration into the forwarding path. The
+    /// exclusion is gated on <see cref="INamedTypeSymbol.IsRecord"/> so it never touches an
+    /// ordinary <c>class</c> that deliberately implements <c>IEquatable&lt;TSelf&gt;</c> by hand --
+    /// for such a class, that interface is a real, intentional service type like any other.
     /// </remarks>
     public static ImmutableArray<INamedTypeSymbol> GetDirectlyImplementedInterfaces(INamedTypeSymbol classSymbol)
     {
@@ -36,7 +39,7 @@ internal static class ServiceTypeResolver
         var builder = ImmutableArray.CreateBuilder<INamedTypeSymbol>(classSymbol.Interfaces.Length);
         foreach (var iface in classSymbol.Interfaces)
         {
-            if (IsDisposableOrAsyncDisposable(iface) || IsSelfIEquatable(iface, classSymbol))
+            if (IsDisposableOrAsyncDisposable(iface) || (classSymbol.IsRecord && IsSelfIEquatable(iface, classSymbol)))
             {
                 continue;
             }

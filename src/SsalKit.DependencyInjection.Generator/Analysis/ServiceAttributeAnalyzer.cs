@@ -169,11 +169,24 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
         for (var i = 0; i < serviceTypeSymbols.Length; i++)
         {
-            if (serviceTypeSymbols[i] is INamedTypeSymbol namedServiceType && !TypeAccessibilityChecker.IsAccessible(namedServiceType))
+            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbols[i]))
             {
                 context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InaccessibleType, location, serviceTypeFqns[i]));
                 return;
             }
+        }
+
+        // SSAL007: a `typeof(...)` Key value must be accessible too, since it is emitted verbatim
+        // into the same generated code as the implementation/service types.
+        if (keyConstant is { IsNull: false, Kind: TypedConstantKind.Type } typedKeyConstant
+            && typedKeyConstant.Value is ITypeSymbol keyTypeSymbol
+            && !TypeAccessibilityChecker.IsAccessible(keyTypeSymbol))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.InaccessibleType,
+                location,
+                keyTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            return;
         }
 
         // SSAL006: TryAddEnumerable cannot distinguish a registration whose service type is the

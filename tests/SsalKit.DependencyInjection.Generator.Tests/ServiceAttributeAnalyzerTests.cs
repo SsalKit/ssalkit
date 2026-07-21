@@ -478,6 +478,96 @@ public class ServiceAttributeAnalyzerTests
     }
 
     [Fact]
+    public async Task SSAL007_InaccessibleTypeofKey_ReportsError()
+    {
+        // Regression test: `Key = typeof(PrivateMarker)` is accessible at the [Service] attribute
+        // application site (nested private types are visible within their own containing class),
+        // but the generated `typeof(...)` reference lives in a separate top-level static class, so
+        // it must be rejected exactly like an inaccessible implementation/service type.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker))]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL007", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL007_AccessibleTypeofKey_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IMarker { }
+
+            [Service(Key = typeof(IMarker))]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
+    }
+
+    [Fact]
+    public async Task SSAL007_InaccessibleGenericTypeArgumentOnServiceType_ReportsError()
+    {
+        // Regression test: the recursive accessibility check must also cover the type arguments of
+        // an *implemented interface* service type -- IHandler<T> itself is public, but a private
+        // nested type argument still makes the closed-constructed IHandler<PrivateNested>
+        // unreferenceable from the generated code.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IHandler<T> { }
+
+            public class Outer
+            {
+                private class PrivateNested { }
+
+                [Service]
+                public class Foo : IHandler<PrivateNested> { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL007", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL007_AccessibleGenericTypeArgumentOnServiceType_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IHandler<T> { }
+            public class Nested { }
+
+            [Service]
+            public class Foo : IHandler<Nested> { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
+    }
+
+    [Fact]
     public async Task SSAL008_UndefinedLifetime_ReportsError()
     {
         const string source = Usings + """

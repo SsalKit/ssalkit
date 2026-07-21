@@ -591,6 +591,36 @@ public class GeneratorEmissionTests
     }
 
     [Fact]
+    public void OrdinaryClass_ExplicitlyImplementingSelfIEquatable_RegistersItAsAServiceType()
+    {
+        // Regression test: the IEquatable<TSelf> exclusion exists only to compensate for the
+        // *compiler-synthesized* interface a record class implicitly gains; it must not apply to
+        // an ordinary class that deliberately implements IEquatable<Foo> by hand, since there it is
+        // a real, intentional service type like any other directly-implemented interface.
+        const string source = Usings + """
+            using System;
+
+            namespace TestNs;
+
+            [Service]
+            public class Foo : IEquatable<Foo>
+            {
+                public bool Equals(Foo? other) => ReferenceEquals(this, other);
+
+                public override bool Equals(object? obj) => Equals(obj as Foo);
+
+                public override int GetHashCode() => 0;
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+        var generated = result.GetSingleSource();
+
+        Assert.Contains("services.AddSingleton<global::System.IEquatable<global::TestNs.Foo>, global::TestNs.Foo>();", generated);
+        Assert.Empty(result.GetOutputCompilationErrors());
+    }
+
+    [Fact]
     public void RecordClass_WithoutClassKeyword_IsDiscoveredAndRegistered()
     {
         // `record Foo` (no explicit `class` keyword) still parses as RecordDeclarationSyntax.

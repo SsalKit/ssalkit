@@ -129,7 +129,7 @@ The generator validates your `[Service]` usage at compile time:
 | `SSAL004`| Warning  | The same service registration appears to be duplicated.                       |
 | `SSAL005`| Error    | `Key` was combined with `RegistrationMode.TryAddEnumerable`, which is not a supported combination. |
 | `SSAL006`| Error    | `RegistrationMode.TryAddEnumerable` cannot register a type as itself — MS DI can't tell duplicates apart without a distinct service type; implement an interface or set `As` explicitly. |
-| `SSAL007`| Error    | The decorated class and its service type (including all containing types) must be at least `internal` and not file-local, so the generated code can reference them. |
+| `SSAL007`| Error    | Every type the generated code would need to reference — the decorated class, its service type(s), a `typeof(...)` `Key` value, and any generic type arguments, including all containing types — must be at least `internal` and not file-local. |
 | `SSAL008`| Error    | An undefined `ServiceLifetime` or `RegistrationMode` value (e.g. `(ServiceLifetime)42`) was supplied to `[Service]`. |
 
 ## License

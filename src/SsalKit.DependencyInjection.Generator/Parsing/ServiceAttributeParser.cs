@@ -100,10 +100,17 @@ internal static class ServiceAttributeParser
 
         foreach (var serviceTypeSymbol in serviceTypeSymbols)
         {
-            if (serviceTypeSymbol is INamedTypeSymbol namedServiceType && !TypeAccessibilityChecker.IsAccessible(namedServiceType))
+            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbol))
             {
                 return null;
             }
+        }
+
+        // SSAL007: a `typeof(...)` Key value must be accessible too, since it is emitted
+        // verbatim into the same generated code as the implementation/service types.
+        if (!IsKeyTypeAccessible(attributeData))
+        {
+            return null;
         }
 
         // SSAL006: TryAddEnumerable cannot distinguish a registration whose service type is the
@@ -174,5 +181,23 @@ internal static class ServiceAttributeParser
 
         var expression = KeyLiteralFormatter.Format(constant.Value);
         return expression is null ? KeyModel.None : new KeyModel(true, expression);
+    }
+
+    /// <summary>
+    /// Returns <see langword="false"/> only when <c>Key</c> is a <c>typeof(...)</c> value whose
+    /// type is not accessible from the generated registration code (see
+    /// <see cref="TypeAccessibilityChecker"/>); any other kind of key (or no key at all) is always
+    /// fine as far as accessibility is concerned.
+    /// </summary>
+    private static bool IsKeyTypeAccessible(AttributeData attributeData)
+    {
+        var constant = AttributeArgumentReader.GetKeyConstant(attributeData);
+        if (constant is { IsNull: false, Kind: TypedConstantKind.Type } typedConstant
+            && typedConstant.Value is ITypeSymbol keyTypeSymbol)
+        {
+            return TypeAccessibilityChecker.IsAccessible(keyTypeSymbol);
+        }
+
+        return true;
     }
 }
