@@ -28,7 +28,7 @@ dotnet add package SsalKit.DependencyInjection
 
 ## 빠른 시작
 
-등록하고 싶은 클래스에 attribute를 붙이면 됩니다.
+등록하고 싶은 클래스(또는 record 클래스)에 attribute를 붙이면 됩니다.
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -93,6 +93,17 @@ var app = builder.Build();
 
 > 여러 인터페이스를 구현하는 `Singleton`/`Scoped` 서비스는 concrete 타입 등록과 팩토리 포워딩으로 생성되므로, 어떤 인터페이스로 조회하든 항상 같은 인스턴스를 공유합니다.
 
+## 포워딩 등록과 그 한계
+
+여러 인터페이스를 구현하는 `Singleton` 또는 `Scoped` 서비스는 concrete 타입으로 한 번만 등록되고, 각 인터페이스는 `services.Add<TLifetime><TInterface>(sp => sp.GetRequiredService<TImpl>())` 형태의 팩토리로 그 concrete 타입에 포워딩됩니다. 덕분에 어떤 인터페이스로 조회하든 항상 같은 인스턴스를 공유하지만, 이는 잘 알려진 표준 포워딩 패턴이며 다음 두 가지 한계가 있습니다.
+
+1. **`Dispose`가 여러 번 호출될 수 있습니다.** 여러 인터페이스로 각각 resolve된 뒤 서로 다른 scope 등을 통해 개별적으로 해제되면, 같은 인스턴스의 `Dispose()`가 포워딩된 등록 수만큼 호출될 수 있습니다. `IDisposable.Dispose()`는 원래 멱등(idempotent)해야 하므로 대부분 문제가 되지 않지만, 여러 인터페이스로 등록되는 서비스에는 멱등하지 않은 `Dispose` 구현을 피해야 합니다.
+2. **마지막 등록이 우선합니다.** 포워딩 팩토리는 인스턴스를 캡처하는 것이 아니라 조회 시점에 컨테이너에서 concrete 타입을 다시 조회합니다. 따라서 애플리케이션 코드가 이후 같은 concrete 타입을 수동으로 재등록하면, 포워딩된 모든 인터페이스는 생성기가 만든 등록이 아니라 그 새 등록을 따르게 됩니다.
+
+### `TryAddEnumerable`은 포워딩하지 않습니다
+
+`Mode = RegistrationMode.TryAddEnumerable`은 위의 포워딩 패턴을 사용할 수 없습니다. Microsoft.Extensions.DependencyInjection이 팩토리 기반 디스크립터만으로는 그 뒤에 있는 구현 타입을 확인할 방법이 없어 중복 여부를 판단할 수 없기 때문입니다. 대신 생성기는 인터페이스마다 독립된 디스크립터(`ServiceDescriptor.<Lifetime><TService, TImpl>`)를 생성하며, 그 결과 **이 방식으로 등록된 인터페이스들은 인스턴스를 공유하지 않습니다**.
+
 ## Attribute 레퍼런스
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
@@ -117,6 +128,9 @@ var app = builder.Build();
 | `SSAL003` | Error     | Open generic 타입은 지원하지 않습니다.                                            |
 | `SSAL004` | Warning   | 동일한 서비스 등록이 중복된 것으로 보입니다.                                        |
 | `SSAL005` | Error     | `Key`와 `RegistrationMode.TryAddEnumerable`은 함께 사용할 수 없는 조합입니다.       |
+| `SSAL006` | Error     | `RegistrationMode.TryAddEnumerable`로는 타입을 자기 자신으로 등록할 수 없습니다 — MS DI가 서로 다른 서비스 타입 없이는 중복 여부를 판별할 수 없으므로, 인터페이스를 구현하거나 `As`를 명시해야 합니다. |
+| `SSAL007` | Error     | 생성된 코드가 참조할 수 있도록, 등록 대상 클래스와 서비스 타입(및 모든 containing type)은 최소 `internal` 접근성이어야 하며 file-local이면 안 됩니다. |
+| `SSAL008` | Error     | `[Service]`에 정의되지 않은 `ServiceLifetime` 또는 `RegistrationMode` 값(예: `(ServiceLifetime)42`)이 전달되었습니다. |
 
 ## 라이센스
 

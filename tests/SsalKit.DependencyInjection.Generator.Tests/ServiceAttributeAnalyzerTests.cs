@@ -288,4 +288,269 @@ public class ServiceAttributeAnalyzerTests
 
         Assert.Empty(diagnostics);
     }
+
+    [Fact]
+    public async Task SSAL006_SelfRegistration_TryAddEnumerable_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL006", diagnostic.Id);
+        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Error, diagnostic.Severity);
+    }
+
+    [Fact]
+    public async Task SSAL006_ExplicitAsSelfType_TryAddEnumerable_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable, As = typeof(Foo))]
+            public class Foo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL006", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL006_MultipleInterfaces_TryAddEnumerable_DoesNotReport()
+    {
+        // 2+ directly-implemented interfaces + TryAddEnumerable is valid: each interface gets its
+        // own direct descriptor instead of the self-registration + forwarding pattern, so there is
+        // no self-as-service-type registration to reject.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IBar { }
+
+            [Service(ServiceLifetime.Singleton, Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo : IFoo, IBar { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL006");
+    }
+
+    [Fact]
+    public async Task SSAL006_SingleInterface_TryAddEnumerable_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL006");
+    }
+
+    [Fact]
+    public async Task SSAL007_PrivateNestedClass_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                [Service]
+                private class Foo : IFoo { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL007", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL007_ProtectedNestedClass_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                [Service]
+                protected class Foo : IFoo { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Contains(diagnostics, d => d.Id == "SSAL007");
+    }
+
+    [Fact]
+    public async Task SSAL007_FileLocalClass_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            file class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL007", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL007_InaccessibleImplicitInterface_ReportsErrorForServiceType()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public class Outer
+            {
+                private interface IFoo { }
+
+                [Service]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL007", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL007_InternalNestedClass_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                [Service]
+                internal class Foo : IFoo { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
+    }
+
+    [Fact]
+    public async Task SSAL007_PublicTopLevelClass_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
+    }
+
+    [Fact]
+    public async Task SSAL008_UndefinedLifetime_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service((ServiceLifetime)42)]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL008", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL008_UndefinedMode_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = (RegistrationMode)99)]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL008", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL008_NegativeLifetime_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service((ServiceLifetime)(-1))]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL008", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL008_AllDefinedLifetimeAndModeValues_DoNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(ServiceLifetime.Singleton, Mode = RegistrationMode.Add)]
+            public class Foo1 : IFoo { }
+
+            [Service(ServiceLifetime.Scoped, Mode = RegistrationMode.TryAdd)]
+            public class Foo2 : IFoo { }
+
+            [Service(ServiceLifetime.Transient, Mode = RegistrationMode.Replace)]
+            public class Foo3 : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL008");
+    }
 }

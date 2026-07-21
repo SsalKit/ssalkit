@@ -59,4 +59,19 @@ public class KeyedTests
 
         Assert.Null(formatter);
     }
+
+    [Fact]
+    public void Keyed_TypeKey_ResolvesMatchingImplementation()
+    {
+        // Regression test: Key = typeof(...) must actually register as a keyed service (formatted
+        // as a `typeof(...)` expression) instead of being silently downgraded to a non-keyed
+        // registration.
+        using var provider = BuildProvider();
+
+        var a = provider.GetRequiredKeyedService<ITypeKeyedContract>(typeof(MarkerA));
+        var b = provider.GetRequiredKeyedService<ITypeKeyedContract>(typeof(MarkerB));
+
+        Assert.IsType<TypeKeyedServiceA>(a);
+        Assert.IsType<TypeKeyedServiceB>(b);
+    }
 }

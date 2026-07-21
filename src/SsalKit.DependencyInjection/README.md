@@ -28,7 +28,7 @@ The package contains both the `[Service]` attribute and the source generator —
 
 ## Quick Start
 
-Decorate the classes you want registered:
+Decorate the classes (or record classes) you want registered:
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -93,6 +93,17 @@ var app = builder.Build();
 
 > Multi-interface `Singleton`/`Scoped` registrations are generated as a concrete registration plus factory forwarding, so every interface resolves to the same shared instance.
 
+## Forwarding Registrations and Their Limits
+
+A `Singleton` or `Scoped` service that implements multiple interfaces is registered once as its concrete type, with each interface forwarded to it via `services.Add<TLifetime><TInterface>(sp => sp.GetRequiredService<TImpl>())`. This guarantees every interface resolves to the same shared instance, but it's the standard forwarding pattern and comes with two well-known limitations:
+
+1. **`Dispose` may run more than once.** If the interfaces are resolved and disposed independently — for example across different scopes — the same underlying instance's `Dispose()` can be invoked once per forwarded registration. `IDisposable.Dispose()` is expected to be idempotent, so this is usually harmless, but a non-idempotent `Dispose` implementation should be avoided on services registered under multiple interfaces.
+2. **The last registration wins.** The forwarding factory looks up the concrete type from the container at resolution time rather than capturing an instance. If application code later re-registers the concrete type manually, every forwarded interface follows that new registration instead of staying pinned to the one the generator emitted.
+
+### `TryAddEnumerable` does not forward
+
+`Mode = RegistrationMode.TryAddEnumerable` cannot use the forwarding pattern above, because Microsoft.Extensions.DependencyInjection has no way to inspect the implementation type behind a factory-based descriptor when checking for an existing duplicate. Instead, the generator emits an independent descriptor per interface (`ServiceDescriptor.<Lifetime><TService, TImpl>`) — which means **interfaces registered this way do not share an instance**.
+
 ## Attribute Reference
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
@@ -117,6 +128,9 @@ The generator validates your `[Service]` usage at compile time:
 | `SSAL003`| Error    | Open generic types are not supported.                                         |
 | `SSAL004`| Warning  | The same service registration appears to be duplicated.                       |
 | `SSAL005`| Error    | `Key` was combined with `RegistrationMode.TryAddEnumerable`, which is not a supported combination. |
+| `SSAL006`| Error    | `RegistrationMode.TryAddEnumerable` cannot register a type as itself — MS DI can't tell duplicates apart without a distinct service type; implement an interface or set `As` explicitly. |
+| `SSAL007`| Error    | The decorated class and its service type (including all containing types) must be at least `internal` and not file-local, so the generated code can reference them. |
+| `SSAL008`| Error    | An undefined `ServiceLifetime` or `RegistrationMode` value (e.g. `(ServiceLifetime)42`) was supplied to `[Service]`. |
 
 ## License
 

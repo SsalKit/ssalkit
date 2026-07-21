@@ -20,7 +20,16 @@ public sealed class ServiceRegistrationGenerator : IIncrementalGenerator
         IncrementalValuesProvider<ClassRegistrationModel?> classes = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 ServiceAttributeMetadataName,
-                predicate: static (node, _) => node is Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax,
+                // A record class (RecordDeclarationSyntax) is a distinct syntax node from a plain
+                // class (ClassDeclarationSyntax), even though the analyzer -- which inspects the
+                // bound symbol rather than syntax -- sees both as TypeKind.Class alike. Without
+                // matching both node kinds here, a `[Service] public record class Foo : IFoo` would
+                // be silently skipped by the generator despite the analyzer treating it as valid.
+                // A record *struct* needs no special handling: [AttributeUsage(Class)] and this
+                // predicate both already exclude it, and TypeKind.Class in the parser/analyzer
+                // rejects it too, for the (impossible) case syntax analysis alone let it through.
+                predicate: static (node, _) => node is Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax
+                    or Microsoft.CodeAnalysis.CSharp.Syntax.RecordDeclarationSyntax,
                 transform: static (ctx, ct) => ServiceAttributeParser.GetModel(ctx, ct))
             .WithTrackingName(TrackingNames.Classes);
 

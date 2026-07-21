@@ -28,7 +28,7 @@ dotnet add package SsalKit.DependencyInjection
 
 ## クイックスタート
 
-登録したいクラスに attribute を付与します。
+登録したいクラス（または record クラス）に attribute を付与します。
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
@@ -93,6 +93,17 @@ var app = builder.Build();
 
 > 複数のインターフェースを実装する `Singleton`/`Scoped` サービスは、concrete 型の登録とファクトリー転送によって生成されるため、どのインターフェース経由で解決しても同じインスタンスが共有されます。
 
+## 転送登録とその制約
+
+複数のインターフェースを実装する `Singleton` または `Scoped` サービスは concrete 型として 1 回だけ登録され、各インターフェースは `services.Add<TLifetime><TInterface>(sp => sp.GetRequiredService<TImpl>())` という形のファクトリーでその concrete 型へ転送されます。これにより、どのインターフェース経由で解決しても同じインスタンスが共有されますが、これはよく知られた標準的な転送パターンであり、次の 2 つの制約があります。
+
+1. **`Dispose` が複数回呼び出される可能性があります。** 複数のインターフェースがそれぞれ resolve され、別々の scope などを通じて個別に破棄されると、同じインスタンスの `Dispose()` が転送された登録の数だけ呼び出される可能性があります。`IDisposable.Dispose()` は本来冪等（idempotent）であるべきなので通常は問題になりませんが、複数のインターフェースで登録されるサービスでは冪等でない `Dispose` 実装は避けるべきです。
+2. **最後の登録が優先されます。** 転送用のファクトリーはインスタンスをキャプチャするのではなく、解決時にコンテナから concrete 型を再取得します。そのため、アプリケーションコードが後から同じ concrete 型を手動で再登録すると、転送されたすべてのインターフェースはジェネレーターが生成した登録ではなく、その新しい登録に従うようになります。
+
+### `TryAddEnumerable` は転送されません
+
+`Mode = RegistrationMode.TryAddEnumerable` では、上記の転送パターンを使用できません。Microsoft.Extensions.DependencyInjection はファクトリーベースのディスクリプターだけでは背後の実装型を判別できず、重複の有無を判断できないためです。代わりにジェネレーターはインターフェースごとに独立したディスクリプター（`ServiceDescriptor.<Lifetime><TService, TImpl>`）を生成します。その結果、**この方式で登録されたインターフェース間ではインスタンスが共有されません**。
+
 ## Attribute リファレンス
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
@@ -117,6 +128,9 @@ var app = builder.Build();
 | `SSAL003` | Error     | Open generic 型はサポートされていません。                                              |
 | `SSAL004` | Warning   | 同じサービス登録が重複しているように見えます。                                          |
 | `SSAL005` | Error     | `Key` と `RegistrationMode.TryAddEnumerable` は同時に指定できない組み合わせです。         |
+| `SSAL006` | Error     | `RegistrationMode.TryAddEnumerable` では型を自分自身として登録できません — MS DI は異なるサービス型なしには重複を判別できないため、インターフェースを実装するか `As` を明示してください。 |
+| `SSAL007` | Error     | 生成されたコードから参照できるよう、登録対象のクラスとサービス型（およびすべての containing type）は `internal` 以上のアクセシビリティを持ち、file-local であってはなりません。 |
+| `SSAL008` | Error     | `[Service]` に定義されていない `ServiceLifetime` または `RegistrationMode` の値（例: `(ServiceLifetime)42`）が指定されました。 |
 
 ## ライセンス
 
