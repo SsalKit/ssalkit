@@ -15,9 +15,13 @@ internal static class GeneratorTestHelper
 {
     private static readonly ImmutableArray<MetadataReference> SharedReferences = BuildReferences();
 
-    public static GeneratorRunResult RunGenerator(string source, string assemblyName = "TestAssembly")
+    public static GeneratorRunResult RunGenerator(
+        string source,
+        string assemblyName = "TestAssembly",
+        IEnumerable<MetadataReference>? extraReferences = null,
+        bool allowUnsafe = false)
     {
-        var compilation = CreateCompilation(source, assemblyName);
+        var compilation = CreateCompilation(source, assemblyName, extraReferences, allowUnsafe);
 
         var generator = new ServiceRegistrationGenerator();
         var driver = CSharpGeneratorDriver.Create(generator);
@@ -35,9 +39,13 @@ internal static class GeneratorTestHelper
         return new GeneratorRunResult(generatedTrees, diagnostics, outputCompilation);
     }
 
-    public static async Task<ImmutableArray<Diagnostic>> RunAnalyzerAsync(string source, string assemblyName = "TestAssembly")
+    public static async Task<ImmutableArray<Diagnostic>> RunAnalyzerAsync(
+        string source,
+        string assemblyName = "TestAssembly",
+        IEnumerable<MetadataReference>? extraReferences = null,
+        bool allowUnsafe = false)
     {
-        var compilation = CreateCompilation(source, assemblyName);
+        var compilation = CreateCompilation(source, assemblyName, extraReferences, allowUnsafe);
         var analyzer = new ServiceAttributeAnalyzer();
         var withAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
 
@@ -48,17 +56,48 @@ internal static class GeneratorTestHelper
         return diagnostics.Where(d => d.Id.StartsWith("SSAL", StringComparison.Ordinal)).ToImmutableArray();
     }
 
-    public static CSharpCompilation CreateCompilation(string source, string assemblyName = "TestAssembly")
+    public static CSharpCompilation CreateCompilation(
+        string source,
+        string assemblyName = "TestAssembly",
+        IEnumerable<MetadataReference>? extraReferences = null,
+        bool allowUnsafe = false)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(
             source,
             new CSharpParseOptions(LanguageVersion.Latest));
 
+        var references = extraReferences is null
+            ? SharedReferences
+            : SharedReferences.AddRange(extraReferences);
+
         return CSharpCompilation.Create(
             assemblyName,
             new[] { syntaxTree },
-            SharedReferences,
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: allowUnsafe, nullableContextOptions: NullableContextOptions.Enable));
+    }
+
+    /// <summary>
+    /// Compiles <paramref name="source"/> into an in-memory assembly and returns a
+    /// <see cref="MetadataReference"/> to it, for tests that need a second, separately-compiled
+    /// assembly (e.g. to exercise cross-assembly accessibility rules such as <c>extern alias</c> or
+    /// <c>protected internal</c>/<c>[InternalsVisibleTo]</c>).
+    /// </summary>
+    public static MetadataReference CompileToReference(string source, string assemblyName)
+    {
+        var compilation = CreateCompilation(source, assemblyName);
+
+        using var stream = new MemoryStream();
+        var emitResult = compilation.Emit(stream);
+        if (!emitResult.Success)
+        {
+            var errors = string.Join(
+                Environment.NewLine,
+                emitResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+            throw new InvalidOperationException($"Failed to compile reference assembly '{assemblyName}':{Environment.NewLine}{errors}");
+        }
+
+        return MetadataReference.CreateFromImage(stream.ToArray());
     }
 
     private static ImmutableArray<MetadataReference> BuildReferences()

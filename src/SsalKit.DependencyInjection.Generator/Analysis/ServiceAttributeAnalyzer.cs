@@ -161,7 +161,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
         // SSAL007: the implementation type and every resolved service type must be accessible
         // from the generated registration code.
-        if (!TypeAccessibilityChecker.IsAccessible(classSymbol))
+        if (!TypeAccessibilityChecker.IsAccessible(classSymbol, context.Compilation))
         {
             context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InaccessibleType, location, implementationTypeFqn));
             return;
@@ -169,7 +169,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
         for (var i = 0; i < serviceTypeSymbols.Length; i++)
         {
-            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbols[i]))
+            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbols[i], context.Compilation))
             {
                 context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.InaccessibleType, location, serviceTypeFqns[i]));
                 return;
@@ -180,7 +180,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         // into the same generated code as the implementation/service types.
         if (keyConstant is { IsNull: false, Kind: TypedConstantKind.Type } typedKeyConstant
             && typedKeyConstant.Value is ITypeSymbol keyTypeSymbol
-            && !TypeAccessibilityChecker.IsAccessible(keyTypeSymbol))
+            && !TypeAccessibilityChecker.IsAccessible(keyTypeSymbol, context.Compilation))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.InaccessibleType,
@@ -198,13 +198,33 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         }
 
         var keyIdentity = hasKey
-            ? KeyLiteralFormatter.Format(keyConstant!.Value) ?? "<unknown>"
+            ? GetKeyIdentity(keyConstant!.Value, context.Compilation)
             : "<none>";
 
         foreach (var serviceTypeFqn in serviceTypeFqns)
         {
             records.Add(new RegistrationRecord(serviceTypeFqn, implementationTypeFqn, keyIdentity, location));
         }
+    }
+
+    /// <summary>
+    /// Computes the identity string used to group registrations by key for SSAL004 duplicate
+    /// detection. For a <c>typeof(...)</c> Key, this is a *runtime-identity*-normalized form (see
+    /// <see cref="KeyIdentityNormalizer"/>) rather than the source-level spelling
+    /// <see cref="KeyLiteralFormatter"/> produces for the generated code, so that e.g.
+    /// <c>typeof((int A, string B))</c> and <c>typeof((int, string))</c> -- the exact same runtime
+    /// <see cref="System.Type"/> -- are correctly treated as the same key. Every other kind of key
+    /// (string/int/enum/... constants) has no such source-vs-runtime distinction, so
+    /// <see cref="KeyLiteralFormatter.Format"/>'s output is already a correct identity for them.
+    /// </summary>
+    private static string GetKeyIdentity(TypedConstant keyConstant, Compilation compilation)
+    {
+        if (keyConstant.Kind == TypedConstantKind.Type && keyConstant.Value is ITypeSymbol keyTypeSymbol)
+        {
+            return KeyIdentityNormalizer.GetNormalizedIdentity(keyTypeSymbol, compilation);
+        }
+
+        return KeyLiteralFormatter.Format(keyConstant) ?? "<unknown>";
     }
 
     /// <summary>

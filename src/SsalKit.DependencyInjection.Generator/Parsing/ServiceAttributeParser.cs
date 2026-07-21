@@ -38,13 +38,18 @@ internal static class ServiceAttributeParser
 
         var implementationTypeFqn = classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+        // Only used transiently within this method (and methods it calls) to evaluate
+        // accessibility -- never retained in the returned model, per the incremental-caching
+        // requirement described in the remarks above.
+        var compilation = context.SemanticModel.Compilation;
+
         var entries = ImmutableArray.CreateBuilder<RegistrationEntryModel>(context.Attributes.Length);
 
         foreach (var attributeData in context.Attributes)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var entry = TryBuildEntry(classSymbol, implementationTypeFqn, attributeData);
+            var entry = TryBuildEntry(classSymbol, implementationTypeFqn, attributeData, compilation);
             if (entry is not null)
             {
                 entries.Add(entry);
@@ -59,7 +64,7 @@ internal static class ServiceAttributeParser
         return new ClassRegistrationModel(implementationTypeFqn, entries.ToImmutable().ToEquatableArray());
     }
 
-    private static RegistrationEntryModel? TryBuildEntry(INamedTypeSymbol classSymbol, string implementationTypeFqn, AttributeData attributeData)
+    private static RegistrationEntryModel? TryBuildEntry(INamedTypeSymbol classSymbol, string implementationTypeFqn, AttributeData attributeData, Compilation compilation)
     {
         var lifetime = AttributeArgumentReader.GetLifetime(attributeData);
         var mode = AttributeArgumentReader.GetMode(attributeData);
@@ -93,14 +98,14 @@ internal static class ServiceAttributeParser
 
         // SSAL007: the implementation type and every resolved service type must be accessible
         // from the generated registration code.
-        if (!TypeAccessibilityChecker.IsAccessible(classSymbol))
+        if (!TypeAccessibilityChecker.IsAccessible(classSymbol, compilation))
         {
             return null;
         }
 
         foreach (var serviceTypeSymbol in serviceTypeSymbols)
         {
-            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbol))
+            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbol, compilation))
             {
                 return null;
             }
@@ -108,7 +113,7 @@ internal static class ServiceAttributeParser
 
         // SSAL007: a `typeof(...)` Key value must be accessible too, since it is emitted
         // verbatim into the same generated code as the implementation/service types.
-        if (!IsKeyTypeAccessible(attributeData))
+        if (!IsKeyTypeAccessible(attributeData, compilation))
         {
             return null;
         }
@@ -189,13 +194,13 @@ internal static class ServiceAttributeParser
     /// <see cref="TypeAccessibilityChecker"/>); any other kind of key (or no key at all) is always
     /// fine as far as accessibility is concerned.
     /// </summary>
-    private static bool IsKeyTypeAccessible(AttributeData attributeData)
+    private static bool IsKeyTypeAccessible(AttributeData attributeData, Compilation compilation)
     {
         var constant = AttributeArgumentReader.GetKeyConstant(attributeData);
         if (constant is { IsNull: false, Kind: TypedConstantKind.Type } typedConstant
             && typedConstant.Value is ITypeSymbol keyTypeSymbol)
         {
-            return TypeAccessibilityChecker.IsAccessible(keyTypeSymbol);
+            return TypeAccessibilityChecker.IsAccessible(keyTypeSymbol, compilation);
         }
 
         return true;

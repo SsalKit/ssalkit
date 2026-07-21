@@ -129,7 +129,7 @@ var app = builder.Build();
 | `SSAL004` | Warning   | 동일한 서비스 등록이 중복된 것으로 보입니다.                                        |
 | `SSAL005` | Error     | `Key`와 `RegistrationMode.TryAddEnumerable`은 함께 사용할 수 없는 조합입니다.       |
 | `SSAL006` | Error     | `RegistrationMode.TryAddEnumerable`로는 타입을 자기 자신으로 등록할 수 없습니다 — MS DI가 서로 다른 서비스 타입 없이는 중복 여부를 판별할 수 없으므로, 인터페이스를 구현하거나 `As`를 명시해야 합니다. |
-| `SSAL007` | Error     | 생성된 코드가 참조하게 될 모든 타입 — 등록 대상 클래스, 서비스 타입, `typeof(...)` `Key` 값, 제네릭 타입 인자, 그리고 이들의 모든 containing type — 은 최소 `internal` 접근성이어야 하며 file-local이면 안 됩니다. |
+| `SSAL007` | Error     | 생성된 코드가 참조하게 될 모든 타입 — 등록 대상 클래스, 서비스 타입, `typeof(...)` `Key` 값, 제네릭 타입 인자, 그리고 이들의 모든 containing type — 은 최소 `internal` 접근성이어야 하며 file-local이면 안 됩니다. `extern alias`로만 참조된 어셈블리의 타입, 그리고 `[InternalsVisibleTo]`가 없는 다른 어셈블리의 `protected internal` 타입도 거부됩니다. |
 | `SSAL008` | Error     | `[Service]`에 정의되지 않은 `ServiceLifetime` 또는 `RegistrationMode` 값(예: `(ServiceLifetime)42`)이 전달되었습니다. |
 
 ## 라이센스

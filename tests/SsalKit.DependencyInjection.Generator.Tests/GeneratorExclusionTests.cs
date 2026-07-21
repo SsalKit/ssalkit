@@ -314,6 +314,48 @@ public class GeneratorExclusionTests
     }
 
     [Fact]
+    public void InaccessiblePointerTypeofKey_IsExcludedEntirely()
+    {
+        // Regression test: mirrors InaccessibleTypeofKey_IsExcludedEntirely, but for a pointer to
+        // an inaccessible type -- the parser used to accept any pointer Key unconditionally.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker*))]
+                public unsafe class Foo : IFoo { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source, allowUnsafe: true);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void AccessiblePointerTypeofKey_IsGenerated()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IMarker { }
+
+            [Service(Key = typeof(IMarker*))]
+            public unsafe class Foo : IFoo { }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source, allowUnsafe: true).GetSingleSource();
+
+        Assert.Contains("typeof(global::TestNs.IMarker*)", generated);
+    }
+
+    [Fact]
     public void UndefinedLifetime_ExcludesOnlyThatAttribute_KeepsOtherValidOnes()
     {
         const string source = Usings + """

@@ -129,7 +129,7 @@ var app = builder.Build();
 | `SSAL004` | Warning   | 同じサービス登録が重複しているように見えます。                                          |
 | `SSAL005` | Error     | `Key` と `RegistrationMode.TryAddEnumerable` は同時に指定できない組み合わせです。         |
 | `SSAL006` | Error     | `RegistrationMode.TryAddEnumerable` では型を自分自身として登録できません — MS DI は異なるサービス型なしには重複を判別できないため、インターフェースを実装するか `As` を明示してください。 |
-| `SSAL007` | Error     | 生成されたコードが参照することになるすべての型 —— 登録対象のクラス、サービス型、`typeof(...)` の `Key` 値、ジェネリック型引数、およびそれらのすべての containing type —— は `internal` 以上のアクセシビリティを持ち、file-local であってはなりません。 |
+| `SSAL007` | Error     | 生成されたコードが参照することになるすべての型 —— 登録対象のクラス、サービス型、`typeof(...)` の `Key` 値、ジェネリック型引数、およびそれらのすべての containing type —— は `internal` 以上のアクセシビリティを持ち、file-local であってはなりません。`extern alias` 経由でしか参照できないアセンブリの型、および `[InternalsVisibleTo]` のない他アセンブリの `protected internal` 型も拒否されます。 |
 | `SSAL008` | Error     | `[Service]` に定義されていない `ServiceLifetime` または `RegistrationMode` の値（例: `(ServiceLifetime)42`）が指定されました。 |
 
 ## ライセンス
