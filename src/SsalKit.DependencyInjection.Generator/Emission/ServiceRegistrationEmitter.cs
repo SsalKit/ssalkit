@@ -97,7 +97,11 @@ internal static class ServiceRegistrationEmitter
     {
         WellKnownLifetime.Singleton => "Singleton",
         WellKnownLifetime.Scoped => "Scoped",
-        _ => "Transient",
+        WellKnownLifetime.Transient => "Transient",
+        // Unreachable: SSAL008 causes the analyzer to report, and the parser to drop, any entry
+        // whose Lifetime is not one of the values above; silently falling back to "Transient" here
+        // would otherwise mask an undefined ServiceLifetime value (e.g. from `(ServiceLifetime)42`).
+        _ => throw new InvalidOperationException($"Unreachable: '{lifetime}' is not a defined ServiceLifetime value."),
     };
 
     /// <summary>
@@ -161,6 +165,13 @@ internal static class ServiceRegistrationEmitter
                     sb.Append("Replace(").Append(ServiceDescriptorQualifiedName)
                       .Append(MemberName).Append(GenericArguments).Append('(').Append(CallArguments).AppendLine("));");
                     break;
+
+                default:
+                    // Unreachable: SSAL008 causes the analyzer to report, and the parser to drop,
+                    // any entry whose Mode is not one of the values above; without this, an
+                    // undefined RegistrationMode value (e.g. from `(RegistrationMode)42`) would
+                    // silently emit nothing at all instead of failing loudly.
+                    throw new InvalidOperationException($"Unreachable: '{(int)Mode}' is not a defined RegistrationMode value.");
             }
         }
     }

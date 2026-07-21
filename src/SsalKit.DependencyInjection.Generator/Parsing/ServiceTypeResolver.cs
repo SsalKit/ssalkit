@@ -14,9 +14,21 @@ internal static class ServiceTypeResolver
     /// <summary>
     /// Returns the class's directly-implemented interfaces (i.e. those listed on the class's own
     /// base-list, not ones only implemented by a base class), excluding
-    /// <see cref="IDisposable"/> and <see cref="IAsyncDisposable"/>. An empty result means the
-    /// class should be registered as itself.
+    /// <see cref="IDisposable"/>, <see cref="IAsyncDisposable"/>, and (for a <c>record class</c>)
+    /// the compiler-synthesized <c>IEquatable&lt;TSelf&gt;</c>. An empty result means the class
+    /// should be registered as itself.
     /// </summary>
+    /// <remarks>
+    /// A record class implicitly implements <c>IEquatable&lt;TSelf&gt;</c> as part of its
+    /// compiler-generated equality members, and that interface appears in
+    /// <see cref="INamedTypeSymbol.Interfaces"/> exactly as if it had been listed by hand. Without
+    /// this exclusion, every <c>[Service]</c> record would silently gain a nonsensical
+    /// registration of itself as <c>IEquatable&lt;TSelf&gt;</c> and -- with 2+ real interfaces --
+    /// would incorrectly tip a Singleton/Scoped registration into the forwarding path. The
+    /// exclusion is gated on <see cref="INamedTypeSymbol.IsRecord"/> so it never touches an
+    /// ordinary <c>class</c> that deliberately implements <c>IEquatable&lt;TSelf&gt;</c> by hand --
+    /// for such a class, that interface is a real, intentional service type like any other.
+    /// </remarks>
     public static ImmutableArray<INamedTypeSymbol> GetDirectlyImplementedInterfaces(INamedTypeSymbol classSymbol)
     {
         if (classSymbol.Interfaces.IsDefaultOrEmpty)
@@ -27,7 +39,7 @@ internal static class ServiceTypeResolver
         var builder = ImmutableArray.CreateBuilder<INamedTypeSymbol>(classSymbol.Interfaces.Length);
         foreach (var iface in classSymbol.Interfaces)
         {
-            if (IsDisposableOrAsyncDisposable(iface))
+            if (IsDisposableOrAsyncDisposable(iface) || (classSymbol.IsRecord && IsSelfIEquatable(iface, classSymbol)))
             {
                 continue;
             }
@@ -47,6 +59,13 @@ internal static class ServiceTypeResolver
 
         return type is { Name: "IAsyncDisposable", ContainingNamespace.Name: "System" }
             && type.ContainingNamespace.ContainingNamespace.IsGlobalNamespace;
+    }
+
+    private static bool IsSelfIEquatable(INamedTypeSymbol type, INamedTypeSymbol classSymbol)
+    {
+        return type is { Name: "IEquatable", ContainingNamespace.Name: "System", TypeArguments.Length: 1 }
+            && type.ContainingNamespace.ContainingNamespace.IsGlobalNamespace
+            && SymbolEqualityComparer.Default.Equals(type.TypeArguments[0], classSymbol);
     }
 
     /// <summary>

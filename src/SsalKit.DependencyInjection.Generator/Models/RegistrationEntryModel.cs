@@ -20,7 +20,28 @@ internal sealed record RegistrationEntryModel(
     int Mode,
     KeyModel Key)
 {
-    public bool RequiresForwarding => ServiceTypeFqns.Length >= 2 && Lifetime is (int)WellKnownLifetime.Singleton or (int)WellKnownLifetime.Scoped;
+    /// <summary>
+    /// Whether this entry registers the implementation type once (as itself) and forwards every
+    /// other service type to that single, shared instance via a factory delegate, instead of
+    /// registering each service type with its own independent <c>&lt;TService, TImpl&gt;</c>
+    /// descriptor.
+    /// </summary>
+    /// <remarks>
+    /// Forwarding only makes sense -- and is only safe -- when there are 2+ service types to
+    /// share a Singleton/Scoped instance across. It is never used for
+    /// <see cref="WellKnownRegistrationMode.TryAddEnumerable"/>: a forwarding factory descriptor
+    /// has no fixed implementation type for
+    /// <c>Microsoft.Extensions.DependencyInjection.ServiceCollectionDescriptorExtensions.TryAddEnumerable</c>
+    /// to compare against, so it can never suppress a duplicate the way a direct
+    /// <c>&lt;TService, TImpl&gt;</c> descriptor can. Instead, each service type gets its own
+    /// direct <c>TryAddEnumerable(ServiceDescriptor.Xxx&lt;TService, TImpl&gt;())</c> descriptor;
+    /// this is intentional, documented behavior and means instances are not shared across service
+    /// types the way they are for the other three registration modes.
+    /// </remarks>
+    public bool RequiresForwarding =>
+        Mode != (int)WellKnownRegistrationMode.TryAddEnumerable
+        && ServiceTypeFqns.Length >= 2
+        && Lifetime is (int)WellKnownLifetime.Singleton or (int)WellKnownLifetime.Scoped;
 }
 
 /// <summary>

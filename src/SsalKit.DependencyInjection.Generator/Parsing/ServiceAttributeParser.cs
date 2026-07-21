@@ -38,13 +38,18 @@ internal static class ServiceAttributeParser
 
         var implementationTypeFqn = classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
+        // Only used transiently within this method (and methods it calls) to evaluate
+        // accessibility -- never retained in the returned model, per the incremental-caching
+        // requirement described in the remarks above.
+        var compilation = context.SemanticModel.Compilation;
+
         var entries = ImmutableArray.CreateBuilder<RegistrationEntryModel>(context.Attributes.Length);
 
         foreach (var attributeData in context.Attributes)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var entry = TryBuildEntry(classSymbol, implementationTypeFqn, attributeData);
+            var entry = TryBuildEntry(classSymbol, implementationTypeFqn, attributeData, compilation);
             if (entry is not null)
             {
                 entries.Add(entry);
@@ -59,10 +64,23 @@ internal static class ServiceAttributeParser
         return new ClassRegistrationModel(implementationTypeFqn, entries.ToImmutable().ToEquatableArray());
     }
 
-    private static RegistrationEntryModel? TryBuildEntry(INamedTypeSymbol classSymbol, string implementationTypeFqn, AttributeData attributeData)
+    private static RegistrationEntryModel? TryBuildEntry(INamedTypeSymbol classSymbol, string implementationTypeFqn, AttributeData attributeData, Compilation compilation)
     {
         var lifetime = AttributeArgumentReader.GetLifetime(attributeData);
         var mode = AttributeArgumentReader.GetMode(attributeData);
+
+        // SSAL008: an out-of-range Lifetime/Mode must not reach the emitter, which would either
+        // silently mis-render it (Lifetime) or emit nothing at all for it (Mode).
+        if (lifetime is < (int)WellKnownLifetime.Singleton or > (int)WellKnownLifetime.Transient)
+        {
+            return null;
+        }
+
+        if (mode is < (int)WellKnownRegistrationMode.Add or > (int)WellKnownRegistrationMode.Replace)
+        {
+            return null;
+        }
+
         var key = GetKey(attributeData);
 
         // SSAL005: no keyed TryAddEnumerable API exists.
@@ -73,7 +91,36 @@ internal static class ServiceAttributeParser
 
         // SSAL002: the class must implement/derive the explicitly requested (or, absent an
         // explicit "As", implicitly resolved) service type(s).
-        if (!TryResolveServiceTypeFqns(classSymbol, implementationTypeFqn, attributeData, out var serviceTypeFqns))
+        if (!TryResolveServiceTypes(classSymbol, implementationTypeFqn, attributeData, out var serviceTypeSymbols, out var serviceTypeFqns))
+        {
+            return null;
+        }
+
+        // SSAL007: the implementation type and every resolved service type must be accessible
+        // from the generated registration code.
+        if (!TypeAccessibilityChecker.IsAccessible(classSymbol, compilation))
+        {
+            return null;
+        }
+
+        foreach (var serviceTypeSymbol in serviceTypeSymbols)
+        {
+            if (!TypeAccessibilityChecker.IsAccessible(serviceTypeSymbol, compilation))
+            {
+                return null;
+            }
+        }
+
+        // SSAL007: a `typeof(...)` Key value must be accessible too, since it is emitted
+        // verbatim into the same generated code as the implementation/service types.
+        if (!IsKeyTypeAccessible(attributeData, compilation))
+        {
+            return null;
+        }
+
+        // SSAL006: TryAddEnumerable cannot distinguish a registration whose service type is the
+        // implementation type itself.
+        if (mode == (int)WellKnownRegistrationMode.TryAddEnumerable && serviceTypeFqns.Contains(implementationTypeFqn, StringComparer.Ordinal))
         {
             return null;
         }
@@ -87,10 +134,11 @@ internal static class ServiceAttributeParser
     /// directly-implemented interface, sorted for deterministic emission order (or the
     /// implementation type itself, if it implements none).
     /// </summary>
-    private static bool TryResolveServiceTypeFqns(
+    private static bool TryResolveServiceTypes(
         INamedTypeSymbol classSymbol,
         string implementationTypeFqn,
         AttributeData attributeData,
+        out ImmutableArray<ITypeSymbol> serviceTypeSymbols,
         out ImmutableArray<string> serviceTypeFqns)
     {
         var asType = AttributeArgumentReader.GetAsType(attributeData);
@@ -98,21 +146,33 @@ internal static class ServiceAttributeParser
         {
             if (!ServiceTypeResolver.Implements(classSymbol, asType))
             {
+                serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
                 serviceTypeFqns = ImmutableArray<string>.Empty;
                 return false;
             }
 
+            serviceTypeSymbols = ImmutableArray.Create(asType);
             serviceTypeFqns = ImmutableArray.Create(asType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
             return true;
         }
 
         var interfaces = ServiceTypeResolver.GetDirectlyImplementedInterfaces(classSymbol);
-        serviceTypeFqns = interfaces.Length == 0
-            ? ImmutableArray.Create(implementationTypeFqn)
-            : interfaces
-                .Select(i => i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
-                .OrderBy(s => s, StringComparer.Ordinal)
-                .ToImmutableArray();
+        if (interfaces.Length == 0)
+        {
+            serviceTypeSymbols = ImmutableArray.Create<ITypeSymbol>(classSymbol);
+            serviceTypeFqns = ImmutableArray.Create(implementationTypeFqn);
+            return true;
+        }
+
+        // Sorted by FQN for deterministic emission order; both arrays must stay in lockstep, so
+        // sort a single sequence of pairs rather than sorting the two projections independently.
+        var ordered = interfaces
+            .Select(i => (Symbol: (ITypeSymbol)i, Fqn: i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))
+            .OrderBy(pair => pair.Fqn, StringComparer.Ordinal)
+            .ToImmutableArray();
+
+        serviceTypeSymbols = ordered.Select(pair => pair.Symbol).ToImmutableArray();
+        serviceTypeFqns = ordered.Select(pair => pair.Fqn).ToImmutableArray();
         return true;
     }
 
@@ -126,5 +186,23 @@ internal static class ServiceAttributeParser
 
         var expression = KeyLiteralFormatter.Format(constant.Value);
         return expression is null ? KeyModel.None : new KeyModel(true, expression);
+    }
+
+    /// <summary>
+    /// Returns <see langword="false"/> only when <c>Key</c> is a <c>typeof(...)</c> value whose
+    /// type is not accessible from the generated registration code (see
+    /// <see cref="TypeAccessibilityChecker"/>); any other kind of key (or no key at all) is always
+    /// fine as far as accessibility is concerned.
+    /// </summary>
+    private static bool IsKeyTypeAccessible(AttributeData attributeData, Compilation compilation)
+    {
+        var constant = AttributeArgumentReader.GetKeyConstant(attributeData);
+        if (constant is { IsNull: false, Kind: TypedConstantKind.Type } typedConstant
+            && typedConstant.Value is ITypeSymbol keyTypeSymbol)
+        {
+            return TypeAccessibilityChecker.IsAccessible(keyTypeSymbol, compilation);
+        }
+
+        return true;
     }
 }

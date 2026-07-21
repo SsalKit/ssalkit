@@ -229,6 +229,35 @@ public class GeneratorEmissionTests
     }
 
     [Fact]
+    public void Mode_TryAddEnumerable_MultipleInterfaces_RegistersEachDirectly_WithoutForwarding()
+    {
+        // Unlike Add/TryAdd/Replace, TryAddEnumerable never uses the self-registration +
+        // forwarding-factory pattern, even with 2+ directly-implemented interfaces: a forwarding
+        // factory descriptor has no fixed implementation type for TryAddEnumerable to compare
+        // against, so each interface instead gets its own independent
+        // ServiceDescriptor.Singleton<TService, TImpl>() (see RegistrationEntryModel.RequiresForwarding).
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IBar { }
+
+            [Service(ServiceLifetime.Singleton, Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo : IFoo, IBar { }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
+        Assert.Contains(
+            "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IBar, global::TestNs.Foo>());",
+            generated);
+        Assert.Contains(
+            "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IFoo, global::TestNs.Foo>());",
+            generated);
+        Assert.DoesNotContain("GetRequiredService", generated);
+    }
+
+    [Fact]
     public void Mode_Replace_NonKeyed_UsesServiceDescriptorReplace()
     {
         const string source = Usings + """
@@ -467,8 +496,11 @@ public class GeneratorEmissionTests
             [Service(ServiceLifetime.Scoped, Mode = RegistrationMode.TryAdd)]
             public class TryAddForwarded : IFoo, IBar { }
 
+            // Not actually forwarded: TryAddEnumerable always registers each service type with
+            // its own direct <TService, TImpl> descriptor, even with 2+ interfaces (see
+            // RegistrationEntryModel.RequiresForwarding).
             [Service(ServiceLifetime.Singleton, Mode = RegistrationMode.TryAddEnumerable)]
-            public class TryAddEnumerableForwarded : IFoo, IBar { }
+            public class TryAddEnumerableMultiInterface : IFoo, IBar { }
 
             [Service(ServiceLifetime.Scoped, Mode = RegistrationMode.Replace)]
             public class ReplaceForwarded : IFoo, IBar { }
@@ -510,5 +542,99 @@ public class GeneratorEmissionTests
         var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("global::TestNs.Outer.Inner", generated);
+    }
+
+    [Fact]
+    public void RecordClass_IsDiscoveredAndRegistered()
+    {
+        // record class is a distinct syntax node (RecordDeclarationSyntax) from a plain class
+        // (ClassDeclarationSyntax); the generator's ForAttributeWithMetadataName predicate must
+        // match both, even though both are TypeKind.Class at the symbol level.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public record class Foo : IFoo;
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
+        Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
+    }
+
+    [Fact]
+    public void RecordClass_DoesNotRegisterCompilerSynthesizedSelfIEquatable()
+    {
+        // Regression test: a record class implicitly implements IEquatable<TSelf> as part of its
+        // compiler-generated equality members, and that interface shows up in
+        // INamedTypeSymbol.Interfaces exactly as if hand-written. Without excluding it (mirroring
+        // the existing IDisposable/IAsyncDisposable exclusion), this record would gain a
+        // nonsensical IEquatable<Foo> registration, and -- because it would then have 2 "service
+        // types" instead of 1 -- would incorrectly switch to the self+forwarding pattern instead
+        // of registering IFoo directly.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public record class Foo : IFoo;
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
+        Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
+        Assert.DoesNotContain("IEquatable", generated);
+        Assert.DoesNotContain("GetRequiredService", generated);
+    }
+
+    [Fact]
+    public void OrdinaryClass_ExplicitlyImplementingSelfIEquatable_RegistersItAsAServiceType()
+    {
+        // Regression test: the IEquatable<TSelf> exclusion exists only to compensate for the
+        // *compiler-synthesized* interface a record class implicitly gains; it must not apply to
+        // an ordinary class that deliberately implements IEquatable<Foo> by hand, since there it is
+        // a real, intentional service type like any other directly-implemented interface.
+        const string source = Usings + """
+            using System;
+
+            namespace TestNs;
+
+            [Service]
+            public class Foo : IEquatable<Foo>
+            {
+                public bool Equals(Foo? other) => ReferenceEquals(this, other);
+
+                public override bool Equals(object? obj) => Equals(obj as Foo);
+
+                public override int GetHashCode() => 0;
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+        var generated = result.GetSingleSource();
+
+        Assert.Contains("services.AddSingleton<global::System.IEquatable<global::TestNs.Foo>, global::TestNs.Foo>();", generated);
+        Assert.Empty(result.GetOutputCompilationErrors());
+    }
+
+    [Fact]
+    public void RecordClass_WithoutClassKeyword_IsDiscoveredAndRegistered()
+    {
+        // `record Foo` (no explicit `class` keyword) still parses as RecordDeclarationSyntax.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public record Foo : IFoo;
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
+        Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
 }

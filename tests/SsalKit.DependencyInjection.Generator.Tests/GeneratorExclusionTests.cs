@@ -4,8 +4,8 @@ namespace SsalKit.DependencyInjection.Generator.Tests;
 
 /// <summary>
 /// Verifies that classes/attribute applications the analyzer would report as an error (SSAL001,
-/// SSAL002, SSAL003, SSAL005) are silently excluded from generation, rather than producing
-/// generated code that would itself fail to compile.
+/// SSAL002, SSAL003, SSAL005, SSAL006, SSAL007, SSAL008) are silently excluded from generation,
+/// rather than producing generated code that would itself fail to compile.
 /// </summary>
 public class GeneratorExclusionTests
 {
@@ -115,6 +115,261 @@ public class GeneratorExclusionTests
         var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
 
         Assert.DoesNotContain("TryAddEnumerable", generated);
+        Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
+    }
+
+    [Fact]
+    public void SelfRegistration_TryAddEnumerable_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo { }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void ExplicitAsSelfType_TryAddEnumerable_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable, As = typeof(Foo))]
+            public class Foo { }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void PrivateNestedClass_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                [Service]
+                private class Foo : IFoo { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void FileLocalClass_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            file class Foo : IFoo { }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void InaccessibleImplicitInterface_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public class Outer
+            {
+                private interface IFoo { }
+
+                [Service]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void UndefinedLifetime_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service((ServiceLifetime)42)]
+            public class Foo : IFoo { }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void UndefinedMode_IsExcludedEntirely()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = (RegistrationMode)99)]
+            public class Foo : IFoo { }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void InaccessibleTypeofKey_IsExcludedEntirely()
+    {
+        // Regression test: a `Key = typeof(PrivateMarker)` whose type is inaccessible from the
+        // generated code must drop the whole registration entry, not just silently emit a
+        // non-keyed registration -- otherwise the emitted `typeof(...)` reference would fail to
+        // compile with CS0122 in the consuming project.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker))]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void InaccessibleTypeofKey_ExcludesOnlyThatAttribute_KeepsOtherValidOnes()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker))]
+                [Service]
+                public class Foo : IFoo { }
+            }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
+        Assert.DoesNotContain("PrivateMarker", generated);
+        Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Outer.Foo>();", generated);
+    }
+
+    [Fact]
+    public void InaccessibleGenericTypeArgumentOnServiceType_IsExcludedEntirely()
+    {
+        // Regression test: the recursive accessibility check must also cover the type arguments of
+        // an implemented interface, not just the interface itself.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IHandler<T> { }
+
+            public class Outer
+            {
+                private class PrivateNested { }
+
+                [Service]
+                public class Foo : IHandler<PrivateNested> { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void InaccessiblePointerTypeofKey_IsExcludedEntirely()
+    {
+        // Regression test: mirrors InaccessibleTypeofKey_IsExcludedEntirely, but for a pointer to
+        // an inaccessible type -- the parser used to accept any pointer Key unconditionally.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            public class Outer
+            {
+                private class PrivateMarker { }
+
+                [Service(Key = typeof(PrivateMarker*))]
+                public unsafe class Foo : IFoo { }
+            }
+            """;
+
+        var result = GeneratorTestHelper.RunGenerator(source, allowUnsafe: true);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void AccessiblePointerTypeofKey_IsGenerated()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IMarker { }
+
+            [Service(Key = typeof(IMarker*))]
+            public unsafe class Foo : IFoo { }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source, allowUnsafe: true).GetSingleSource();
+
+        Assert.Contains("typeof(global::TestNs.IMarker*)", generated);
+    }
+
+    [Fact]
+    public void UndefinedLifetime_ExcludesOnlyThatAttribute_KeepsOtherValidOnes()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service((ServiceLifetime)42)]
+            [Service(ServiceLifetime.Singleton)]
+            public class Foo : IFoo { }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
 }

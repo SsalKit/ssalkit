@@ -70,4 +70,29 @@ public class ModeTests
         Assert.IsType<GeneratedReplaceImpl>(resolved);
         Assert.Single(all);
     }
+
+    [Fact]
+    public void TryAddEnumerable_MultipleInterfaces_RegistersWithoutThrowing_AndDoesNotShareInstances()
+    {
+        // Regression test: previously, a class with 2+ directly-implemented interfaces and
+        // Mode = TryAddEnumerable used the self+forwarding pattern, producing a
+        // TryAddEnumerable(ServiceDescriptor.Singleton<IInterface>(factory)) call for each
+        // forwarded interface. Microsoft.Extensions.DependencyInjection's TryAddEnumerable throws
+        // ArgumentException for a factory-based descriptor (no ImplementationType to compare
+        // against for duplicate suppression), so simply calling the generated
+        // Add...Services() extension method used to throw. It must not anymore.
+        var services = new ServiceCollection();
+
+        services.AddSsalKitDependencyInjectionIntegrationTestsServices();
+        using var provider = services.BuildServiceProvider();
+
+        var reader = provider.GetRequiredService<IEnumerableReaderContract>();
+        var writer = provider.GetRequiredService<IEnumerableWriterContract>();
+
+        Assert.IsType<MultiInterfaceEnumerableService>(reader);
+        Assert.IsType<MultiInterfaceEnumerableService>(writer);
+        // Documented, intentional behavior: TryAddEnumerable registers each interface with its own
+        // direct descriptor, so (unlike Add/TryAdd/Replace) no instance is shared across them.
+        Assert.NotSame(reader, writer);
+    }
 }

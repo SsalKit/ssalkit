@@ -54,4 +54,31 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "There is no TryAddEnumerable equivalent for keyed services in Microsoft.Extensions.DependencyInjection.");
+
+    public static readonly DiagnosticDescriptor SelfTryAddEnumerableNotSupported = new(
+        id: "SSAL006",
+        title: "RegistrationMode.TryAddEnumerable cannot register a type as itself",
+        messageFormat: "'{0}' cannot be registered via RegistrationMode.TryAddEnumerable as its own service type because Microsoft.Extensions.DependencyInjection cannot distinguish duplicate entries; implement an interface or specify a different service type via 'As'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "TryAddEnumerable(ServiceDescriptor.Singleton<T, T>()) throws ArgumentException at runtime because Microsoft.Extensions.DependencyInjection cannot tell distinct registrations of the same implementation type apart when the service type and implementation type are identical.");
+
+    public static readonly DiagnosticDescriptor InaccessibleType = new(
+        id: "SSAL007",
+        title: "[Service] type must be accessible to generated code",
+        messageFormat: "'{0}' cannot be registered because it is not accessible from the generated registration code; make the type (and its containing types) at least 'internal' and not file-local",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generated registration extension method lives in a separate file, in the Microsoft.Extensions.DependencyInjection namespace, in the same assembly; it can only reference types -- including a 'typeof(...)' Key value and any generic type arguments -- that are (along with their containing types) at least internal and not file-local.");
+
+    public static readonly DiagnosticDescriptor UndefinedEnumValue = new(
+        id: "SSAL008",
+        title: "Undefined enum value on [Service]",
+        messageFormat: "The value '{0}' is not a defined '{1}' value",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The Lifetime and Mode arguments of [Service] must be one of the values defined by ServiceLifetime/RegistrationMode; an out-of-range value (e.g. from an explicit numeric cast) is silently mishandled otherwise.");
 }
