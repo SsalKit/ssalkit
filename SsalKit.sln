@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SsalKit.Randomness", "src\S
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SsalKit.Randomness.Tests", "tests\SsalKit.Randomness.Tests\SsalKit.Randomness.Tests.csproj", "{B78CF1E1-7F30-4BA0-A17F-0AEA4AA6C08E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SsalKit.Randomness.Sample", "samples\SsalKit.Randomness.Sample\SsalKit.Randomness.Sample.csproj", "{39473A7E-F102-49D7-91B2-A527325A0D02}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -117,6 +119,18 @@ Global
 		{B78CF1E1-7F30-4BA0-A17F-0AEA4AA6C08E}.Release|x64.Build.0 = Release|Any CPU
 		{B78CF1E1-7F30-4BA0-A17F-0AEA4AA6C08E}.Release|x86.ActiveCfg = Release|Any CPU
 		{B78CF1E1-7F30-4BA0-A17F-0AEA4AA6C08E}.Release|x86.Build.0 = Release|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Debug|x64.Build.0 = Debug|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Debug|x86.Build.0 = Debug|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Release|Any CPU.Build.0 = Release|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Release|x64.ActiveCfg = Release|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Release|x64.Build.0 = Release|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Release|x86.ActiveCfg = Release|Any CPU
+		{39473A7E-F102-49D7-91B2-A527325A0D02}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -129,5 +143,6 @@ Global
 		{1DEB7728-7EAF-4B0C-88A5-0059ED5C6C09} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 		{A765BC93-F0AA-447E-A7BE-593DE12100C0} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{B78CF1E1-7F30-4BA0-A17F-0AEA4AA6C08E} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{39473A7E-F102-49D7-91B2-A527325A0D02} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal
