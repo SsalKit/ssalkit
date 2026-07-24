@@ -104,6 +104,36 @@ var app = builder.Build();
 
 `Mode = RegistrationMode.TryAddEnumerable`은 위의 포워딩 패턴을 사용할 수 없습니다. Microsoft.Extensions.DependencyInjection이 팩토리 기반 디스크립터만으로는 그 뒤에 있는 구현 타입을 확인할 방법이 없어 중복 여부를 판단할 수 없기 때문입니다. 대신 생성기는 인터페이스마다 독립된 디스크립터(`ServiceDescriptor.<Lifetime><TService, TImpl>`)를 생성하며, 그 결과 **이 방식으로 등록된 인터페이스들은 인스턴스를 공유하지 않습니다**.
 
+## Open generic 지원
+
+`[Service]`는 **open generic** 클래스에도 적용할 수 있습니다. 이 경우 생성기는 closed 제네릭 타입 인자를 사용하는 오버로드 대신 `Type` 기반(`typeof(...)`) 등록 오버로드를 생성합니다.
+
+```csharp
+[Service(ServiceLifetime.Singleton)]
+public class Repository<T> : IRepository<T> { }
+```
+
+다음과 같이 생성됩니다.
+
+```csharp
+services.AddSingleton(typeof(IRepository<>), typeof(Repository<>));
+```
+
+### 정확히 일치해야 하는 규칙 (exact-match rule)
+
+Open generic 클래스 `C<T1, ..., Tn>`은 다음 대상으로만 등록할 수 있습니다.
+
+- 자기 자신 (구현한 인터페이스가 없는 경우의 self registration), 또는
+- 타입 인자가 `C`의 타입 매개변수와 선언 순서까지 *정확히* 일치하는, 구현한 인터페이스 또는 기반 타입 `S<T1, ..., Tn>`.
+
+그 외의 형태 — closed 서비스 타입(`IRepository<string>`), 순서가 바뀐(`IPair<V, K>`) 또는 일부만 사용한(`IPair<T>`) 타입 인자, non-generic 인터페이스, 타입 매개변수를 감싼(wrapped) 서비스 타입(`IRepository<IEnumerable<T>>`) — 은 모두 컴파일 타임에 거부됩니다 (`SSAL009`). `As = typeof(IRepository<>)`(unbound generic `typeof`)를 명시적으로 지정하는 것도 지원되며, 동일한 규칙으로 검증됩니다.
+
+Keyed 서비스(`Key = ...`)와 4가지 `RegistrationMode` 값(`Add`, `TryAdd`, `TryAddEnumerable`, `Replace`) 모두 closed 타입과 동일하게 open generic에도 그대로 적용됩니다.
+
+> Microsoft.Extensions.DependencyInjection은 open generic 등록에 팩토리 delegate를 사용할 수 없으므로, 위에서 설명한 포워딩 패턴을 여기서는 사용할 수 없습니다. Open generic 클래스가 `Singleton` 또는 `Scoped`로 두 개 이상의 서비스 타입에 등록되면, 서비스 타입마다 독립된 `typeof` 기반 등록이 하나씩 생성됩니다 — 즉 서로 다른 서비스 타입을 resolve해도 같은 인스턴스가 공유되지 **않습니다** (`SSAL010`이 이를 경고합니다).
+
+제네릭 타입 안에 중첩된 클래스는 `[Service]` 대상으로 지원되지 않습니다. 중첩된 클래스 자신은 타입 매개변수가 없더라도 마찬가지입니다 (`SSAL003`).
+
 ## Attribute 레퍼런스
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
@@ -125,12 +155,14 @@ var app = builder.Build();
 |-----------|-----------|-------------------------------------------------------------------------------|
 | `SSAL001` | Error     | `[Service]`가 abstract 또는 static 클래스에 적용되었습니다.                        |
 | `SSAL002` | Error     | `As`에 지정한 타입을 해당 클래스가 구현하고 있지 않습니다.                            |
-| `SSAL003` | Error     | Open generic 타입은 지원하지 않습니다.                                            |
+| `SSAL003` | Error     | `[Service]`가 제네릭 타입 안에 중첩된 클래스에 적용되었습니다 — open generic 지원은 클래스의 제네릭 컨텍스트 전체가 자기 자신의 타입 매개변수여야만 합니다. |
 | `SSAL004` | Warning   | 동일한 서비스 등록이 중복된 것으로 보입니다.                                        |
 | `SSAL005` | Error     | `Key`와 `RegistrationMode.TryAddEnumerable`은 함께 사용할 수 없는 조합입니다.       |
 | `SSAL006` | Error     | `RegistrationMode.TryAddEnumerable`로는 타입을 자기 자신으로 등록할 수 없습니다 — MS DI가 서로 다른 서비스 타입 없이는 중복 여부를 판별할 수 없으므로, 인터페이스를 구현하거나 `As`를 명시해야 합니다. |
 | `SSAL007` | Error     | 생성된 코드가 참조하게 될 모든 타입 — 등록 대상 클래스, 서비스 타입, `typeof(...)` `Key` 값, 제네릭 타입 인자, 그리고 이들의 모든 containing type — 은 최소 `internal` 접근성이어야 하며 file-local이면 안 됩니다. `extern alias`로만 참조된 어셈블리의 타입, 그리고 `[InternalsVisibleTo]`가 없는 다른 어셈블리의 `protected internal` 타입도 거부됩니다. |
 | `SSAL008` | Error     | `[Service]`에 정의되지 않은 `ServiceLifetime` 또는 `RegistrationMode` 값(예: `(ServiceLifetime)42`)이 전달되었습니다. |
+| `SSAL009` | Error     | Open generic 클래스는 자기 자신, 또는 타입 인자가 정확히 자신의 타입 매개변수와 순서까지 일치하는 구현 인터페이스/기반 타입으로만 등록할 수 있습니다 — closed 타입, 순서가 다르거나 일부만 사용된 타입 인자, 감싸인(wrapped) 타입 인자는 거부됩니다. |
+| `SSAL010` | Warning   | Open generic 클래스가 `Singleton` 또는 `Scoped`로 두 개 이상의 서비스 타입에 등록되었습니다 — open generic 등록은 포워딩 팩토리를 사용할 수 없으므로, 각 서비스 타입은 별도의 인스턴스로 resolve됩니다. |
 
 ## 라이센스
 

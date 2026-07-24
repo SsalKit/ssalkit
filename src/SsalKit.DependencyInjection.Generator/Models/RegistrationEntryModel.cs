@@ -14,11 +14,20 @@ namespace SsalKit.DependencyInjection.Generator.Models;
 /// <param name="Lifetime">The underlying integral value of <c>Microsoft.Extensions.DependencyInjection.ServiceLifetime</c>.</param>
 /// <param name="Mode">The underlying integral value of <c>SsalKit.DependencyInjection.RegistrationMode</c>.</param>
 /// <param name="Key">The keyed-service key, if any.</param>
+/// <param name="IsOpenGeneric">
+/// Whether the decorated class is an open generic (see
+/// <see cref="Parsing.ServiceTypeResolver.IsNestedInGenericType(Microsoft.CodeAnalysis.INamedTypeSymbol)"/>
+/// for what disqualifies a class from this regardless of its own arity). <see cref="ServiceTypeFqns"/>
+/// are typeof-form (e.g. <c>global::Ns.IRepository&lt;&gt;</c>) rather than ordinary closed generic
+/// syntax when this is <see langword="true"/>, and the emitter renders Type-based registration
+/// calls instead of the closed <c>&lt;TService, TImpl&gt;</c> generic-argument form.
+/// </param>
 internal sealed record RegistrationEntryModel(
     EquatableArray<string> ServiceTypeFqns,
     int Lifetime,
     int Mode,
-    KeyModel Key)
+    KeyModel Key,
+    bool IsOpenGeneric)
 {
     /// <summary>
     /// Whether this entry registers the implementation type once (as itself) and forwards every
@@ -37,9 +46,17 @@ internal sealed record RegistrationEntryModel(
     /// direct <c>TryAddEnumerable(ServiceDescriptor.Xxx&lt;TService, TImpl&gt;())</c> descriptor;
     /// this is intentional, documented behavior and means instances are not shared across service
     /// types the way they are for the other three registration modes.
+    /// <para>
+    /// Also never used when <see cref="IsOpenGeneric"/>: Microsoft.Extensions.DependencyInjection
+    /// does not allow a factory delegate for an open generic registration (there is no way to
+    /// write <c>sp => sp.GetRequiredService&lt;Foo&lt;&gt;&gt;()</c>), so an open generic class
+    /// with 2+ exact-match service types instead gets one independent Type-pair registration per
+    /// service type, and instances are not shared across them either (see SSAL010).
+    /// </para>
     /// </remarks>
     public bool RequiresForwarding =>
-        Mode != (int)WellKnownRegistrationMode.TryAddEnumerable
+        !IsOpenGeneric
+        && Mode != (int)WellKnownRegistrationMode.TryAddEnumerable
         && ServiceTypeFqns.Length >= 2
         && Lifetime is (int)WellKnownLifetime.Singleton or (int)WellKnownLifetime.Scoped;
 }

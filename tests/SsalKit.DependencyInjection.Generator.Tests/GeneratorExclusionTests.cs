@@ -48,13 +48,19 @@ public class GeneratorExclusionTests
     }
 
     [Fact]
-    public void GenericClass_IsExcludedEntirely()
+    public void ClassNestedInsideGenericType_IsExcludedEntirely()
     {
+        // SSAL003 (revised): an open generic class is supported (see OpenGenericEmissionTests),
+        // but a class nested inside a generic type -- carrying its container's type parameters,
+        // not just its own -- is not, regardless of its own arity.
         const string source = Usings + """
             namespace TestNs;
 
-            [Service]
-            public class Foo<T> { }
+            public class Outer<T>
+            {
+                [Service]
+                public class Inner { }
+            }
             """;
 
         var result = GeneratorTestHelper.RunGenerator(source);

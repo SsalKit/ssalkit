@@ -9,6 +9,19 @@ namespace SsalKit.DependencyInjection;
 /// <remarks>
 /// A class may be decorated with more than one <see cref="ServiceAttribute"/> to register it
 /// against multiple service types, lifetimes, or registration modes.
+/// <para>
+/// An open generic class (e.g. <c>Repository&lt;T&gt;</c>) can be registered too, provided every
+/// one of its type parameters is entirely its own -- a class nested inside a generic type is not
+/// supported. Only an <em>exact-match</em> service type is valid for an open generic class: the
+/// class itself, or an implemented interface/base class whose type arguments are exactly the
+/// class's own type parameters, in declaration order (e.g. <c>IRepository&lt;T&gt;</c> for
+/// <c>Repository&lt;T&gt;</c>). A closed, reordered, partially-applied, or otherwise non-exact
+/// service type is rejected at compile time; see <see cref="As"/> for the explicit escape hatch.
+/// Keyed registration works the same way as for a closed class. Unlike a closed class, an open
+/// generic registration can never share one instance across 2+ service types (Microsoft.
+/// Extensions.DependencyInjection has no forwarding-factory mechanism for open generics), so each
+/// resolved closed service type gets its own, independent instance.
+/// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class ServiceAttribute : Attribute
@@ -35,6 +48,15 @@ public sealed class ServiceAttribute : Attribute
     /// When <see langword="null"/>, the decorated class is registered as itself, or the
     /// generator may infer an implemented interface depending on convention.
     /// </summary>
+    /// <remarks>
+    /// For an open generic decorated class, this must itself be an unbound generic type reference
+    /// (e.g. <c>typeof(IRepository&lt;&gt;)</c>): the class must implement or derive some
+    /// instantiation of it, and that instantiation must be an exact-match shape (the class's own
+    /// type parameters, in declaration order) -- otherwise the registration is rejected at compile
+    /// time. This is the only way to select one specific implemented interface/base class out of
+    /// several for an open generic class; unlike a closed class, every directly-implemented
+    /// interface must independently be an exact-match shape when <see cref="As"/> is not specified.
+    /// </remarks>
     public Type? As { get; set; }
 
     /// <summary>

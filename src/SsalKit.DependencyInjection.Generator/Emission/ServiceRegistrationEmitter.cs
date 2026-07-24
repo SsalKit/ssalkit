@@ -74,12 +74,14 @@ internal static class ServiceRegistrationEmitter
         if (entry.RequiresForwarding)
         {
             // Concrete registration shares a single instance across all forwarded service types.
-            new RegistrationStatement(implementationTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false)
+            // Never reached for an open generic entry: RequiresForwarding is unconditionally false
+            // when IsOpenGeneric (see RegistrationEntryModel.RequiresForwarding).
+            new RegistrationStatement(implementationTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false, entry.IsOpenGeneric)
                 .WriteTo(sb, indent);
 
             foreach (var serviceTypeFqn in entry.ServiceTypeFqns)
             {
-                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: true)
+                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: true, entry.IsOpenGeneric)
                     .WriteTo(sb, indent);
             }
         }
@@ -87,7 +89,7 @@ internal static class ServiceRegistrationEmitter
         {
             foreach (var serviceTypeFqn in entry.ServiceTypeFqns)
             {
-                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false)
+                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false, entry.IsOpenGeneric)
                     .WriteTo(sb, indent);
             }
         }
@@ -110,11 +112,11 @@ internal static class ServiceRegistrationEmitter
     /// <remarks>
     /// Every mode (Add/TryAdd/TryAddEnumerable/Replace), keyed or not, direct or forwarded, reduces
     /// to the same three building blocks: a <em>member name</em> (the lifetime, optionally prefixed
-    /// with "Keyed"), a <em>generic argument list</em> (service type alone when forwarding to an
-    /// already-registered instance, service+implementation type otherwise), and a <em>call argument
-    /// list</em> (empty, the key literal, a forwarding factory lambda, or both). The four modes then
-    /// only differ in how that member/generics/args triple gets wrapped: Add/TryAdd call it directly
-    /// as an extension method, TryAddEnumerable/Replace call it through <c>ServiceDescriptor</c>.
+    /// with "Keyed"), an <em>argument list</em> (a generic type-argument list plus call arguments
+    /// for a closed registration, or a single call-argument list of <c>typeof(...)</c> expressions
+    /// for an open generic one -- see <see cref="IsOpenGeneric"/>), and how that member/argument
+    /// pair gets wrapped: Add/TryAdd call it directly as an extension method, TryAddEnumerable/
+    /// Replace call it through <c>ServiceDescriptor</c>.
     /// </remarks>
     private readonly record struct RegistrationStatement(
         string ServiceTypeFqn,
@@ -123,7 +125,8 @@ internal static class ServiceRegistrationEmitter
         string LifetimeName,
         bool Keyed,
         string? KeyExpression,
-        bool Forwarded)
+        bool Forwarded,
+        bool IsOpenGeneric)
     {
         private const string ServiceDescriptorQualifiedName = "global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.";
 
@@ -141,29 +144,55 @@ internal static class ServiceRegistrationEmitter
             (true, true) => $"{KeyExpression}, (sp, key) => sp.GetRequiredKeyedService<{ImplementationTypeFqn}>(key)",
         };
 
+        /// <summary>
+        /// The Type-based call arguments for an open generic registration: MEDI has no generic-type
+        /// -parameter overload that accepts an open (unbound) generic type argument, so both the
+        /// service and implementation types are instead passed as <c>typeof(...)</c> values.
+        /// <see cref="Forwarded"/> is never <see langword="true"/> here -- forwarding is
+        /// unconditionally disabled for an open generic entry (see
+        /// <see cref="Models.RegistrationEntryModel.RequiresForwarding"/>) -- so only the
+        /// self-registration (service == implementation) and independent-per-service-type shapes
+        /// are reachable, both of which always pass both types.
+        /// </summary>
+        private string OpenGenericCallArguments => Keyed
+            ? $"typeof({ServiceTypeFqn}), {KeyExpression}, typeof({ImplementationTypeFqn})"
+            : $"typeof({ServiceTypeFqn}), typeof({ImplementationTypeFqn})";
+
+        /// <summary>
+        /// The full argument list rendered immediately after the member name: a generic
+        /// type-argument list followed by parenthesized call arguments for a closed registration,
+        /// or just parenthesized <c>typeof(...)</c> call arguments (no generic type-argument list
+        /// at all) for an open generic one.
+        /// </summary>
+        private string Arguments => IsOpenGeneric
+            ? $"({OpenGenericCallArguments})"
+            : $"{GenericArguments}({CallArguments})";
+
         public void WriteTo(StringBuilder sb, string indent)
         {
             sb.Append(indent).Append(ServicesParameter).Append('.');
 
+            // Arguments already includes its own closing ')'; TryAddEnumerable/Replace need one
+            // more to close the outer ServiceDescriptor-wrapping call.
             switch (Mode)
             {
                 case WellKnownRegistrationMode.Add:
-                    sb.Append("Add").Append(MemberName).Append(GenericArguments).Append('(').Append(CallArguments).AppendLine(");");
+                    sb.Append("Add").Append(MemberName).Append(Arguments).AppendLine(";");
                     break;
 
                 case WellKnownRegistrationMode.TryAdd:
-                    sb.Append("TryAdd").Append(MemberName).Append(GenericArguments).Append('(').Append(CallArguments).AppendLine(");");
+                    sb.Append("TryAdd").Append(MemberName).Append(Arguments).AppendLine(";");
                     break;
 
                 case WellKnownRegistrationMode.TryAddEnumerable:
                     // Keyed + TryAddEnumerable is rejected upstream (SSAL005); never reached here.
                     sb.Append("TryAddEnumerable(").Append(ServiceDescriptorQualifiedName)
-                      .Append(MemberName).Append(GenericArguments).Append('(').Append(CallArguments).AppendLine("));");
+                      .Append(MemberName).Append(Arguments).AppendLine(");");
                     break;
 
                 case WellKnownRegistrationMode.Replace:
                     sb.Append("Replace(").Append(ServiceDescriptorQualifiedName)
-                      .Append(MemberName).Append(GenericArguments).Append('(').Append(CallArguments).AppendLine("));");
+                      .Append(MemberName).Append(Arguments).AppendLine(");");
                     break;
 
                 default:

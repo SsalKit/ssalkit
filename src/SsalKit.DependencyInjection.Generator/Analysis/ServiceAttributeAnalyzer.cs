@@ -10,7 +10,7 @@ using SsalKit.DependencyInjection.Generator.Parsing;
 namespace SsalKit.DependencyInjection.Generator.Analysis;
 
 /// <summary>
-/// Reports diagnostics SSAL001-SSAL008 for invalid or conflicting uses of
+/// Reports diagnostics SSAL001-SSAL010 for invalid or conflicting uses of
 /// <c>[SsalKit.DependencyInjection.Service]</c>.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -26,7 +26,9 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.KeyedTryAddEnumerableNotSupported,
         DiagnosticDescriptors.SelfTryAddEnumerableNotSupported,
         DiagnosticDescriptors.InaccessibleType,
-        DiagnosticDescriptors.UndefinedEnumValue);
+        DiagnosticDescriptors.UndefinedEnumValue,
+        DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
+        DiagnosticDescriptors.OpenGenericInstanceNotShared);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -116,8 +118,9 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        // SSAL003: open generic classes are not supported.
-        if (classSymbol.IsGenericType)
+        // SSAL003: a class nested inside a generic type carries its containing type's type
+        // parameters and can never be registered as an open generic, regardless of its own arity.
+        if (ServiceTypeResolver.IsNestedInGenericType(classSymbol))
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.GenericClassNotSupported, location, classSymbol.Name));
@@ -190,20 +193,55 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         }
 
         // SSAL006: TryAddEnumerable cannot distinguish a registration whose service type is the
-        // implementation type itself.
-        if (mode == (int)WellKnownRegistrationMode.TryAddEnumerable && serviceTypeFqns.Contains(implementationTypeFqn, StringComparer.Ordinal))
+        // implementation type itself. This is a symbol-based check, not an FQN string comparison:
+        // for an open generic class with an explicit `As = typeof(C<>)` (self, via an unbound
+        // generic reference), the service type's *display* FQN ("global::Ns.C<>") never string-
+        // matches the implementation's display FQN ("global::Ns.C<T>"), even though they denote
+        // the same class -- see ServiceTypeResolver.IsSelfServiceType.
+        if (mode == (int)WellKnownRegistrationMode.TryAddEnumerable
+            && serviceTypeSymbols.Any(serviceTypeSymbol => ServiceTypeResolver.IsSelfServiceType(classSymbol, serviceTypeSymbol)))
         {
             context.ReportDiagnostic(Diagnostic.Create(DiagnosticDescriptors.SelfTryAddEnumerableNotSupported, location, implementationTypeFqn));
             return;
+        }
+
+        // SSAL010: an open generic Singleton/Scoped registration cannot share one instance across
+        // 2+ service types the way a non-generic class does, because Microsoft.Extensions.
+        // DependencyInjection has no forwarding-factory mechanism for open generics. This is a
+        // warning, not an error -- the generator still emits every registration -- so execution
+        // falls through to recording below rather than returning.
+        if (classSymbol.Arity > 0
+            && serviceTypeFqns.Length >= 2
+            && mode != (int)WellKnownRegistrationMode.TryAddEnumerable
+            && lifetime is (int)WellKnownLifetime.Singleton or (int)WellKnownLifetime.Scoped)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.OpenGenericInstanceNotShared,
+                location,
+                implementationTypeFqn,
+                serviceTypeFqns.Length.ToString(CultureInfo.InvariantCulture)));
         }
 
         var keyIdentity = hasKey
             ? GetKeyIdentity(keyConstant!.Value, context.Compilation)
             : "<none>";
 
-        foreach (var serviceTypeFqn in serviceTypeFqns)
+        // SSAL004 duplicate detection must key an open generic registration on its typeof-form
+        // identity (e.g. "global::Ns.IRepo<>"), not the ordinary display FQN used for the
+        // messages above (e.g. "global::Ns.IRepo<T>") -- otherwise `[Service]` (which infers
+        // IRepo<T> from the implemented interface) and `[Service(As = typeof(IRepo<>))]` on the
+        // same class would never be recognized as registering the exact same open generic service.
+        var recordImplementationTypeFqn = classSymbol.Arity > 0
+            ? OpenGenericTypeofFormatter.Format(classSymbol)
+            : implementationTypeFqn;
+
+        for (var i = 0; i < serviceTypeFqns.Length; i++)
         {
-            records.Add(new RegistrationRecord(serviceTypeFqn, implementationTypeFqn, keyIdentity, location));
+            var recordServiceTypeFqn = classSymbol.Arity > 0 && serviceTypeSymbols[i] is INamedTypeSymbol namedServiceType
+                ? OpenGenericTypeofFormatter.Format(namedServiceType)
+                : serviceTypeFqns[i];
+
+            records.Add(new RegistrationRecord(recordServiceTypeFqn, recordImplementationTypeFqn, keyIdentity, location));
         }
     }
 
@@ -231,7 +269,10 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
     /// Resolves the service type(s) an attribute application registers against: the explicit
     /// <c>As</c> type (reporting SSAL002 and returning <see langword="false"/> if the class does not
     /// implement/derive it), or otherwise every directly-implemented interface (or the
-    /// implementation type itself, if it implements none).
+    /// implementation type itself, if it implements none). For an open generic class (see
+    /// <see cref="ServiceTypeResolver.IsNestedInGenericType"/>), every candidate service type must
+    /// additionally satisfy the exact-match rule (SSAL009) -- see
+    /// <see cref="TryResolveOpenGenericAsType"/> for the <c>As</c> case.
     /// </summary>
     private static bool TryResolveServiceTypes(
         SymbolAnalysisContext context,
@@ -242,9 +283,16 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         out ImmutableArray<ITypeSymbol> serviceTypeSymbols,
         out ImmutableArray<string> serviceTypeFqns)
     {
+        var isOpenGeneric = classSymbol.Arity > 0;
         var asType = AttributeArgumentReader.GetAsType(attributeData);
         if (asType is not null)
         {
+            if (isOpenGeneric)
+            {
+                return TryResolveOpenGenericAsType(
+                    context, classSymbol, asType, implementationTypeFqn, location, out serviceTypeSymbols, out serviceTypeFqns);
+            }
+
             // SSAL002: the class must implement/derive the explicitly requested service type.
             if (!ServiceTypeResolver.Implements(classSymbol, asType))
             {
@@ -268,13 +316,93 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         {
             serviceTypeSymbols = ImmutableArray.Create<ITypeSymbol>(classSymbol);
             serviceTypeFqns = ImmutableArray.Create(implementationTypeFqn);
-        }
-        else
-        {
-            serviceTypeSymbols = interfaces.Cast<ITypeSymbol>().ToImmutableArray();
-            serviceTypeFqns = interfaces.Select(i => i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToImmutableArray();
+            return true;
         }
 
+        if (isOpenGeneric)
+        {
+            // SSAL009: every directly-implemented interface must be an exact-match open generic
+            // service type when there is no explicit `As` to redirect to a single one -- the whole
+            // attribute application is invalid (no partial/silent skipping) if any one of them
+            // isn't; the escape hatch is an explicit `As`.
+            foreach (var iface in interfaces)
+            {
+                if (!ServiceTypeResolver.IsExactMatchOpenGenericServiceType(classSymbol, iface))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
+                        location,
+                        implementationTypeFqn,
+                        iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                    serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
+                    serviceTypeFqns = ImmutableArray<string>.Empty;
+                    return false;
+                }
+            }
+        }
+
+        serviceTypeSymbols = interfaces.Cast<ITypeSymbol>().ToImmutableArray();
+        serviceTypeFqns = interfaces.Select(i => i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToImmutableArray();
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves an explicit <c>As = typeof(X&lt;&gt;)</c> service type applied to an open generic
+    /// class: reports SSAL009 immediately for a closed/non-generic <c>As</c> value (never valid for
+    /// an open generic implementation), SSAL002 if the class implements/derives no instantiation of
+    /// <c>X</c> at all, or SSAL009 if it does but the instantiation isn't an exact-match shape.
+    /// </summary>
+    private static bool TryResolveOpenGenericAsType(
+        SymbolAnalysisContext context,
+        INamedTypeSymbol classSymbol,
+        ITypeSymbol asType,
+        string implementationTypeFqn,
+        Location location,
+        out ImmutableArray<ITypeSymbol> serviceTypeSymbols,
+        out ImmutableArray<string> serviceTypeFqns)
+    {
+        serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
+        serviceTypeFqns = ImmutableArray<string>.Empty;
+
+        if (asType is not INamedTypeSymbol { IsUnboundGenericType: true } unboundAsType)
+        {
+            // SSAL009: a closed/non-generic As service type can never be valid for an open generic
+            // implementation type -- Microsoft.Extensions.DependencyInjection requires the service
+            // type to be open too, with a matching arity, to substitute a resolved closed service
+            // type's arguments positionally.
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
+                location,
+                implementationTypeFqn,
+                asType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            return false;
+        }
+
+        var instantiation = ServiceTypeResolver.FindOpenGenericAsInstantiation(classSymbol, unboundAsType);
+        if (instantiation is null)
+        {
+            // SSAL002: not implemented/derived at all.
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.AsTypeNotImplemented,
+                location,
+                implementationTypeFqn,
+                unboundAsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            return false;
+        }
+
+        if (!ServiceTypeResolver.IsExactMatchOpenGenericServiceType(classSymbol, instantiation))
+        {
+            // SSAL009: implemented/derived, but not in the required exact-match shape.
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
+                location,
+                implementationTypeFqn,
+                instantiation.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+            return false;
+        }
+
+        serviceTypeSymbols = ImmutableArray.Create<ITypeSymbol>(unboundAsType);
+        serviceTypeFqns = ImmutableArray.Create(unboundAsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
         return true;
     }
 

@@ -30,13 +30,22 @@ internal static class ServiceAttributeParser
             return null;
         }
 
-        // SSAL003: open generic classes are not supported.
-        if (classSymbol.IsGenericType)
+        // SSAL003: a class nested inside a generic type carries its containing type's type
+        // parameters and can never be registered as an open generic, regardless of its own arity.
+        if (ServiceTypeResolver.IsNestedInGenericType(classSymbol))
         {
             return null;
         }
 
-        var implementationTypeFqn = classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var isOpenGeneric = classSymbol.Arity > 0;
+
+        // Typeof-form (e.g. "global::Ns.Repository<>") for an open generic class -- this is what
+        // gets spliced into `typeof(...)` in the generated code, since a plain FullyQualifiedFormat
+        // display would render the class's own type parameter names (e.g. "Repository<T>"), which
+        // do not exist as symbols in the generated extension method's scope.
+        var implementationTypeFqn = isOpenGeneric
+            ? OpenGenericTypeofFormatter.Format(classSymbol)
+            : classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
         // Only used transiently within this method (and methods it calls) to evaluate
         // accessibility -- never retained in the returned model, per the incremental-caching
@@ -49,7 +58,7 @@ internal static class ServiceAttributeParser
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var entry = TryBuildEntry(classSymbol, implementationTypeFqn, attributeData, compilation);
+            var entry = TryBuildEntry(classSymbol, implementationTypeFqn, isOpenGeneric, attributeData, compilation);
             if (entry is not null)
             {
                 entries.Add(entry);
@@ -64,7 +73,8 @@ internal static class ServiceAttributeParser
         return new ClassRegistrationModel(implementationTypeFqn, entries.ToImmutable().ToEquatableArray());
     }
 
-    private static RegistrationEntryModel? TryBuildEntry(INamedTypeSymbol classSymbol, string implementationTypeFqn, AttributeData attributeData, Compilation compilation)
+    private static RegistrationEntryModel? TryBuildEntry(
+        INamedTypeSymbol classSymbol, string implementationTypeFqn, bool isOpenGeneric, AttributeData attributeData, Compilation compilation)
     {
         var lifetime = AttributeArgumentReader.GetLifetime(attributeData);
         var mode = AttributeArgumentReader.GetMode(attributeData);
@@ -89,9 +99,10 @@ internal static class ServiceAttributeParser
             return null;
         }
 
-        // SSAL002: the class must implement/derive the explicitly requested (or, absent an
-        // explicit "As", implicitly resolved) service type(s).
-        if (!TryResolveServiceTypes(classSymbol, implementationTypeFqn, attributeData, out var serviceTypeSymbols, out var serviceTypeFqns))
+        // SSAL002/SSAL009: the class must implement/derive the explicitly requested (or, absent an
+        // explicit "As", implicitly resolved) service type(s); for an open generic class, each
+        // resolved service type must additionally be an exact-match shape (SSAL009).
+        if (!TryResolveServiceTypes(classSymbol, implementationTypeFqn, isOpenGeneric, attributeData, out var serviceTypeSymbols, out var serviceTypeFqns))
         {
             return null;
         }
@@ -119,24 +130,35 @@ internal static class ServiceAttributeParser
         }
 
         // SSAL006: TryAddEnumerable cannot distinguish a registration whose service type is the
-        // implementation type itself.
-        if (mode == (int)WellKnownRegistrationMode.TryAddEnumerable && serviceTypeFqns.Contains(implementationTypeFqn, StringComparer.Ordinal))
+        // implementation type itself. Symbol-based (via ServiceTypeResolver.IsSelfServiceType),
+        // not an FQN string comparison, to stay in lockstep with the analyzer's mirrored check:
+        // the typeof-form FQN strings computed here already happen to string-match for every case
+        // reachable today (both implementationTypeFqn and an unbound `As = typeof(C<>)`'s FQN are
+        // rendered by the same OpenGenericTypeofFormatter from the same underlying definition), but
+        // relying on that coincidence would leave the parser one FQN-rendering change away from
+        // silently diverging from the analyzer again.
+        if (mode == (int)WellKnownRegistrationMode.TryAddEnumerable
+            && serviceTypeSymbols.Any(serviceTypeSymbol => ServiceTypeResolver.IsSelfServiceType(classSymbol, serviceTypeSymbol)))
         {
             return null;
         }
 
-        return new RegistrationEntryModel(serviceTypeFqns.ToEquatableArray(), lifetime, mode, key);
+        return new RegistrationEntryModel(serviceTypeFqns.ToEquatableArray(), lifetime, mode, key, isOpenGeneric);
     }
 
     /// <summary>
     /// Resolves the service type(s) an attribute application registers against: the explicit
     /// <c>As</c> type (failing if the class does not implement/derive it), or otherwise every
     /// directly-implemented interface, sorted for deterministic emission order (or the
-    /// implementation type itself, if it implements none).
+    /// implementation type itself, if it implements none). For an open generic class, every
+    /// resolved service type must additionally be an exact-match shape (SSAL009); this mirrors
+    /// <c>ServiceAttributeAnalyzer</c>'s validation exactly, dropping the entry silently instead of
+    /// reporting a diagnostic.
     /// </summary>
     private static bool TryResolveServiceTypes(
         INamedTypeSymbol classSymbol,
         string implementationTypeFqn,
+        bool isOpenGeneric,
         AttributeData attributeData,
         out ImmutableArray<ITypeSymbol> serviceTypeSymbols,
         out ImmutableArray<string> serviceTypeFqns)
@@ -144,6 +166,11 @@ internal static class ServiceAttributeParser
         var asType = AttributeArgumentReader.GetAsType(attributeData);
         if (asType is not null)
         {
+            if (isOpenGeneric)
+            {
+                return TryResolveOpenGenericAsType(classSymbol, asType, out serviceTypeSymbols, out serviceTypeFqns);
+            }
+
             if (!ServiceTypeResolver.Implements(classSymbol, asType))
             {
                 serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
@@ -164,6 +191,34 @@ internal static class ServiceAttributeParser
             return true;
         }
 
+        if (isOpenGeneric)
+        {
+            // SSAL009: every directly-implemented interface must be an exact-match open generic
+            // service type; the whole attribute application is dropped (no partial skipping) if
+            // any one of them isn't -- the escape hatch is an explicit `As`.
+            foreach (var iface in interfaces)
+            {
+                if (!ServiceTypeResolver.IsExactMatchOpenGenericServiceType(classSymbol, iface))
+                {
+                    serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
+                    serviceTypeFqns = ImmutableArray<string>.Empty;
+                    return false;
+                }
+            }
+
+            // Typeof-form for every candidate (each interface's own generic definition, not the
+            // class's substituted type arguments), sorted by that same typeof-form for
+            // deterministic emission order.
+            var orderedOpen = interfaces
+                .Select(i => (Symbol: (ITypeSymbol)i, Fqn: OpenGenericTypeofFormatter.Format(i)))
+                .OrderBy(pair => pair.Fqn, StringComparer.Ordinal)
+                .ToImmutableArray();
+
+            serviceTypeSymbols = orderedOpen.Select(pair => pair.Symbol).ToImmutableArray();
+            serviceTypeFqns = orderedOpen.Select(pair => pair.Fqn).ToImmutableArray();
+            return true;
+        }
+
         // Sorted by FQN for deterministic emission order; both arrays must stay in lockstep, so
         // sort a single sequence of pairs rather than sorting the two projections independently.
         var ordered = interfaces
@@ -173,6 +228,38 @@ internal static class ServiceAttributeParser
 
         serviceTypeSymbols = ordered.Select(pair => pair.Symbol).ToImmutableArray();
         serviceTypeFqns = ordered.Select(pair => pair.Fqn).ToImmutableArray();
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves an explicit <c>As = typeof(X&lt;&gt;)</c> service type applied to an open generic
+    /// class, mirroring <c>ServiceAttributeAnalyzer.TryResolveOpenGenericAsType</c>'s validation
+    /// (a closed/non-generic <c>As</c> value, an <c>As</c> the class does not implement/derive any
+    /// instantiation of, or an implemented instantiation that isn't an exact-match shape, are all
+    /// dropped silently here instead of reported).
+    /// </summary>
+    private static bool TryResolveOpenGenericAsType(
+        INamedTypeSymbol classSymbol,
+        ITypeSymbol asType,
+        out ImmutableArray<ITypeSymbol> serviceTypeSymbols,
+        out ImmutableArray<string> serviceTypeFqns)
+    {
+        serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
+        serviceTypeFqns = ImmutableArray<string>.Empty;
+
+        if (asType is not INamedTypeSymbol { IsUnboundGenericType: true } unboundAsType)
+        {
+            return false;
+        }
+
+        var instantiation = ServiceTypeResolver.FindOpenGenericAsInstantiation(classSymbol, unboundAsType);
+        if (instantiation is null || !ServiceTypeResolver.IsExactMatchOpenGenericServiceType(classSymbol, instantiation))
+        {
+            return false;
+        }
+
+        serviceTypeSymbols = ImmutableArray.Create<ITypeSymbol>(unboundAsType);
+        serviceTypeFqns = ImmutableArray.Create(OpenGenericTypeofFormatter.Format(unboundAsType));
         return true;
     }
 
