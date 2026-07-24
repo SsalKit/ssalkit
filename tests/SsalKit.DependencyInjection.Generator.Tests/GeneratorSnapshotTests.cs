@@ -72,6 +72,31 @@ public class GeneratorSnapshotTests
     }
 
     [Fact]
+    public Task Factory_MultiInterfaceSingleton_KeyedWithServiceProviderFactory()
+    {
+        const string source = """
+            using System;
+            using SsalKit.DependencyInjection;
+            using Microsoft.Extensions.DependencyInjection;
+
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IBar { }
+
+            [Service(ServiceLifetime.Singleton, Key = "k", Factory = nameof(Foo.Create))]
+            public class Foo : IFoo, IBar
+            {
+                public static Foo Create(IServiceProvider sp) => new Foo();
+            }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    [Fact]
     public Task OpenGeneric_MixedWithClosedClass_BothEmitCorrectly()
     {
         const string source = """

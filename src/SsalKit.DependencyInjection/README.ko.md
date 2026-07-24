@@ -134,9 +134,52 @@ Keyed 서비스(`Key = ...`)와 4가지 `RegistrationMode` 값(`Add`, `TryAdd`, 
 
 제네릭 타입 안에 중첩된 클래스는 `[Service]` 대상으로 지원되지 않습니다. 중첩된 클래스 자신은 타입 매개변수가 없더라도 마찬가지입니다 (`SSAL003`).
 
+## 팩토리 메서드
+
+`[Service]`는 컨테이너가 생성자를 직접 호출하는 대신, 정적 팩토리 메서드를 통해 구현 인스턴스를 생성하도록 할 수도 있습니다. 생성 과정에 약간의 로직이 필요하거나, 클래스가 의도적으로 생성자를 숨기고 있는 경우에 유용합니다.
+
+```csharp
+public interface IApiClient { }
+
+[Service(ServiceLifetime.Scoped, Factory = nameof(Create))]
+public sealed class ApiClient : IApiClient
+{
+    private ApiClient(HttpClient httpClient) => HttpClient = httpClient;
+
+    public HttpClient HttpClient { get; }
+
+    public static ApiClient Create(IServiceProvider sp) =>
+        new(sp.GetRequiredService<HttpClient>());
+}
+```
+
+다음과 같이 생성됩니다.
+
+```csharp
+services.AddScoped<IApiClient, ApiClient>(sp => ApiClient.Create(sp));
+```
+
+문자열 리터럴 대신 `nameof(...)`(예: `Factory = nameof(Create)`)를 사용하면, 메서드 이름이 바뀌었을 때 컴파일러가 이를 잡아냅니다.
+
+### 메서드 요구 사항
+
+지정하는 메서드는 다음 조건을 만족해야 합니다.
+
+- 같은 어셈블리에 있는 기반 클래스로부터 상속된 것이 아니라, 등록 대상 클래스에 직접 선언되어 있어야 합니다.
+- `static`이어야 하며 제네릭이 아니어야 합니다.
+- 매개변수가 없거나, `IServiceProvider` 매개변수 하나만 가져야 합니다 (`ref`/`out`/`params` 불가).
+- 반환 타입이 정확히 등록 대상 클래스여야 합니다 — 기반 타입이나 구현한 인터페이스는 안 됩니다.
+- 최소 `internal`이어야 합니다 — 생성된 등록 코드가 같은 어셈블리의 다른 파일에서 이 메서드를 호출하기 때문입니다.
+
+매개변수가 없는 오버로드와 `IServiceProvider`를 받는 오버로드가 모두 존재하면, `IServiceProvider`를 받는 쪽이 사용됩니다 — 모호성 오류가 아니라 결정적으로 선택됩니다.
+
+`Factory`는 `Lifetime`, `Key`, `As`, 그리고 모든 `RegistrationMode`를 포함한 `[Service]`의 다른 모든 옵션과 함께 사용할 수 있으며, 구현 인스턴스가 생성되는 방식만 바꿉니다. 클래스가 2개 이상의 인터페이스를 구현해서 위에서 설명한 포워딩 패턴으로 인스턴스를 공유하게 되는 경우, 팩토리는 (self-registration 문에 의해) 정확히 한 번만 호출되며, 포워딩된 모든 인터페이스는 그 팩토리로 생성된 동일한 인스턴스로 resolve됩니다.
+
+`Factory`는 open generic 클래스에는 사용할 수 없습니다. Microsoft.Extensions.DependencyInjection에는 open generic을 위한 팩토리 기반 등록 API가 없기 때문입니다 (`SSAL013`).
+
 ## Attribute 레퍼런스
 
-`[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
+`[Service(lifetime, As = ..., Mode = ..., Key = ..., Factory = ...)]`
 
 | 속성        | 타입                | 기본값                       | 설명                                                                                   |
 |------------|---------------------|------------------------------|----------------------------------------------------------------------------------------|
@@ -144,6 +187,7 @@ Keyed 서비스(`Key = ...`)와 4가지 `RegistrationMode` 값(`Add`, `TryAdd`, 
 | `As`       | `Type?`              | `null`                       | 구현한 모든 인터페이스(또는 자기 자신) 대신 지정한 타입 하나로만 등록합니다.                     |
 | `Mode`     | `RegistrationMode`   | `RegistrationMode.Add`       | `Add`, `TryAdd`, `TryAddEnumerable`, `Replace` 중 하나로, 컬렉션에 등록을 적용하는 방식입니다.  |
 | `Key`      | `object?`            | `null`                       | 지정하면 `Add*` 대신 `AddKeyed*`를 사용해 keyed 서비스로 등록합니다 (.NET 8+).                |
+| `Factory`  | `string?`            | `null`                       | 구현 인스턴스를 생성하는, 등록 대상 클래스에 선언된 정적 팩토리 메서드의 이름입니다. [팩토리 메서드](#팩토리-메서드)를 참고하세요. |
 
 한 클래스에 `[Service]`를 여러 번 붙여서 서로 다른 lifetime, `As` 대상, key로 한 번에 여러 방식으로 등록할 수도 있습니다.
 
@@ -163,6 +207,10 @@ Keyed 서비스(`Key = ...`)와 4가지 `RegistrationMode` 값(`Add`, `TryAdd`, 
 | `SSAL008` | Error     | `[Service]`에 정의되지 않은 `ServiceLifetime` 또는 `RegistrationMode` 값(예: `(ServiceLifetime)42`)이 전달되었습니다. |
 | `SSAL009` | Error     | Open generic 클래스는 자기 자신, 또는 타입 인자가 정확히 자신의 타입 매개변수와 순서까지 일치하는 구현 인터페이스/기반 타입으로만 등록할 수 있습니다 — closed 타입, 순서가 다르거나 일부만 사용된 타입 인자, 감싸인(wrapped) 타입 인자는 거부됩니다. |
 | `SSAL010` | Warning   | Open generic 클래스가 `Singleton` 또는 `Scoped`로 두 개 이상의 서비스 타입에 등록되었습니다 — open generic 등록은 포워딩 팩토리를 사용할 수 없으므로, 각 서비스 타입은 별도의 인스턴스로 resolve됩니다. |
+| `SSAL011` | Error     | `Factory`에 지정한 이름의 ordinary 메서드가 등록 대상 클래스에 직접 선언되어 있지 않습니다 (빈 문자열 `Factory` 값도 여기에 해당합니다). |
+| `SSAL012` | Error     | `Factory`로 지정한 이름의 메서드가 하나 이상 존재하지만, 그중 어느 것도 static, non-generic, 매개변수 없음 또는 `IServiceProvider` 매개변수 하나, 그리고 등록 대상 클래스를 정확히 반환하는 사용 가능한 시그니처를 갖고 있지 않습니다. |
+| `SSAL013` | Error     | `Factory`는 open generic 클래스에는 사용할 수 없습니다 — Microsoft.Extensions.DependencyInjection에는 open generic을 위한 팩토리 기반 등록 API가 없습니다. |
+| `SSAL014` | Error     | 선택된 `Factory` 메서드가 생성된 코드에서 접근할 수 없습니다 — 최소 `internal`이어야 합니다. |
 
 ## 라이센스
 

@@ -64,4 +64,22 @@ internal static class AttributeArgumentReader
 
         return null;
     }
+
+    /// <summary>
+    /// Returns the <c>Factory</c> named-argument string, or <see langword="null"/> when it was not
+    /// supplied, or was supplied but explicitly set to <see langword="null"/> -- both mean "no
+    /// factory", so callers need not distinguish them.
+    /// </summary>
+    public static string? GetFactoryName(AttributeData attributeData)
+    {
+        foreach (var namedArgument in attributeData.NamedArguments)
+        {
+            if (namedArgument.Key == "Factory" && namedArgument.Value.Value is string factoryName)
+            {
+                return factoryName;
+            }
+        }
+
+        return null;
+    }
 }

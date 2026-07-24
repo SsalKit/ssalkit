@@ -16,6 +16,7 @@ using SsalKit.DependencyInjection.Sample.Services.Greeting;
 using SsalKit.DependencyInjection.Sample.Services.Messaging;
 using SsalKit.DependencyInjection.Sample.Services.Repository;
 using SsalKit.DependencyInjection.Sample.Services.Session;
+using SsalKit.DependencyInjection.Sample.Services.Startup;
 
 var services = new ServiceCollection();
 services.AddSsalKitDependencyInjectionSampleServices();
@@ -87,3 +88,11 @@ Console.WriteLine($"                 IRepository<Order> -> same instance every t
 Console.WriteLine($"                 IRepository<Order> vs IRepository<Customer> -> distinct instances: {!ReferenceEquals(orderRepository, customerRepository)}");
 Console.WriteLine($"                 orders: [{string.Join(", ", orderRepository.GetAll())}]");
 Console.WriteLine($"                 customers: [{string.Join(", ", customerRepository.GetAll())}]");
+Console.WriteLine();
+
+// Factory: StartupBanner has a private constructor, so this instance could only have come from
+// the static factory method named via Factory = nameof(Create) -- the factory pulled IClock out
+// of the IServiceProvider it was handed to stamp the text below.
+var banner = provider.GetRequiredService<IStartupBanner>();
+Console.WriteLine("[Factory]        IStartupBanner -> constructed by StartupBanner.Create(IServiceProvider)");
+Console.WriteLine($"                 {banner.Text}");

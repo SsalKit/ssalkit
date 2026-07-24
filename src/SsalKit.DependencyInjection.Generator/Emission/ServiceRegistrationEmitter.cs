@@ -75,13 +75,15 @@ internal static class ServiceRegistrationEmitter
         {
             // Concrete registration shares a single instance across all forwarded service types.
             // Never reached for an open generic entry: RequiresForwarding is unconditionally false
-            // when IsOpenGeneric (see RegistrationEntryModel.RequiresForwarding).
-            new RegistrationStatement(implementationTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false, entry.IsOpenGeneric)
+            // when IsOpenGeneric (see RegistrationEntryModel.RequiresForwarding). Only the
+            // self-registration statement (this one) invokes the factory, if any; every forwarded
+            // statement below resolves the already-constructed shared instance instead.
+            new RegistrationStatement(implementationTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false, entry.IsOpenGeneric, entry.Factory)
                 .WriteTo(sb, indent);
 
             foreach (var serviceTypeFqn in entry.ServiceTypeFqns)
             {
-                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: true, entry.IsOpenGeneric)
+                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: true, entry.IsOpenGeneric, FactoryModel.None)
                     .WriteTo(sb, indent);
             }
         }
@@ -89,7 +91,7 @@ internal static class ServiceRegistrationEmitter
         {
             foreach (var serviceTypeFqn in entry.ServiceTypeFqns)
             {
-                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false, entry.IsOpenGeneric)
+                new RegistrationStatement(serviceTypeFqn, implementationTypeFqn, mode, lifetimeName, keyed, keyExpression, Forwarded: false, entry.IsOpenGeneric, entry.Factory)
                     .WriteTo(sb, indent);
             }
         }
@@ -126,22 +128,59 @@ internal static class ServiceRegistrationEmitter
         bool Keyed,
         string? KeyExpression,
         bool Forwarded,
-        bool IsOpenGeneric)
+        bool IsOpenGeneric,
+        FactoryModel Factory)
     {
         private const string ServiceDescriptorQualifiedName = "global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.";
 
         private string MemberName => (Keyed ? "Keyed" : string.Empty) + LifetimeName;
 
-        private string GenericArguments => Forwarded
+        /// <summary>
+        /// A forwarded statement, or a direct <c>TryAdd</c>/<c>TryAddKeyed</c> call with a factory,
+        /// renders only the service type; every other shape renders both.
+        /// </summary>
+        /// <remarks>
+        /// Unlike <c>Add*</c>/<c>ServiceDescriptor.*</c> (used by Add, TryAddEnumerable, and
+        /// Replace), Microsoft.Extensions.DependencyInjection's direct <c>TryAddTransient</c>/
+        /// <c>TryAddScoped</c>/<c>TryAddSingleton</c>/<c>TryAddKeyedXxx</c> extension methods have
+        /// no <c>&lt;TService, TImplementation&gt;(Func&lt;IServiceProvider, TImplementation&gt;)</c>
+        /// (or keyed equivalent) overload at all -- only a single-generic-argument
+        /// <c>&lt;TService&gt;(Func&lt;IServiceProvider, TService&gt;)</c> one. The factory method's
+        /// return type (the decorated class) is always implicitly convertible to
+        /// <c>ServiceTypeFqn</c> (an interface/base type it implements, or itself), so dropping the
+        /// second type argument here -- exactly as a forwarded statement already does -- still
+        /// type-checks.
+        /// </remarks>
+        private string GenericArguments => Forwarded || (Mode == WellKnownRegistrationMode.TryAdd && Factory.HasFactory)
             ? $"<{ServiceTypeFqn}>"
             : $"<{ServiceTypeFqn}, {ImplementationTypeFqn}>";
 
-        private string CallArguments => (Keyed, Forwarded) switch
+        /// <summary>
+        /// The factory invocation expression, e.g. <c>global::Ns.Foo.Create(sp)</c> or
+        /// <c>global::Ns.Foo.Create()</c>. Only ever used for a non-forwarded statement (see
+        /// <see cref="CallArguments"/>) -- <see cref="Factory"/> is always
+        /// <see cref="FactoryModel.None"/> on a forwarded statement.
+        /// </summary>
+        private string FactoryInvocation => Factory.AcceptsServiceProvider
+            ? $"{ImplementationTypeFqn}.{Factory.MethodName}(sp)"
+            : $"{ImplementationTypeFqn}.{Factory.MethodName}()";
+
+        /// <summary>
+        /// Every combination of keyed/forwarded/factory reduces to one of six call-argument shapes.
+        /// A forwarded statement never has a factory (see <see cref="Emit"/>'s callers), so the
+        /// <c>Factory</c> component of the switch is a wildcard for the two <c>Forwarded: true</c>
+        /// cases -- both are always reached with <see cref="FactoryModel.None"/> in practice, but
+        /// nothing here depends on that beyond what <see cref="FactoryInvocation"/> would already
+        /// guard against (it is simply never called when <c>Forwarded</c> is <see langword="true"/>).
+        /// </summary>
+        private string CallArguments => (Keyed, Forwarded, Factory.HasFactory) switch
         {
-            (false, false) => string.Empty,
-            (true, false) => KeyExpression!,
-            (false, true) => $"sp => sp.GetRequiredService<{ImplementationTypeFqn}>()",
-            (true, true) => $"{KeyExpression}, (sp, key) => sp.GetRequiredKeyedService<{ImplementationTypeFqn}>(key)",
+            (false, false, false) => string.Empty,
+            (false, false, true) => $"sp => {FactoryInvocation}",
+            (true, false, false) => KeyExpression!,
+            (true, false, true) => $"{KeyExpression}, (sp, key) => {FactoryInvocation}",
+            (false, true, _) => $"sp => sp.GetRequiredService<{ImplementationTypeFqn}>()",
+            (true, true, _) => $"{KeyExpression}, (sp, key) => sp.GetRequiredKeyedService<{ImplementationTypeFqn}>(key)",
         };
 
         /// <summary>

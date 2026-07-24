@@ -99,4 +99,40 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "For a non-generic class, a Singleton/Scoped registration against multiple service types shares one instance via forwarding factories. Open generic registrations cannot use factories, so every service type gets an independent registration and instances are not shared. Suppress this warning if separate instances are intended.");
+
+    public static readonly DiagnosticDescriptor FactoryMethodNotFound = new(
+        id: "SSAL011",
+        title: "'Factory' method not found",
+        messageFormat: "No ordinary method named '{0}' is declared on '{1}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The 'Factory' argument of [Service] must name an ordinary (non-property, non-operator) method declared directly on the decorated class. This also covers an empty-string 'Factory' value, which never matches any method.");
+
+    public static readonly DiagnosticDescriptor FactoryMethodInvalid = new(
+        id: "SSAL012",
+        title: "'Factory' method has an unusable signature",
+        messageFormat: "One or more methods named '{0}' are declared on '{1}', but none has a usable signature: a factory method must be static, non-generic, have no parameters or a single 'System.IServiceProvider' parameter, and return exactly '{1}'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A method named by 'Factory' was found, but no overload of it is static, non-generic, parameterless-or-single-IServiceProvider-parameter, and returns exactly the decorated class.");
+
+    public static readonly DiagnosticDescriptor FactoryOnOpenGenericNotSupported = new(
+        id: "SSAL013",
+        title: "'Factory' cannot be used on an open generic class",
+        messageFormat: "'Factory' cannot be used on open generic class '{0}' because Microsoft.Extensions.DependencyInjection has no factory-based registration for open generics",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Microsoft.Extensions.DependencyInjection's open generic registration overloads (Type-based, not <TService, TImplementation>) have no factory-delegate counterpart, so an open generic class cannot combine [Service] with a 'Factory'.");
+
+    public static readonly DiagnosticDescriptor FactoryMethodInaccessible = new(
+        id: "SSAL014",
+        title: "'Factory' method is not accessible to generated code",
+        messageFormat: "The factory method '{0}.{1}' is not accessible from the generated registration code; it must be at least 'internal'",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The chosen factory method is invoked from the generated registration extension method, which lives in a separate file in the same assembly; a private or protected factory method cannot be called from there.");
 }

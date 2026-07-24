@@ -70,4 +70,37 @@ public sealed class ServiceAttribute : Attribute
     /// <see langword="null"/>, the service is registered as a non-keyed service.
     /// </summary>
     public object? Key { get; set; }
+
+    /// <summary>
+    /// Gets or sets the name of a static factory method, declared directly on the decorated
+    /// class, that the generated registration invokes to construct the implementation instance
+    /// instead of letting the container construct it via a constructor. Use
+    /// <see langword="nameof"/> (e.g. <c>Factory = nameof(Create)</c>) rather than a string
+    /// literal, so a rename of the method is caught by the compiler.
+    /// </summary>
+    /// <remarks>
+    /// The method must be declared directly on the decorated class -- not inherited from a base
+    /// class, even if the base class is also in this assembly -- because an inherited method can
+    /// live in a different syntax tree, which would break the source generator's incremental
+    /// caching for this class. It must be <see langword="static"/>, non-generic, return exactly
+    /// the decorated class (not a base type or an interface it implements), and have either no
+    /// parameters or a single <see cref="IServiceProvider"/> parameter. When both a parameterless
+    /// and an <see cref="IServiceProvider"/>-accepting overload exist, the
+    /// <see cref="IServiceProvider"/>-accepting one is used -- deterministically, not as an
+    /// ambiguity error. The chosen method must also be accessible from the generated registration
+    /// code, i.e. at least <see langword="internal"/>.
+    /// <para>
+    /// <c>Factory</c> composes with every other option on this attribute -- <see cref="Lifetime"/>,
+    /// <see cref="Key"/>, <see cref="As"/>, and every <see cref="RegistrationMode"/> -- and only
+    /// changes how the implementation instance is constructed. When the class implements 2+
+    /// interfaces and would otherwise share one instance across them, the factory is invoked once
+    /// and every interface resolves to that same, factory-constructed instance, exactly as it
+    /// would if the container had constructed it directly.
+    /// </para>
+    /// <para>
+    /// Not supported on an open generic decorated class (see the type-level remarks): Microsoft.
+    /// Extensions.DependencyInjection has no factory-based registration API for open generics.
+    /// </para>
+    /// </remarks>
+    public string? Factory { get; set; }
 }

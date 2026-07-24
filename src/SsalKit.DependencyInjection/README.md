@@ -134,9 +134,52 @@ Keyed services (`Key = ...`) and all four `RegistrationMode` values (`Add`, `Try
 
 A class nested inside a generic type is not supported as a `[Service]` target, even when the nested class has no type parameters of its own (`SSAL003`).
 
+## Factory methods
+
+`[Service]` can also construct the implementation instance through a static factory method instead of letting the container call a constructor directly — handy when construction needs to run a bit of logic, or when the class deliberately hides its constructor:
+
+```csharp
+public interface IApiClient { }
+
+[Service(ServiceLifetime.Scoped, Factory = nameof(Create))]
+public sealed class ApiClient : IApiClient
+{
+    private ApiClient(HttpClient httpClient) => HttpClient = httpClient;
+
+    public HttpClient HttpClient { get; }
+
+    public static ApiClient Create(IServiceProvider sp) =>
+        new(sp.GetRequiredService<HttpClient>());
+}
+```
+
+emits:
+
+```csharp
+services.AddScoped<IApiClient, ApiClient>(sp => ApiClient.Create(sp));
+```
+
+Use `nameof(...)` (e.g. `Factory = nameof(Create)`) instead of a string literal, so a rename of the method is caught by the compiler.
+
+### Method requirements
+
+The named method must be:
+
+- declared directly on the decorated class — not inherited from a base class, even one in the same assembly;
+- `static` and non-generic;
+- either parameterless or taking a single `IServiceProvider` parameter (no `ref`/`out`/`params`);
+- returning exactly the decorated class — not a base type or an interface it implements;
+- at least `internal` — the generated registration code calls it from a separate file in the same assembly.
+
+When both a parameterless overload and an `IServiceProvider`-accepting overload exist, the `IServiceProvider`-accepting one is used — deterministically, not as an ambiguity error.
+
+`Factory` composes with every other `[Service]` option — `Lifetime`, `Key`, `As`, and every `RegistrationMode` — and only changes how the implementation instance is constructed. When the class implements 2+ interfaces and would otherwise share one instance across them via the forwarding pattern described above, the factory is invoked exactly once (by the self-registration statement); every forwarded interface resolves to that same, factory-constructed instance.
+
+`Factory` is not supported on an open generic decorated class: Microsoft.Extensions.DependencyInjection has no factory-based registration API for open generics (`SSAL013`).
+
 ## Attribute Reference
 
-`[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
+`[Service(lifetime, As = ..., Mode = ..., Key = ..., Factory = ...)]`
 
 | Property   | Type                 | Default                         | Description                                                                                  |
 |------------|----------------------|----------------------------------|------------------------------------------------------------------------------------------------|
@@ -144,6 +187,7 @@ A class nested inside a generic type is not supported as a `[Service]` target, e
 | `As`       | `Type?`               | `null`                          | Registers only as this type instead of every implemented interface (or itself).                |
 | `Mode`     | `RegistrationMode`    | `RegistrationMode.Add`          | `Add`, `TryAdd`, `TryAddEnumerable`, or `Replace` — how the call is applied to the collection.  |
 | `Key`      | `object?`             | `null`                          | Registers as a keyed service (.NET 8+) using `AddKeyed*` instead of `Add*`.                     |
+| `Factory`  | `string?`             | `null`                          | Names a static factory method (declared on the decorated class) that constructs the implementation instance. See [Factory methods](#factory-methods). |
 
 A class can carry multiple `[Service]` attributes to register it several ways (different lifetimes, `As` targets, or keys) at once.
 
@@ -163,6 +207,10 @@ The generator validates your `[Service]` usage at compile time:
 | `SSAL008`| Error    | An undefined `ServiceLifetime` or `RegistrationMode` value (e.g. `(ServiceLifetime)42`) was supplied to `[Service]`. |
 | `SSAL009`| Error    | An open generic class can only be registered as itself or as an implemented interface/base type whose type arguments are exactly its own type parameters, in order; closed, reordered, partial, or wrapped type arguments are rejected. |
 | `SSAL010`| Warning  | An open generic class is registered under two or more service types as `Singleton` or `Scoped`; each service type resolves to a separate instance because open generic registrations can't use forwarding factories. |
+| `SSAL011`| Error    | `'Factory' method not found` — no ordinary method with the name given to `Factory` is declared directly on the decorated class (this also covers an empty-string `Factory` value). |
+| `SSAL012`| Error    | `'Factory' method has an unusable signature` — one or more methods with that name exist, but none is static, non-generic, parameterless-or-single-`IServiceProvider`-parameter, and returning exactly the decorated class. |
+| `SSAL013`| Error    | `'Factory' cannot be used on an open generic class` — Microsoft.Extensions.DependencyInjection has no factory-based registration API for open generics. |
+| `SSAL014`| Error    | `'Factory' method is not accessible to generated code` — the chosen factory method must be at least `internal` so the generated registration code (in a different file, same assembly) can call it. |
 
 ## License
 
