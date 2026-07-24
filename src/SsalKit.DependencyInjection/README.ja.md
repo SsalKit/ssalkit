@@ -134,9 +134,52 @@ Open generic クラス `C<T1, ..., Tn>` は、次のいずれかとしてのみ�
 
 ジェネリック型の中にネストされたクラスは `[Service]` の対象としてサポートされません。ネストされたクラス自身に型パラメーターがない場合も同様です（`SSAL003`）。
 
+## ファクトリーメソッド
+
+`[Service]` では、コンテナがコンストラクターを直接呼び出す代わりに、静的なファクトリーメソッドを通じて実装インスタンスを生成することもできます。生成時に多少のロジックが必要な場合や、クラスが意図的にコンストラクターを隠蔽している場合に便利です。
+
+```csharp
+public interface IApiClient { }
+
+[Service(ServiceLifetime.Scoped, Factory = nameof(Create))]
+public sealed class ApiClient : IApiClient
+{
+    private ApiClient(HttpClient httpClient) => HttpClient = httpClient;
+
+    public HttpClient HttpClient { get; }
+
+    public static ApiClient Create(IServiceProvider sp) =>
+        new(sp.GetRequiredService<HttpClient>());
+}
+```
+
+次のように生成されます。
+
+```csharp
+services.AddScoped<IApiClient, ApiClient>(sp => ApiClient.Create(sp));
+```
+
+文字列リテラルの代わりに `nameof(...)`（例: `Factory = nameof(Create)`）を使うと、メソッド名を変更した際にコンパイラがそれを検出してくれます。
+
+### メソッドの要件
+
+指定するメソッドは次の条件を満たす必要があります。
+
+- 同一アセンブリ内の基底クラスから継承したものではなく、登録対象のクラスに直接宣言されていること。
+- `static` であり、非ジェネリックであること。
+- 引数なし、または `IServiceProvider` 引数を 1 つだけ持つこと（`ref`/`out`/`params` は不可）。
+- 戻り値の型が登録対象のクラスと厳密に一致すること — 基底型や実装しているインターフェースは不可。
+- 少なくとも `internal` であること — 生成される登録コードは同一アセンブリ内の別ファイルからこのメソッドを呼び出すため。
+
+引数なしのオーバーロードと `IServiceProvider` を受け取るオーバーロードの両方が存在する場合、`IServiceProvider` を受け取る方が使用されます — あいまいさエラーにはならず、決定的に選択されます。
+
+`Factory` は `Lifetime`、`Key`、`As`、およびすべての `RegistrationMode` を含む `[Service]` の他のすべてのオプションと組み合わせて使用でき、実装インスタンスの生成方法だけを変更します。クラスが 2 つ以上のインターフェースを実装しており、上記の転送パターンによってインスタンスが共有される場合、ファクトリーは（self-registration の文によって）ちょうど 1 回だけ呼び出され、転送されたすべてのインターフェースはそのファクトリーによって生成された同じインスタンスに解決されます。
+
+`Factory` は open generic クラスには使用できません。Microsoft.Extensions.DependencyInjection には open generic 向けのファクトリーベースの登録 API が存在しないためです（`SSAL013`）。
+
 ## Attribute リファレンス
 
-`[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
+`[Service(lifetime, As = ..., Mode = ..., Key = ..., Factory = ...)]`
 
 | プロパティ   | 型                  | 既定値                        | 説明                                                                                     |
 |------------|----------------------|-------------------------------|--------------------------------------------------------------------------------------------|
@@ -144,6 +187,7 @@ Open generic クラス `C<T1, ..., Tn>` は、次のいずれかとしてのみ�
 | `As`       | `Type?`              | `null`                        | 実装している全インターフェース（または自分自身）の代わりに、指定した型としてのみ登録します。      |
 | `Mode`     | `RegistrationMode`   | `RegistrationMode.Add`        | `Add`、`TryAdd`、`TryAddEnumerable`、`Replace` のいずれかで、登録の適用方法を指定します。       |
 | `Key`      | `object?`            | `null`                        | 指定すると `Add*` の代わりに `AddKeyed*` を使用し、キー付きサービスとして登録します（.NET 8+）。 |
+| `Factory`  | `string?`            | `null`                        | 実装インスタンスを生成する、登録対象のクラスに宣言された静的ファクトリーメソッドの名前です。[ファクトリーメソッド](#ファクトリーメソッド)を参照してください。 |
 
 1 つのクラスに `[Service]` を複数付与することで、異なる lifetime や `As` の対象、キーを同時に指定して複数の方法で登録することもできます。
 
@@ -163,6 +207,10 @@ Open generic クラス `C<T1, ..., Tn>` は、次のいずれかとしてのみ�
 | `SSAL008` | Error     | `[Service]` に定義されていない `ServiceLifetime` または `RegistrationMode` の値（例: `(ServiceLifetime)42`）が指定されました。 |
 | `SSAL009` | Error     | Open generic クラスは、自分自身として、または型引数がそのクラス自身の型パラメーターと順序まで完全に一致する実装インターフェース／基底型としてのみ登録できます —— closed な型、順序が異なる、または一部だけの型引数、ラップされた型引数は拒否されます。 |
 | `SSAL010` | Warning   | Open generic クラスが `Singleton` または `Scoped` として 2 つ以上のサービス型に登録されています —— open generic の登録はファクトリー転送を使用できないため、各サービス型はそれぞれ別のインスタンスとして解決されます。 |
+| `SSAL011` | Error     | `Factory` に指定した名前の ordinary メソッドが、登録対象のクラスに直接宣言されていません（空文字列の `Factory` 値もこれに該当します）。 |
+| `SSAL012` | Error     | `Factory` に指定した名前のメソッドは 1 つ以上存在しますが、そのいずれも static・非ジェネリックで、引数なしまたは `IServiceProvider` 引数を 1 つだけ持ち、登録対象のクラスを厳密に返すという、使用可能なシグネチャを満たしていません。 |
+| `SSAL013` | Error     | `Factory` は open generic クラスには使用できません —— Microsoft.Extensions.DependencyInjection には open generic 向けのファクトリーベースの登録 API が存在しません。 |
+| `SSAL014` | Error     | 選択された `Factory` メソッドが、生成されたコードからアクセスできません —— 少なくとも `internal` である必要があります。 |
 
 ## ライセンス
 
