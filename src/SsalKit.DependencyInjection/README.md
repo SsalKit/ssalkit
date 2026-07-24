@@ -104,6 +104,36 @@ A `Singleton` or `Scoped` service that implements multiple interfaces is registe
 
 `Mode = RegistrationMode.TryAddEnumerable` cannot use the forwarding pattern above, because Microsoft.Extensions.DependencyInjection has no way to inspect the implementation type behind a factory-based descriptor when checking for an existing duplicate. Instead, the generator emits an independent descriptor per interface (`ServiceDescriptor.<Lifetime><TService, TImpl>`) — which means **interfaces registered this way do not share an instance**.
 
+## Open generics
+
+`[Service]` also works on **open generic** classes. Instead of the closed generic-argument overloads, the generator emits the `Type`-based (`typeof(...)`) registration overloads:
+
+```csharp
+[Service(ServiceLifetime.Singleton)]
+public class Repository<T> : IRepository<T> { }
+```
+
+emits:
+
+```csharp
+services.AddSingleton(typeof(IRepository<>), typeof(Repository<>));
+```
+
+### Exact-match rule
+
+An open generic class `C<T1, ..., Tn>` can only be registered against:
+
+- itself (self registration, when it implements no interfaces), or
+- an implemented interface or base type `S<T1, ..., Tn>` whose type arguments are *exactly* `C`'s own type parameters, in the same declaration order.
+
+Anything else — a closed service type (`IRepository<string>`), a reordered (`IPair<V, K>`) or partial (`IPair<T>`) type argument list, a non-generic interface, or a service type that wraps the type parameter (`IRepository<IEnumerable<T>>`) — is rejected at compile time (`SSAL009`). `As = typeof(IRepository<>)` (an unbound generic `typeof`) is supported as an explicit override and is checked against the same rule.
+
+Keyed services (`Key = ...`) and all four `RegistrationMode` values (`Add`, `TryAdd`, `TryAddEnumerable`, `Replace`) are supported for open generics exactly as for closed types.
+
+> Microsoft.Extensions.DependencyInjection cannot use a factory delegate for an open generic registration, so the forwarding pattern described above isn't available here. An open generic class registered under two or more service types as `Singleton` or `Scoped` gets one independent `typeof`-based registration per service type — resolving different service types does **not** yield the same shared instance (`SSAL010` warns about this).
+
+A class nested inside a generic type is not supported as a `[Service]` target, even when the nested class has no type parameters of its own (`SSAL003`).
+
 ## Attribute Reference
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
@@ -125,12 +155,14 @@ The generator validates your `[Service]` usage at compile time:
 |----------|----------|-------------------------------------------------------------------------------|
 | `SSAL001`| Error    | `[Service]` was applied to an abstract or static class.                       |
 | `SSAL002`| Error    | The type specified in `As` is not implemented by the decorated class.         |
-| `SSAL003`| Error    | Open generic types are not supported.                                         |
+| `SSAL003`| Error    | `[Service]` was applied to a class nested inside a generic type; open generic support requires all of a class's generic context to be its own type parameters. |
 | `SSAL004`| Warning  | The same service registration appears to be duplicated.                       |
 | `SSAL005`| Error    | `Key` was combined with `RegistrationMode.TryAddEnumerable`, which is not a supported combination. |
 | `SSAL006`| Error    | `RegistrationMode.TryAddEnumerable` cannot register a type as itself — MS DI can't tell duplicates apart without a distinct service type; implement an interface or set `As` explicitly. |
 | `SSAL007`| Error    | Every type the generated code would need to reference — the decorated class, its service type(s), a `typeof(...)` `Key` value, and any generic type arguments, including all containing types — must be at least `internal` and not file-local. Also rejected: a type only reachable through an `extern alias` (no `global` alias), and another assembly's `protected internal` type without `[InternalsVisibleTo]`. |
 | `SSAL008`| Error    | An undefined `ServiceLifetime` or `RegistrationMode` value (e.g. `(ServiceLifetime)42`) was supplied to `[Service]`. |
+| `SSAL009`| Error    | An open generic class can only be registered as itself or as an implemented interface/base type whose type arguments are exactly its own type parameters, in order; closed, reordered, partial, or wrapped type arguments are rejected. |
+| `SSAL010`| Warning  | An open generic class is registered under two or more service types as `Singleton` or `Scoped`; each service type resolves to a separate instance because open generic registrations can't use forwarding factories. |
 
 ## License
 

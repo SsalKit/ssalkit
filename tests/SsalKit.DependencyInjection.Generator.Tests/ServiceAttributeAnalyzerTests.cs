@@ -115,13 +115,39 @@ public class ServiceAttributeAnalyzerTests
     }
 
     [Fact]
-    public async Task SSAL003_GenericClass_ReportsError()
+    public async Task SSAL003_ClassNestedInsideGenericType_OwnArityZero_ReportsError()
     {
+        // A non-generic class (own arity 0) nested inside a generic type still carries the
+        // container's type parameters and cannot be registered.
         const string source = Usings + """
             namespace TestNs;
 
-            [Service]
-            public class Foo<T> { }
+            public class Outer<T>
+            {
+                [Service]
+                public class Inner { }
+            }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("SSAL003", diagnostic.Id);
+    }
+
+    [Fact]
+    public async Task SSAL003_ClassNestedInsideGenericType_OwnArityGreaterThanZero_ReportsError()
+    {
+        // An open generic class (own arity > 0) nested inside a generic type still carries the
+        // container's type parameters in addition to its own and cannot be registered.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public class Outer<T>
+            {
+                [Service]
+                public class Inner<U> { }
+            }
             """;
 
         var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
@@ -138,6 +164,23 @@ public class ServiceAttributeAnalyzerTests
 
             [Service]
             public class Foo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL003");
+    }
+
+    [Fact]
+    public async Task SSAL003_OpenGenericClass_NonGenericContainer_DoesNotReport()
+    {
+        // The new, supported shape: own arity > 0, but no containing type has type parameters of
+        // its own.
+        const string source = Usings + """
+            namespace TestNs;
+
+            [Service]
+            public class Foo<T> { }
             """;
 
         var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);

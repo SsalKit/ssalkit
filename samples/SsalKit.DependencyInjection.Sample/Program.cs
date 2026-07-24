@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SsalKit.DependencyInjection.Sample.Services.Clock;
 using SsalKit.DependencyInjection.Sample.Services.Greeting;
 using SsalKit.DependencyInjection.Sample.Services.Messaging;
+using SsalKit.DependencyInjection.Sample.Services.Repository;
 using SsalKit.DependencyInjection.Sample.Services.Session;
 
 var services = new ServiceCollection();
@@ -68,3 +69,21 @@ using (var scopeB = provider.CreateScope())
     Console.WriteLine($"                 scope A session id: {sessionA1.SessionId}");
     Console.WriteLine($"                 scope B session id: {sessionB.SessionId}");
 }
+Console.WriteLine();
+
+// Open generic: Repository<T> is [Service]'d once, but MEDI resolves and caches a separate
+// Singleton instance per closed T requested -- IRepository<Order> and IRepository<Customer> are
+// independent, and asking for IRepository<Order> twice returns the exact same instance.
+var orderRepository = provider.GetRequiredService<IRepository<Order>>();
+var orderRepositoryAgain = provider.GetRequiredService<IRepository<Order>>();
+var customerRepository = provider.GetRequiredService<IRepository<Customer>>();
+
+orderRepository.Add(new Order(1, "Keyboard"));
+orderRepository.Add(new Order(2, "Mouse"));
+customerRepository.Add(new Customer(1, "Ada"));
+
+Console.WriteLine("[Open generic]   IRepository<T>");
+Console.WriteLine($"                 IRepository<Order> -> same instance every time: {ReferenceEquals(orderRepository, orderRepositoryAgain)}");
+Console.WriteLine($"                 IRepository<Order> vs IRepository<Customer> -> distinct instances: {!ReferenceEquals(orderRepository, customerRepository)}");
+Console.WriteLine($"                 orders: [{string.Join(", ", orderRepository.GetAll())}]");
+Console.WriteLine($"                 customers: [{string.Join(", ", customerRepository.GetAll())}]");

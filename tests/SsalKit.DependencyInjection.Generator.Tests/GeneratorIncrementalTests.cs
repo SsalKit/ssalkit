@@ -25,6 +25,18 @@ public class GeneratorIncrementalTests
         public class Foo : IFoo { }
         """;
 
+    private const string OpenGenericSource = """
+        using SsalKit.DependencyInjection;
+        using Microsoft.Extensions.DependencyInjection;
+
+        namespace TestNs;
+
+        public interface IRepo<T> { }
+
+        [Service]
+        public class Repo<T> : IRepo<T> { }
+        """;
+
     [Fact]
     public void UnrelatedSyntaxTreeAddition_ReusesCollectedClassesAndCombinedSteps()
     {
@@ -38,6 +50,32 @@ public class GeneratorIncrementalTests
 
         // A meaning-nothing change: add a brand new syntax tree with no [Service] attributes.
         // The class-registration pipeline's output should be entirely unaffected.
+        var compilation2 = compilation1.AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
+        driver = driver.RunGenerators(compilation2);
+
+        var runResult = driver.GetRunResult();
+        var trackedSteps = runResult.Results.Single().TrackedSteps;
+
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedClasses);
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+    }
+
+    [Fact]
+    public void OpenGenericClass_UnrelatedSyntaxTreeAddition_ReusesCollectedClassesAndCombinedSteps()
+    {
+        // The open generic model (IsOpenGeneric flag, typeof-form FQN strings) must be just as
+        // cacheable as the closed-class model: it is still strings/primitives only, so
+        // EquatableArray/record value-equality should let the pipeline skip recomputation exactly
+        // as it does for a closed class.
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new[] { generator.AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(OpenGenericSource);
+        driver = driver.RunGenerators(compilation1);
+
         var compilation2 = compilation1.AddSyntaxTrees(
             CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
         driver = driver.RunGenerators(compilation2);

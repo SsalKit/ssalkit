@@ -33,9 +33,10 @@ internal static class TypeAccessibilityChecker
             IPointerTypeSymbol pointerType => IsAccessible(pointerType.PointedAtType, compilation),
             IFunctionPointerTypeSymbol functionPointerType => IsFunctionPointerAccessible(functionPointerType, compilation),
             // A type parameter has no accessibility of its own and is always fine to reference.
-            // In practice this is unreachable for a resolved service/key type here (the decorated
-            // class is never itself an open generic -- see SSAL003 -- so every type argument it can
-            // contribute is closed), but is handled defensively for robustness.
+            // Reached in practice for an open generic class's own definition (its "type arguments"
+            // are its own type parameters) and for an implemented interface/base type instantiated
+            // with those same type parameters (see SSAL009's exact-match rule) -- as well as
+            // defensively for any other path that might one day contribute a type parameter here.
             ITypeParameterSymbol => true,
             // `dynamic` and any other exotic symbol kind that could in principle reach here via a
             // `typeof(...)` Key: none of these have a meaningful "containing type" accessibility

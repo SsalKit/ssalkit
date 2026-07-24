@@ -29,12 +29,12 @@ internal static class DiagnosticDescriptors
 
     public static readonly DiagnosticDescriptor GenericClassNotSupported = new(
         id: "SSAL003",
-        title: "[Service] cannot be applied to an open generic class",
-        messageFormat: "[Service] cannot be applied to '{0}' because open generic classes are not supported",
+        title: "[Service] cannot be applied to a class nested inside a generic type",
+        messageFormat: "[Service] cannot be applied to '{0}' because it is nested inside a generic type; a generic class is only supported when all of its type parameters are its own",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
-        description: "Registering open generic services is not supported in this version of the generator.");
+        description: "Open generic support only covers classes whose generic context is entirely their own type parameter list. A class nested inside a generic type carries its containing type's parameters and cannot be registered.");
 
     public static readonly DiagnosticDescriptor DuplicateRegistration = new(
         id: "SSAL004",
@@ -81,4 +81,22 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "The Lifetime and Mode arguments of [Service] must be one of the values defined by ServiceLifetime/RegistrationMode; an out-of-range value (e.g. from an explicit numeric cast) is silently mishandled otherwise.");
+
+    public static readonly DiagnosticDescriptor OpenGenericServiceTypeNotExactMatch = new(
+        id: "SSAL009",
+        title: "Open generic service type must use the class's own type parameters",
+        messageFormat: "'{0}' cannot be registered as '{1}' because an open generic class can only be registered as itself or as an implemented interface or base class whose type arguments are exactly the class's own type parameters in declaration order",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Microsoft.Extensions.DependencyInjection resolves an open generic registration by substituting the requested service type's arguments positionally into the implementation type. Any other shape (a closed or non-generic service type, reordered, partially used, or nested type arguments) either cannot be constructed or produces a type that does not implement the requested service, so it is rejected at compile time.");
+
+    public static readonly DiagnosticDescriptor OpenGenericInstanceNotShared = new(
+        id: "SSAL010",
+        title: "Open generic registrations do not share an instance across service types",
+        messageFormat: "'{0}' is registered as {1} service types as an open generic; each closed service type will resolve to a separate instance because open generic registrations cannot use forwarding factories",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "For a non-generic class, a Singleton/Scoped registration against multiple service types shares one instance via forwarding factories. Open generic registrations cannot use factories, so every service type gets an independent registration and instances are not shared. Suppress this warning if separate instances are intended.");
 }

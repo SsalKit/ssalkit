@@ -104,6 +104,36 @@ var app = builder.Build();
 
 `Mode = RegistrationMode.TryAddEnumerable` では、上記の転送パターンを使用できません。Microsoft.Extensions.DependencyInjection はファクトリーベースのディスクリプターだけでは背後の実装型を判別できず、重複の有無を判断できないためです。代わりにジェネレーターはインターフェースごとに独立したディスクリプター（`ServiceDescriptor.<Lifetime><TService, TImpl>`）を生成します。その結果、**この方式で登録されたインターフェース間ではインスタンスが共有されません**。
 
+## Open generic のサポート
+
+`[Service]` は **open generic** クラスにも適用できます。この場合、ジェネレーターは closed なジェネリック型引数を使うオーバーロードの代わりに、`Type` ベース（`typeof(...)`）の登録オーバーロードを生成します。
+
+```csharp
+[Service(ServiceLifetime.Singleton)]
+public class Repository<T> : IRepository<T> { }
+```
+
+次のように生成されます。
+
+```csharp
+services.AddSingleton(typeof(IRepository<>), typeof(Repository<>));
+```
+
+### 完全一致ルール（exact-match rule）
+
+Open generic クラス `C<T1, ..., Tn>` は、次のいずれかとしてのみ登録できます。
+
+- 自分自身（実装しているインターフェースがない場合の self registration）、または
+- 型引数が `C` の型パラメーターと宣言順まで *完全に* 一致する、実装しているインターフェースまたは基底型 `S<T1, ..., Tn>`。
+
+それ以外の形——closed なサービス型（`IRepository<string>`）、順序が入れ替わった（`IPair<V, K>`）または一部だけを使った（`IPair<T>`）型引数、non-generic なインターフェース、型パラメーターをラップしたサービス型（`IRepository<IEnumerable<T>>`）——はすべてコンパイル時に拒否されます（`SSAL009`）。`As = typeof(IRepository<>)`（unbound generic な `typeof`）を明示的に指定することもサポートされており、同じルールで検証されます。
+
+キー付きサービス（`Key = ...`）と 4 種類の `RegistrationMode`（`Add`、`TryAdd`、`TryAddEnumerable`、`Replace`）はすべて、closed な型と同様に open generic でもそのまま利用できます。
+
+> Microsoft.Extensions.DependencyInjection は open generic の登録にファクトリーデリゲートを使用できないため、上記の転送パターンはここでは利用できません。Open generic クラスが `Singleton` または `Scoped` として 2 つ以上のサービス型に登録されている場合、サービス型ごとに独立した `typeof` ベースの登録が 1 つずつ生成されます —— つまり、異なるサービス型を resolve しても同じインスタンスは共有され**ません**（これを `SSAL010` が警告します）。
+
+ジェネリック型の中にネストされたクラスは `[Service]` の対象としてサポートされません。ネストされたクラス自身に型パラメーターがない場合も同様です（`SSAL003`）。
+
 ## Attribute リファレンス
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ...)]`
@@ -125,12 +155,14 @@ var app = builder.Build();
 |-----------|-----------|-------------------------------------------------------------------------------------|
 | `SSAL001` | Error     | `[Service]` が abstract クラスまたは static クラスに付与されています。                  |
 | `SSAL002` | Error     | `As` に指定した型を、そのクラスが実装していません。                                     |
-| `SSAL003` | Error     | Open generic 型はサポートされていません。                                              |
+| `SSAL003` | Error     | `[Service]` がジェネリック型の中にネストされたクラスに付与されています —— open generic のサポートは、クラスのジェネリックコンテキスト全体がそのクラス自身の型パラメーターであることを前提とします。 |
 | `SSAL004` | Warning   | 同じサービス登録が重複しているように見えます。                                          |
 | `SSAL005` | Error     | `Key` と `RegistrationMode.TryAddEnumerable` は同時に指定できない組み合わせです。         |
 | `SSAL006` | Error     | `RegistrationMode.TryAddEnumerable` では型を自分自身として登録できません — MS DI は異なるサービス型なしには重複を判別できないため、インターフェースを実装するか `As` を明示してください。 |
 | `SSAL007` | Error     | 生成されたコードが参照することになるすべての型 —— 登録対象のクラス、サービス型、`typeof(...)` の `Key` 値、ジェネリック型引数、およびそれらのすべての containing type —— は `internal` 以上のアクセシビリティを持ち、file-local であってはなりません。`extern alias` 経由でしか参照できないアセンブリの型、および `[InternalsVisibleTo]` のない他アセンブリの `protected internal` 型も拒否されます。 |
 | `SSAL008` | Error     | `[Service]` に定義されていない `ServiceLifetime` または `RegistrationMode` の値（例: `(ServiceLifetime)42`）が指定されました。 |
+| `SSAL009` | Error     | Open generic クラスは、自分自身として、または型引数がそのクラス自身の型パラメーターと順序まで完全に一致する実装インターフェース／基底型としてのみ登録できます —— closed な型、順序が異なる、または一部だけの型引数、ラップされた型引数は拒否されます。 |
+| `SSAL010` | Warning   | Open generic クラスが `Singleton` または `Scoped` として 2 つ以上のサービス型に登録されています —— open generic の登録はファクトリー転送を使用できないため、各サービス型はそれぞれ別のインスタンスとして解決されます。 |
 
 ## ライセンス
 
