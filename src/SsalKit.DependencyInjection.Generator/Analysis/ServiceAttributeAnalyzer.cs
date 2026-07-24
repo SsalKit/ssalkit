@@ -10,7 +10,7 @@ using SsalKit.DependencyInjection.Generator.Parsing;
 namespace SsalKit.DependencyInjection.Generator.Analysis;
 
 /// <summary>
-/// Reports diagnostics SSAL001-SSAL010 for invalid or conflicting uses of
+/// Reports diagnostics SSAL001-SSAL014 for invalid or conflicting uses of
 /// <c>[SsalKit.DependencyInjection.Service]</c>.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -28,7 +28,11 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.InaccessibleType,
         DiagnosticDescriptors.UndefinedEnumValue,
         DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
-        DiagnosticDescriptors.OpenGenericInstanceNotShared);
+        DiagnosticDescriptors.OpenGenericInstanceNotShared,
+        DiagnosticDescriptors.FactoryMethodNotFound,
+        DiagnosticDescriptors.FactoryMethodInvalid,
+        DiagnosticDescriptors.FactoryOnOpenGenericNotSupported,
+        DiagnosticDescriptors.FactoryMethodInaccessible);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -157,6 +161,15 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        // SSAL011/SSAL012/SSAL013/SSAL014: resolve an explicit 'Factory'. Independent of Key/Mode/
+        // As, so it is checked here, before service-type resolution, in lockstep with
+        // ServiceAttributeParser.
+        var factoryName = AttributeArgumentReader.GetFactoryName(attributeData);
+        if (factoryName is not null && !TryReportFactoryDiagnostic(context, classSymbol, factoryName, location, implementationTypeFqn))
+        {
+            return;
+        }
+
         if (!TryResolveServiceTypes(context, classSymbol, attributeData, implementationTypeFqn, location, out var serviceTypeSymbols, out var serviceTypeFqns))
         {
             return;
@@ -242,6 +255,50 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 : serviceTypeFqns[i];
 
             records.Add(new RegistrationRecord(recordServiceTypeFqn, recordImplementationTypeFqn, keyIdentity, location));
+        }
+    }
+
+    /// <summary>
+    /// Resolves an explicit <c>Factory</c> named argument via the shared
+    /// <see cref="FactoryMethodResolver"/> and reports the corresponding diagnostic (SSAL011-
+    /// SSAL014) if resolution did not succeed. Mirrors
+    /// <c>ServiceAttributeParser.TryResolveFactory</c>'s validation exactly.
+    /// </summary>
+    /// <returns><see langword="true"/> if resolution succeeded (nothing reported); otherwise <see langword="false"/>.</returns>
+    private static bool TryReportFactoryDiagnostic(
+        SymbolAnalysisContext context,
+        INamedTypeSymbol classSymbol,
+        string factoryName,
+        Location location,
+        string implementationTypeFqn)
+    {
+        var resolution = FactoryMethodResolver.Resolve(classSymbol, factoryName, classSymbol.Arity > 0);
+
+        switch (resolution.Kind)
+        {
+            case FactoryResolutionKind.Success:
+                return true;
+
+            case FactoryResolutionKind.OpenGenericNotSupported:
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.FactoryOnOpenGenericNotSupported, location, implementationTypeFqn));
+                return false;
+
+            case FactoryResolutionKind.NotFound:
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.FactoryMethodNotFound, location, factoryName, implementationTypeFqn));
+                return false;
+
+            case FactoryResolutionKind.Invalid:
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.FactoryMethodInvalid, location, factoryName, implementationTypeFqn));
+                return false;
+
+            case FactoryResolutionKind.Inaccessible:
+            default:
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.FactoryMethodInaccessible, location, implementationTypeFqn, factoryName));
+                return false;
         }
     }
 

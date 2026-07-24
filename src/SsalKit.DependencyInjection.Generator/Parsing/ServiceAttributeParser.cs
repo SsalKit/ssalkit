@@ -99,6 +99,14 @@ internal static class ServiceAttributeParser
             return null;
         }
 
+        // SSAL011/SSAL012/SSAL013/SSAL014: resolve (or drop the entry for) an explicit 'Factory'.
+        // Independent of Key/Mode/As, so it is checked here, before service-type resolution, in
+        // lockstep with ServiceAttributeAnalyzer.
+        if (!TryResolveFactory(classSymbol, isOpenGeneric, attributeData, out var factory))
+        {
+            return null;
+        }
+
         // SSAL002/SSAL009: the class must implement/derive the explicitly requested (or, absent an
         // explicit "As", implicitly resolved) service type(s); for an open generic class, each
         // resolved service type must additionally be an exact-match shape (SSAL009).
@@ -143,7 +151,38 @@ internal static class ServiceAttributeParser
             return null;
         }
 
-        return new RegistrationEntryModel(serviceTypeFqns.ToEquatableArray(), lifetime, mode, key, isOpenGeneric);
+        return new RegistrationEntryModel(serviceTypeFqns.ToEquatableArray(), lifetime, mode, key, isOpenGeneric, factory);
+    }
+
+    /// <summary>
+    /// Resolves the <c>Factory</c> named argument, if any, mirroring
+    /// <c>ServiceAttributeAnalyzer</c>'s validation exactly (via the shared
+    /// <see cref="FactoryMethodResolver"/>) but dropping the entry silently instead of reporting a
+    /// diagnostic: no <c>Factory</c> argument is always valid (<paramref name="factory"/> is
+    /// <see cref="FactoryModel.None"/>); an open generic class with a <c>Factory</c> (SSAL013), a
+    /// name that matches no ordinary method (SSAL011), a name whose methods are all unusable
+    /// (SSAL012), or a usable method that isn't accessible from generated code (SSAL014) all fail
+    /// the whole attribute application.
+    /// </summary>
+    private static bool TryResolveFactory(
+        INamedTypeSymbol classSymbol, bool isOpenGeneric, AttributeData attributeData, out FactoryModel factory)
+    {
+        var factoryName = AttributeArgumentReader.GetFactoryName(attributeData);
+        if (factoryName is null)
+        {
+            factory = FactoryModel.None;
+            return true;
+        }
+
+        var resolution = FactoryMethodResolver.Resolve(classSymbol, factoryName, isOpenGeneric);
+        if (resolution.Kind != FactoryResolutionKind.Success)
+        {
+            factory = FactoryModel.None;
+            return false;
+        }
+
+        factory = new FactoryModel(true, factoryName, resolution.AcceptsServiceProvider);
+        return true;
     }
 
     /// <summary>

@@ -37,6 +37,41 @@ public class GeneratorIncrementalTests
         public class Repo<T> : IRepo<T> { }
         """;
 
+    private const string FactorySourceOriginalBody = """
+        using SsalKit.DependencyInjection;
+        using Microsoft.Extensions.DependencyInjection;
+
+        namespace TestNs;
+
+        public interface IFoo { }
+
+        [Service(Factory = nameof(Foo.Create))]
+        public class Foo : IFoo
+        {
+            public static Foo Create() => new Foo();
+        }
+        """;
+
+    private const string FactorySourceEditedBody = """
+        using SsalKit.DependencyInjection;
+        using Microsoft.Extensions.DependencyInjection;
+
+        namespace TestNs;
+
+        public interface IFoo { }
+
+        [Service(Factory = nameof(Foo.Create))]
+        public class Foo : IFoo
+        {
+            public static Foo Create()
+            {
+                // Body changed; the signature -- and therefore the resolved FactoryModel -- is
+                // identical, so this must not invalidate the pipeline's collected/combined output.
+                return new Foo();
+            }
+        }
+        """;
+
     [Fact]
     public void UnrelatedSyntaxTreeAddition_ReusesCollectedClassesAndCombinedSteps()
     {
@@ -78,6 +113,33 @@ public class GeneratorIncrementalTests
 
         var compilation2 = compilation1.AddSyntaxTrees(
             CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
+        driver = driver.RunGenerators(compilation2);
+
+        var runResult = driver.GetRunResult();
+        var trackedSteps = runResult.Results.Single().TrackedSteps;
+
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedClasses);
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+    }
+
+    [Fact]
+    public void FactoryMethodBodyEdit_ReusesCollectedClassesAndCombinedSteps()
+    {
+        // Editing the factory method's *body* (not its signature) must still re-run the "Classes"
+        // transform for this class -- the target syntax node changed -- but the resulting
+        // FactoryModel (method name + AcceptsServiceProvider, both primitives) is unaffected by a
+        // body-only edit, so record equality lets downstream stages skip recomputation entirely.
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new[] { generator.AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(FactorySourceOriginalBody);
+        driver = driver.RunGenerators(compilation1);
+
+        var oldTree = compilation1.SyntaxTrees.Single();
+        var newTree = CSharpSyntaxTree.ParseText(FactorySourceEditedBody, new CSharpParseOptions(LanguageVersion.Latest));
+        var compilation2 = compilation1.ReplaceSyntaxTree(oldTree, newTree);
         driver = driver.RunGenerators(compilation2);
 
         var runResult = driver.GetRunResult();

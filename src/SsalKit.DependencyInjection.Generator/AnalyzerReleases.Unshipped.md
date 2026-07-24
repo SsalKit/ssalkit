@@ -10,6 +10,10 @@ SSAL007 | SsalKit.DependencyInjection | Error    | [Service] type must be access
 SSAL008 | SsalKit.DependencyInjection | Error    | Undefined enum value on [Service]
 SSAL009 | SsalKit.DependencyInjection | Error    | Open generic service type must use the class's own type parameters
 SSAL010 | SsalKit.DependencyInjection | Warning  | Open generic registrations do not share an instance across service types
+SSAL011 | SsalKit.DependencyInjection | Error    | 'Factory' method not found
+SSAL012 | SsalKit.DependencyInjection | Error    | 'Factory' method has an unusable signature
+SSAL013 | SsalKit.DependencyInjection | Error    | 'Factory' cannot be used on an open generic class
+SSAL014 | SsalKit.DependencyInjection | Error    | 'Factory' method is not accessible to generated code
 
 ; SSAL003's title/message/description were revised to reflect its narrowed scope (a class nested
 ; inside a generic type, rather than every open generic class), but its ID, category, and severity
