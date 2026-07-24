@@ -12,6 +12,7 @@
 | パッケージ | NuGet | 説明 | ドキュメント |
 |---------|-------|-------------|------|
 | `SsalKit.DependencyInjection` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.DependencyInjection.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.DependencyInjection) | Roslyn ソースジェネレーターによるコンパイル時 DI 自動登録ライブラリ。 | [README](src/SsalKit.DependencyInjection/README.ja.md) |
+| `SsalKit.Randomness` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness) | 決定的・状態シリアライズ可能な PRNG（xoshiro256\*\* + SplitMix64）と重み付きランダム抽選ライブラリ。 | [README](src/SsalKit.Randomness/README.ja.md) |
 
 ## 名前の由来
 

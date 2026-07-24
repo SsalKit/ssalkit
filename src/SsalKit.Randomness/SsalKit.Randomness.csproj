@@ -10,10 +10,15 @@
     <Description>Deterministic, state-serializable PRNG (xoshiro256** + SplitMix64) with a unified random-source abstraction and weighted-random sampling. Zero dependencies.</Description>
     <PackageDescription>Deterministic, state-serializable PRNG (xoshiro256** + SplitMix64) with a unified random-source abstraction and weighted-random sampling. Zero dependencies.</PackageDescription>
     <PackageTags>random;prng;deterministic;xoshiro;weighted-random;seedable;game</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="SsalKit.Randomness.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
