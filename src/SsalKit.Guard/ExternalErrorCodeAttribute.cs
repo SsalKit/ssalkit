@@ -35,30 +35,21 @@ namespace SsalKit.Guard;
 /// public static partial class GameErrors;
 /// </code>
 /// </example>
+/// <param name="exceptionType">
+/// The exception type being registered. It must derive from <see cref="Exception"/>.
+/// </param>
+/// <param name="code">The error code that exception type maps to.</param>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public sealed class ExternalErrorCodeAttribute<TCode> : Attribute
+public sealed class ExternalErrorCodeAttribute<TCode>(Type exceptionType, TCode code) : Attribute
     where TCode : struct, Enum
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="ExternalErrorCodeAttribute{TCode}"/> class.
-    /// </summary>
-    /// <param name="exceptionType">
-    /// The exception type being registered. It must derive from <see cref="Exception"/>.
-    /// </param>
-    /// <param name="code">The error code that exception type maps to.</param>
-    public ExternalErrorCodeAttribute(Type exceptionType, TCode code)
-    {
-        ExceptionType = exceptionType;
-        Code = code;
-    }
-
-    /// <summary>
     /// Gets the exception type being registered.
     /// </summary>
-    public Type ExceptionType { get; }
+    public Type ExceptionType { get; } = exceptionType;
 
     /// <summary>
     /// Gets the error code the registered exception type maps to.
     /// </summary>
-    public TCode Code { get; }
+    public TCode Code { get; } = code;
 }

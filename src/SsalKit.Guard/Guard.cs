@@ -299,17 +299,8 @@ public static class Guard
     /// exception that names the clause instead.
     /// </remarks>
     private static Exception Materialize(Func<Exception> exceptionFactory, string guardName)
-    {
-        Exception? exception = exceptionFactory();
-
-        if (exception is null)
-        {
-            return new GuardViolationException(
-                $"Guard.{guardName} failed, but the supplied exception factory returned null.");
-        }
-
-        return exception;
-    }
+        => exceptionFactory() ?? new GuardViolationException(
+            $"Guard.{guardName} failed, but the supplied exception factory returned null.");
 
     /// <summary>
     /// Composes the failure message for a clause. Called only after a check has already failed.

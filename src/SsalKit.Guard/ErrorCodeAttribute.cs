@@ -39,18 +39,13 @@ namespace SsalKit.Guard;
 /// }
 /// </code>
 /// </example>
+/// <param name="code">The error code the decorated exception type maps to.</param>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-public sealed class ErrorCodeAttribute<TCode> : Attribute
+public sealed class ErrorCodeAttribute<TCode>(TCode code) : Attribute
     where TCode : struct, Enum
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="ErrorCodeAttribute{TCode}"/> class.
-    /// </summary>
-    /// <param name="code">The error code the decorated exception type maps to.</param>
-    public ErrorCodeAttribute(TCode code) => Code = code;
-
-    /// <summary>
     /// Gets the error code the decorated exception type maps to.
     /// </summary>
-    public TCode Code { get; }
+    public TCode Code { get; } = code;
 }
