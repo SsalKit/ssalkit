@@ -3,7 +3,9 @@ namespace SsalKit.Randomness;
 /// <summary>
 /// Weighted-random-pick extension methods for any <see cref="IRandomSource"/>: single-shot
 /// weighted selection (<see cref="long"/> and <see cref="double"/> weights), batched selection
-/// with replacement, and batched selection without replacement.
+/// with replacement, and batched selection without replacement — plus
+/// <see cref="ToWeightedSampler{T}"/>, a type-inferring way to build a
+/// <see cref="WeightedSampler{T}"/> from a weighted item list.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -405,6 +407,49 @@ public static class WeightedRandomExtensions
 
         return result;
     }
+
+    // ---------------------------------------------------------------------
+    // Sampler construction
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Builds a <see cref="WeightedSampler{T}"/> over <paramref name="items"/>, weighted by
+    /// <paramref name="weight"/>, for repeated <c>O(1)</c> draws from a fixed item set.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A thin, inference-friendly wrapper over
+    /// <see cref="WeightedSampler{T}.Create(IReadOnlyList{T}, Func{T, long})"/>: as a static
+    /// factory on a generic class, <c>Create</c> requires the element type to be written out
+    /// (<c>WeightedSampler&lt;LootEntry&gt;.Create(...)</c>), while this extension infers it from
+    /// the receiver. Validation, the alias-table construction, and the entire exception contract
+    /// live in <c>Create</c> — this method only forwards.
+    /// </para>
+    /// <para>
+    /// <b>Build once, draw many.</b> Building the alias table is <c>O(n)</c>; only the draws are
+    /// <c>O(1)</c>. Calling this inside a draw loop rebuilds the table on every iteration and
+    /// negates the reason to use a sampler at all — build one sampler per weighted table, hold on
+    /// to it (it is immutable and thread-safe), and call <see cref="WeightedSampler{T}.Pick"/> on
+    /// it repeatedly. For a single draw, use
+    /// <see cref="PickWeighted{T}(IRandomSource, IReadOnlyList{T}, Func{T, long})"/> instead.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="T">The element type.</typeparam>
+    /// <param name="items">The candidate items. Must not be empty.</param>
+    /// <param name="weight">
+    /// Computes the weight of an item. Must be non-negative for every item, and the sum of all
+    /// weights must be positive. An item with weight 0 is never selected.
+    /// </param>
+    /// <returns>A new, immutable <see cref="WeightedSampler{T}"/>.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="items"/> or <paramref name="weight"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="items"/> is empty; a weight is negative; or the total weight is 0.
+    /// </exception>
+    /// <exception cref="OverflowException">The sum of all weights overflows <see cref="long"/>.</exception>
+    public static WeightedSampler<T> ToWeightedSampler<T>(this IReadOnlyList<T> items, Func<T, long> weight)
+        => WeightedSampler<T>.Create(items, weight);
 
     // ---------------------------------------------------------------------
     // Shared helpers

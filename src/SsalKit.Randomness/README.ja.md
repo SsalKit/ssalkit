@@ -4,7 +4,7 @@
 
 # SsalKit.Randomness
 
-決定的（deterministic）で状態をシリアライズ可能な PRNG（`xoshiro256**` + SplitMix64）と、統一された乱数ソース抽象化、重み付きランダム抽選を提供するライブラリです。依存関係はありません。
+決定的（deterministic）で状態をシリアライズ可能な PRNG（`xoshiro256**` + SplitMix64）と、統一された乱数ソース抽象化、重み付きランダム抽選を提供するライブラリです。`[RandomWeight]` 属性からセレクター不要の抽選拡張をコンパイル時に生成する機能も含みます。依存関係はありません。
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness)
 
 ## なぜ SsalKit.Randomness なのか
@@ -22,6 +22,7 @@ SsalKit.Randomness はアプローチそのものが異なります。
 - **`DeterministicRandom`** は `System.Random` に似た形の sealed な PRNG（`xoshiro256**`）で、256 ビットの全状態を export し、どこにでも（セーブファイル、DB の行、ネットワークパケット）永続化してから復元すれば、どのプラットフォームでも永遠に正確に同じ数列を続けられます。
 - **`IRandomSource`** は決定的・共有（`Random.Shared`）・暗号学的な乱数を 1 つのインターフェースに統一するため、範囲生成・シャッフル・抽選のコードを一度書くだけでそのどれに対しても使えます。
 - **重み付きランダム抽選**（`PickWeighted`、`PickManyWeighted(Distinct)`、`WeightedSampler<T>`）がライブラリに同梱されており、明確な例外契約と、反復抽選向けの `O(1)` alias method サンプラーを備えています。
+- **`[RandomWeight]`** でモデル型の重みメンバーに印を付けると、パッケージに同梱されたソースジェネレーターがセレクターを代わりに書いてくれます。`random.PickWeighted(lootTable, static x => (long)x.Weight)` の代わりに `lootTable.PickWeighted(random)` と書けます。純粋なコンパイル時コード生成なので、リフレクションはなく、AOT・トリミングにも安全です。
 - **依存関係ゼロ。** `PackageReference` なし、BCL のみを使用します。
 
 ## インストール
@@ -58,6 +59,10 @@ string drop = rng.PickWeighted(items.AsSpan(), weights.AsSpan());
 WeightedSampler<string> sampler = WeightedSampler<string>.Create(items, weights.AsSpan());
 string anotherDrop = sampler.Pick(rng);
 string[] tenDrops = sampler.PickMany(rng, count: 10);
+
+// 項目自身が重みを持つ場合: 重みセレクターからビルドでき、項目の型は推論されます。
+(string Name, long Weight)[] loot = [("common", 80), ("rare", 18), ("legendary", 2)];
+var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 ```
 
 ## API 概要
@@ -71,8 +76,114 @@ string[] tenDrops = sampler.PickMany(rng, count: 10);
 | `SharedRandomSource` | `Random.Shared` を用いた `IRandomSource`。スレッドセーフで、`SharedRandomSource.Instance` として提供されます。 |
 | `SystemRandomSource` | 任意の `Random` インスタンスをラップする `IRandomSource` アダプターで、相互運用とテスト用です。 |
 | `RandomSourceExtensions` | `IRandomSource` 向けの均等分布拡張メソッド: `Next`/`NextInt64`/`NextDouble`/`NextSingle`/`NextBoolean`、`Shuffle`、`Pick`。`DeterministicRandom` のインスタンスメソッドとアルゴリズム・出力が完全に一致します。 |
-| `WeightedRandomExtensions` | `PickWeighted`（単発、`long` または `double` の重み、リストまたは span 形式）、`PickManyWeighted`（復元抽出）、`PickManyWeightedDistinct`（非復元抽出）。 |
+| `WeightedRandomExtensions` | `PickWeighted`（単発、`long` または `double` の重み、リストまたは span 形式）、`PickManyWeighted`（復元抽出）、`PickManyWeightedDistinct`（非復元抽出）、および `ToWeightedSampler` — `items.ToWeightedSampler(x => x.Weight)` の形でリストから直接サンプラーをビルドでき、`WeightedSampler<T>.Create` のように型引数を書かなくても項目の型が推論されます。 |
 | `WeightedSampler<T>` | 固定された `long` 重み付き項目集合から繰り返し抽選する際に使う、不変でスレッドセーフな事前ビルド alias method サンプラー。ビルドは `O(n)`、`Pick`/`PickMany` は呼び出しごとに `O(1)`。 |
+| `RandomWeightAttribute` | モデル型の重みプロパティまたはフィールドに付ける属性。パッケージに同梱されたソースジェネレーターが、その型の `IReadOnlyList<T>` に対するセレクター不要の `PickWeighted`/`PickManyWeighted`/`PickManyWeightedDistinct`/`ToWeightedSampler` 拡張をコンパイル時に生成します。 |
+
+## `[RandomWeight]` によるセレクター不要の抽選
+
+ここまでの重み付き API はすべてセレクターを受け取ります。`random.PickWeighted(lootTable, static x => (long)x.Weight)` のように。モデル型に重みメンバーが 1 つしかないのに、呼び出しのたびにこのセレクターを書き続けるのは無駄です。代わりにメンバーへ印を付けましょう。
+
+```csharp
+using SsalKit.Randomness;
+
+namespace Game.Loot;
+
+public sealed class LootEntry
+{
+    public required string ItemId { get; init; }
+
+    [RandomWeight]
+    public long Weight { get; init; }
+}
+```
+
+この属性 1 行がオプトインのすべてです。ジェネレーターはコンパイル時に `LootEntryRandomWeightExtensions` クラスを `LootEntry` と同じ名前空間へ生成するため、その型を使える場所ならすでに拡張メソッドもスコープに入っています。
+
+```csharp
+IReadOnlyList<LootEntry> lootTable = [ /* ... */ ];
+var rng = new DeterministicRandom(seed: 42);
+
+LootEntry drop      = lootTable.PickWeighted(rng);                        // 単発
+LootEntry[] drops   = lootTable.PickManyWeighted(rng, count: 4);          // 復元抽出
+LootEntry[] distinct = lootTable.PickManyWeightedDistinct(rng, count: 3); // 非復元抽出
+
+// alias テーブルを一度だけビルドし、抽選は 1 回あたり O(1)。
+WeightedSampler<LootEntry> sampler = lootTable.ToWeightedSampler();
+LootEntry sampled = sampler.Pick(rng);
+```
+
+レシーバーはコレクションで、乱数ソースは明示的な引数のままです — どのソースから引くかは呼び出し側で見えるべき判断なので、引数なしの `lootTable.PickWeighted()` は型が自ら要求しない限り生成されません（[共有ソースのオーバーロード](#共有ソースのオーバーロード)を参照）。
+
+これを属性として提供する理由は 3 つあります。
+
+- **リフレクションもランタイムディスパッチもありません。** 生成されるメソッドはコンパイル時に書き出される普通の C# コードなので、AOT・トリミングに安全で、コストは手書きのセレクターとまったく同じです。
+- **追加でインストールするものはありません。** ジェネレーターは `SsalKit.Randomness` パッケージ内に analyzer として同梱されています。パッケージを追加すれば属性とジェネレーターの両方が手に入り、依存関係リストは空のままです。
+- **自分でセレクターを書いた場合と挙動が同一です。** 生成された各メソッドは対応するランタイムのオーバーロードへそのまま委譲するため、後述の例外セクションに記載された例外契約がそのまま適用され、同じシードなら同じ抽選結果になります。
+
+### 何が生成されるか
+
+| 重みメンバーの型 | 生成される拡張 |
+|---|---|
+| `sbyte`、`byte`、`short`、`ushort`、`int`、`uint`、`long` | `PickWeighted(source)`、`PickManyWeighted(source, count)`、`PickManyWeightedDistinct(source, count)`、`ToWeightedSampler()` |
+| `float`、`double` | `PickWeighted(source)` のみ — バッチ抽選と alias テーブルによるサンプリングを `long` の重みに対してのみ提供するランタイムの表面をそのまま反映しています |
+| それ以外（`ulong`、`decimal`、enum、null 許容の数値型、数値以外の型） | 生成せず、`SSALR001` を報告 |
+
+`ulong` は意図的に除外しています。`long` へ変換する際にオーバーフローしうるためです。生成される拡張のレシーバーはいずれも `IReadOnlyList<T>` で、`List<T>`・配列・`ImmutableArray<T>` がこれに該当します。遅延シーケンスの場合は先に `.ToList()` を明示的に呼んでください — 重み付き抽選にはインデックスアクセスが必要であり、このライブラリはそのコストを隠しません。
+
+### 可視性
+
+生成されるクラスは既定で `public` ですが、対象の型の実効アクセシビリティが上限になります — したがって `internal` なモデル型なら拡張も自動的に `internal` になり、アクセシビリティの不一致は起きません。public なアセンブリの公開 API 表面にこれらのヘルパーを出したくない場合は、明示的に指定してください。
+
+```csharp
+[RandomWeight(InternalExtensions = true)]
+public long Weight { get; init; }
+```
+
+### 共有ソースのオーバーロード
+
+呼び出しごとにソースを渡すのが正しい既定値ですが、抽選を再現する必要がまったくないモデルにとっては形式的な手間でしかありません。`SharedSourceOverloads = true` を指定すると、`SharedRandomSource.Instance` から引く引数なしのオーバーロードが追加で生成されます。
+
+```csharp
+public sealed class GachaEntry
+{
+    public required string CharacterId { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+IReadOnlyList<GachaEntry> banner = [ /* ... */ ];
+
+GachaEntry pull       = banner.PickWeighted();                        // 共有ソース
+GachaEntry[] tenPull  = banner.PickManyWeighted(count: 10);           // 共有ソース
+GachaEntry[] distinct = banner.PickManyWeightedDistinct(count: 3);    // 共有ソース
+
+GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); // これまで通り使えます
+```
+
+オーバーロードは置き換えではなく追加です。ソースを受け取る形はまったく変わらず、引数なしのメソッドはそれぞれ対応するオーバーロードへ 1 行で委譲するだけなので、検証・例外・抽選の意味は完全に同一です。`ToWeightedSampler()` はもともとソースを受け取らないため変化しません。重みの型のマトリクスも変わらず、`float`/`double` のメンバーは 2 つの形の `PickWeighted` だけを得ます。
+
+既定でオフにしているのは、`SharedRandomSource` がシードを取れず数列を再現できないからであり、引数なしの呼び出しはまさにその事実が呼び出し側から見えない形だからです。オフのままにしておけば、シードによる再現性の上に築いたコードベースに非決定的な抽選が静かに紛れ込むことはありません。オンにする行為は「この型の抽選は再現する必要がない」という型単位の宣言になります — ガチャのバナー、見た目アイテムのドロップテーブル、フレーバーテキストの抽選などです。迷ったらオフのままにして、ソースを渡し続けてください。
+
+### 診断
+
+| ID | 報告される条件 |
+|---|---|
+| `SSALR001` | 重みメンバーの型がサポート対象外（上の表を参照）。 |
+| `SSALR002` | 1 つの型に `[RandomWeight]` メンバーが 2 つ以上宣言されている。 |
+| `SSALR003` | メンバーが `static`、書き込み専用プロパティ、またはインデクサー — 読み取り可能なインスタンスメンバーである必要があります。 |
+| `SSALR004` | メンバー・宣言側の型・外側の型のいずれかが生成されたクラスからアクセスできない（`private`、`protected`、file-local）。 |
+| `SSALR005` | 宣言側の型がジェネリック、またはジェネリック型の中にネストされている。 |
+| `SSALR006` | 宣言側の型が `ref struct` であり、ジェネリック型引数として使えない。 |
+
+6 つはいずれもエラーであり、ある型で 1 つでも発生するとその型については何も生成されません — 部分的な生成はありません。
+
+### 知っておくべきこと
+
+- **重みは通常のプロパティかフィールドとして宣言してください。** ターゲットをリダイレクトする属性表記 — positional record のパラメーターに付ける `[property: RandomWeight]` や、自動プロパティの `[field: RandomWeight]` — はジェネレーターから認識されず、診断も生成コードもないまま静かに無視されます。代わりに `public long Weight { get; init; }`（または通常のフィールド）と書いてください。
+- **継承はたどりません。** base 型に `[RandomWeight]` を付けると、その base 型用の拡張だけが生成されます。`IReadOnlyList<out T>` の共変性のおかげで `List<Derived>` からも呼び出せますが、返される静的な型は base 型なので、`Derived` に戻すにはキャストが必要です。
+- **サンプラーは一度だけビルドしてください。** `ToWeightedSampler()` は `O(n)` で、`O(1)` なのは抽選だけです。抽選ループの中で呼ぶと反復のたびに alias テーブルを作り直すことになり、サンプラーを使う意味そのものがなくなります。重みテーブルごとに 1 つビルドして保持し（不変でスレッドセーフです）、そこから繰り返し引いてください。1 回だけ引くなら `PickWeighted` を使います。
 
 ## パフォーマンス
 

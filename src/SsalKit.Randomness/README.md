@@ -4,7 +4,7 @@
 
 # SsalKit.Randomness
 
-A deterministic, state-serializable PRNG (`xoshiro256**` + SplitMix64) with a unified random-source abstraction and weighted-random sampling. Zero dependencies.
+A deterministic, state-serializable PRNG (`xoshiro256**` + SplitMix64) with a unified random-source abstraction and weighted-random sampling — including selector-less picking generated at compile time from a `[RandomWeight]` attribute. Zero dependencies.
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness)
 
 ## Why SsalKit.Randomness?
@@ -22,6 +22,7 @@ SsalKit.Randomness takes a different approach:
 - **`DeterministicRandom`** is a sealed, `System.Random`-shaped PRNG (`xoshiro256**`) whose full 256-bit state can be exported, persisted anywhere (a save file, a database row, a network packet), and restored to resume the exact same sequence — forever, on any platform.
 - **`IRandomSource`** unifies deterministic, shared (`Random.Shared`), and cryptographic randomness behind one interface, so range generation, shuffling, and picking are written once and work against any of them.
 - **Weighted random sampling** (`PickWeighted`, `PickManyWeighted(Distinct)`, `WeightedSampler<T>`) ships with the library, with a precise exception contract and an `O(1)`-per-draw alias-method sampler for repeated weighted picks.
+- **`[RandomWeight]`** marks a model type's weight member, and a source generator bundled in the package writes the selector for you: `lootTable.PickWeighted(random)` instead of `random.PickWeighted(lootTable, static x => (long)x.Weight)`. Pure compile-time code generation — no reflection, AOT- and trimming-safe.
 - **Zero dependencies.** No `PackageReference`, BCL only.
 
 ## Installation
@@ -58,6 +59,10 @@ string drop = rng.PickWeighted(items.AsSpan(), weights.AsSpan());
 WeightedSampler<string> sampler = WeightedSampler<string>.Create(items, weights.AsSpan());
 string anotherDrop = sampler.Pick(rng);
 string[] tenDrops = sampler.PickMany(rng, count: 10);
+
+// Items that carry their own weight: build from a weight selector, item type inferred.
+(string Name, long Weight)[] loot = [("common", 80), ("rare", 18), ("legendary", 2)];
+var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 ```
 
 ## API Overview
@@ -71,8 +76,114 @@ string[] tenDrops = sampler.PickMany(rng, count: 10);
 | `SharedRandomSource` | `IRandomSource` backed by `Random.Shared`. Thread-safe, exposed as `SharedRandomSource.Instance`. |
 | `SystemRandomSource` | `IRandomSource` adapter over any `Random` instance, for interop and tests. |
 | `RandomSourceExtensions` | Uniform extensions on `IRandomSource`: `Next`/`NextInt64`/`NextDouble`/`NextSingle`/`NextBoolean`, `Shuffle`, `Pick`. Identical algorithm and output to `DeterministicRandom`'s instance methods. |
-| `WeightedRandomExtensions` | `PickWeighted` (single shot, `long` or `double` weights, list or span form), `PickManyWeighted` (with replacement), `PickManyWeightedDistinct` (without replacement). |
+| `WeightedRandomExtensions` | `PickWeighted` (single shot, `long` or `double` weights, list or span form), `PickManyWeighted` (with replacement), `PickManyWeightedDistinct` (without replacement), plus `ToWeightedSampler` — `items.ToWeightedSampler(x => x.Weight)` builds a sampler straight off a list, inferring the item type instead of making you spell out `WeightedSampler<T>.Create`. |
 | `WeightedSampler<T>` | Immutable, thread-safe, pre-built alias-method sampler for repeated weighted draws from a fixed `long`-weighted item set: `O(n)` build, `O(1)` per `Pick`/`PickMany`. |
+| `RandomWeightAttribute` | Marks a model type's weight property or field. The source generator bundled in the package emits selector-less `PickWeighted`/`PickManyWeighted`/`PickManyWeightedDistinct`/`ToWeightedSampler` extensions over `IReadOnlyList<T>` of that type, at compile time. |
+
+## Selector-less picking with `[RandomWeight]`
+
+Every weighted API above takes a selector: `random.PickWeighted(lootTable, static x => (long)x.Weight)`. When a model type has one obvious weight member, repeating that selector at every call site is pure noise. Mark the member instead:
+
+```csharp
+using SsalKit.Randomness;
+
+namespace Game.Loot;
+
+public sealed class LootEntry
+{
+    public required string ItemId { get; init; }
+
+    [RandomWeight]
+    public long Weight { get; init; }
+}
+```
+
+That one attribute is the entire opt-in. At compile time the generator emits a `LootEntryRandomWeightExtensions` class into the same namespace as `LootEntry`, so the extensions are already in scope wherever the type is:
+
+```csharp
+IReadOnlyList<LootEntry> lootTable = [ /* ... */ ];
+var rng = new DeterministicRandom(seed: 42);
+
+LootEntry drop      = lootTable.PickWeighted(rng);                        // single draw
+LootEntry[] drops   = lootTable.PickManyWeighted(rng, count: 4);          // with replacement
+LootEntry[] distinct = lootTable.PickManyWeightedDistinct(rng, count: 3); // without replacement
+
+// Build the alias table once, then draw O(1) per pick.
+WeightedSampler<LootEntry> sampler = lootTable.ToWeightedSampler();
+LootEntry sampled = sampler.Pick(rng);
+```
+
+The receiver is the collection, and the random source stays an explicit argument — which source you draw from is a decision worth seeing at the call site, so an argument-less `lootTable.PickWeighted()` is not generated unless the type asks for it (see [Shared-source overloads](#shared-source-overloads)).
+
+Three things make this worth an attribute:
+
+- **No reflection, no runtime dispatch.** The generated methods are ordinary C# emitted at compile time, so they are AOT- and trimming-safe and cost exactly what the hand-written selector costs.
+- **Nothing extra to install.** The generator ships inside the `SsalKit.Randomness` package as an analyzer. Adding the package gets you both the attribute and the generator, and the dependency list stays empty.
+- **Identical behaviour to writing the selector yourself.** Each generated method delegates straight to the corresponding runtime overload, so the exception contract documented in the Exceptions section below applies unchanged, and the same seed produces the same draws either way.
+
+### What gets generated
+
+| Weight member type | Generated extensions |
+|---|---|
+| `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long` | `PickWeighted(source)`, `PickManyWeighted(source, count)`, `PickManyWeightedDistinct(source, count)`, `ToWeightedSampler()` |
+| `float`, `double` | `PickWeighted(source)` only — mirroring the runtime surface, which offers batched draws and alias-table sampling for `long` weights only |
+| Anything else (`ulong`, `decimal`, enums, nullable numerics, non-numeric types) | Nothing — reported as `SSALR001` |
+
+`ulong` is excluded on purpose: converting it to `long` can overflow. Every generated extension takes `IReadOnlyList<T>` as its receiver, which covers `List<T>`, arrays, and `ImmutableArray<T>`; a lazy sequence needs an explicit `.ToList()` first, since weighted picking requires indexed access and this library doesn't hide that cost from you.
+
+### Visibility
+
+The generated class is `public` by default, capped at the effective accessibility of the decorated type — an `internal` model type therefore yields `internal` extensions automatically, with no accessibility mismatch. To keep the helpers out of a public assembly's API surface, ask for it explicitly:
+
+```csharp
+[RandomWeight(InternalExtensions = true)]
+public long Weight { get; init; }
+```
+
+### Shared-source overloads
+
+Passing the source at every call site is the right default, but for a model whose draws are never replayed it is pure ceremony. `SharedSourceOverloads = true` adds argument-less overloads that draw from `SharedRandomSource.Instance`:
+
+```csharp
+public sealed class GachaEntry
+{
+    public required string CharacterId { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+IReadOnlyList<GachaEntry> banner = [ /* ... */ ];
+
+GachaEntry pull       = banner.PickWeighted();                        // shared source
+GachaEntry[] tenPull  = banner.PickManyWeighted(count: 10);           // shared source
+GachaEntry[] distinct = banner.PickManyWeightedDistinct(count: 3);    // shared source
+
+GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); // still there
+```
+
+The overloads are added, never substituted: the source-taking forms stay exactly as they were, and each argument-less method is a one-line delegation to its counterpart, so validation, exceptions, and draw semantics are identical. `ToWeightedSampler()` is unchanged — it never took a source. The weight-type matrix is unchanged too: a `float`/`double` member gets `PickWeighted` in both forms and nothing else.
+
+It is off by default because `SharedRandomSource` is not seedable and cannot replay a sequence, and an argument-less call is precisely the one that doesn't show that at the call site. Leaving it off means a codebase built on seeded, reproducible runs can't quietly acquire a non-deterministic draw; turning it on is a per-type statement that this type's draws never need replaying — a gacha banner, a cosmetic drop table, a flavour-text picker. When in doubt, leave it off and keep passing the source.
+
+### Diagnostics
+
+| ID | Reported when |
+|---|---|
+| `SSALR001` | The weight member's type is not a supported weight type (see the table above). |
+| `SSALR002` | A type declares more than one `[RandomWeight]` member. |
+| `SSALR003` | The member is `static`, write-only, or an indexer — it must be a readable instance member. |
+| `SSALR004` | The member, its declaring type, or a containing type is not accessible from the generated class (`private`, `protected`, or file-local). |
+| `SSALR005` | The declaring type is generic, or is nested inside a generic type. |
+| `SSALR006` | The declaring type is a `ref struct`, which cannot be used as a generic type argument. |
+
+All six are errors, and when one fires for a type, nothing at all is generated for that type — there is no partial generation.
+
+### Things to know
+
+- **Declare the weight as a plain property or field.** Attribute forms that redirect the target — `[property: RandomWeight]` on a positional record parameter, or `[field: RandomWeight]` on an auto-property — are not seen by the generator and are ignored silently, with no diagnostic and no generated code. Write `public long Weight { get; init; }` (or a plain field) instead.
+- **Inheritance isn't walked.** `[RandomWeight]` on a base type generates extensions for that base type only. Thanks to `IReadOnlyList<out T>` covariance a `List<Derived>` can still call them, but the returned static type is the base type, so you'll need a cast to get back to `Derived`.
+- **Build the sampler once.** `ToWeightedSampler()` is `O(n)` and only the draws are `O(1)`, so calling it inside a draw loop rebuilds the alias table on every iteration and negates the reason to use a sampler at all. Build one per weighted table, keep it (it's immutable and thread-safe), and draw from it repeatedly; for a single draw, call `PickWeighted` instead.
 
 ## Performance
 
