@@ -207,6 +207,52 @@ public class DeterministicRandomRangeTests
         }
     }
 
+    [Fact]
+    public void CreateRandomlySeeded_ProducesUsableInstance_ThatGeneratesValuesWithinBounds()
+    {
+        DeterministicRandom random = DeterministicRandom.CreateRandomlySeeded();
+
+        for (int i = 0; i < 1_000; i++)
+        {
+            int value = random.Next(100);
+            Assert.True(value >= 0 && value < 100);
+        }
+    }
+
+    [Fact]
+    public void CreateRandomlySeeded_ExportState_ReturnsValidState()
+    {
+        DeterministicRandom random = DeterministicRandom.CreateRandomlySeeded();
+
+        RandomState state = random.ExportState();
+
+        // CreateRandomlySeeded expands its crypto-random seed through the same SplitMix64
+        // path as the ulong-seed constructor, which can never produce the all-zero state.
+        Assert.True(state.IsValid);
+
+        // The exported state must be immediately usable to resume the exact same sequence.
+        DeterministicRandom resumed = DeterministicRandom.FromState(state);
+        for (int i = 0; i < 16; i++)
+        {
+            Assert.Equal(random.NextUInt64(), resumed.NextUInt64());
+        }
+    }
+
+    [Fact]
+    public void CreateRandomlySeeded_TwoInstances_ProduceDifferentSequences()
+    {
+        // Each call draws a fresh cryptographically random seed, so two independently created
+        // instances must (overwhelmingly likely) diverge. Comparing the first few draws keeps
+        // the test fast while making a coincidental full match astronomically unlikely.
+        DeterministicRandom first = DeterministicRandom.CreateRandomlySeeded();
+        DeterministicRandom second = DeterministicRandom.CreateRandomlySeeded();
+
+        ulong[] firstValues = [first.NextUInt64(), first.NextUInt64(), first.NextUInt64(), first.NextUInt64()];
+        ulong[] secondValues = [second.NextUInt64(), second.NextUInt64(), second.NextUInt64(), second.NextUInt64()];
+
+        Assert.NotEqual(firstValues, secondValues);
+    }
+
     /// <summary>
     /// Adapter wrapping a real <see cref="DeterministicRandom"/> instance via its public
     /// <see cref="DeterministicRandom.NextUInt64"/> method, so tests can drive

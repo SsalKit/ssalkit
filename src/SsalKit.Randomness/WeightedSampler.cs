@@ -248,13 +248,20 @@ public sealed class WeightedSampler<T>
             threshold[large.Pop()] = total;
         }
 
-        while (small.Count > 0)
-        {
-            // Reachable only through floating-point rounding in the classic construction; with
-            // exact integer arithmetic this loop should never execute, but it is kept as a safe
-            // fallback (self-select is always a correct answer, it just forgoes alias sharing).
-            threshold[small.Pop()] = total;
-        }
+        // Invariant: whichever stack still holds entries once the other is empty holds only
+        // exact multiples of total (see the loop above), so small.Count == 0 here is not just
+        // likely but provable. At the moment large.Count first reaches 0, the sum of all
+        // remaining scaled[] values in small equals total * small.Count (the exact-arithmetic
+        // invariant maintained by every reassignment above: each swap moves scaled[l] - total
+        // out of a "small" bucket and total back in below the threshold, so total scaled mass is
+        // conserved). If any entry in small were still < total once every other entry is forced
+        // to be >= total to keep that sum equal to total * small.Count, the remaining entries
+        // would have to sum to more than total * (small.Count - 1), which is impossible for
+        // values that are each individually < total. So every entry left in small once large is
+        // empty must itself already equal total, i.e. small can only be reached here when it is
+        // already empty. Debug.Assert (rather than a loop) documents that this branch is
+        // unreachable without paying for a defensive path no test could ever exercise.
+        System.Diagnostics.Debug.Assert(small.Count == 0, "small must be empty once large is empty: exact integer arithmetic preserves the invariant that any leftover scaled[] value already equals total.");
 
         return new WeightedSampler<T>(items, threshold, alias, total);
     }

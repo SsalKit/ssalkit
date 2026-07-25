@@ -146,4 +146,26 @@ public class RandomSourceExtensionsAgreementTests
 
         Assert.Equal(instance.NextInt64(42L, 42L), viaInterface.NextInt64(42L, 42L));
     }
+
+    [Fact]
+    public void Next_WithMaxValueZero_ViaExtensionMethod_ReturnsZero()
+    {
+        // Called through the IRandomSource-typed local so overload resolution binds to
+        // RandomSourceExtensions.Next(this IRandomSource, int), not DeterministicRandom's own
+        // instance method of the same signature.
+        IRandomSource viaInterface = new DeterministicRandom(1UL);
+
+        Assert.Equal(0, viaInterface.Next(0));
+    }
+
+    [Fact]
+    public void NextInt64_WithMaxValueZero_ViaExtensionMethod_ReturnsZero()
+    {
+        // Called through the IRandomSource-typed local so overload resolution binds to
+        // RandomSourceExtensions.NextInt64(this IRandomSource, long), not DeterministicRandom's
+        // own instance method of the same signature.
+        IRandomSource viaInterface = new DeterministicRandom(1UL);
+
+        Assert.Equal(0L, viaInterface.NextInt64(0L));
+    }
 }
