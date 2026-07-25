@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- RS2002 ("rule is part of the next unshipped analyzer release, but is not a supported
+         diagnostic for any analyzer") only recognises diagnostics declared through a
+         DiagnosticAnalyzer's SupportedDiagnostics. This assembly ships a source generator that
+         reports its SSALG rules directly from its source-output stage and deliberately has no
+         companion analyzer, so the rule can never be satisfied here. The release-tracking files
+         are still maintained (and still passed as AdditionalFiles) as the rules' changelog, and
+         the remaining RS20xx checks stay on. -->
+    <NoWarn>$(NoWarn);RS2002</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Deliberately pinned below the central version: this is the minimum Roslyn
+         version the generator supports, so older SDK/IDE hosts can still load it. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="4.8.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Full-file link (not a selective subset): this compiles the exact same source set a
+         package consumer receives via contentFiles, so an internal build continuously verifies
+         consumer-side build integrity; unused internal types do not emit warnings. -->
+    <Compile Include="..\SsalKit.Generators.Toolkit\*.cs" Link="Toolkit\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.Guard.Generator.Tests" />
+  </ItemGroup>
+
+</Project>

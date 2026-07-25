@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>SsalKit.Guard</PackageId>
+    <Description>Error-code-based domain exceptions: a side-effect-free ErrorCodedException base, static guard clauses that capture the caller's expression text, and a compile-time generated exception-to-code mapping table with derived-before-base ordering. Zero dependencies.</Description>
+    <PackageDescription>$(Description)</PackageDescription>
+    <PackageTags>guard;guard-clauses;exception;error-code;validation;source-generator;analyzers</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.Guard.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Build-order dependency only: the generator must not be added as a compile-time
+         reference or analyzer for this project itself. -->
+    <ProjectReference Include="..\SsalKit.Guard.Generator\SsalKit.Guard.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the generator assembly inside this package under analyzers/dotnet/cs so
+         consumers automatically get the source generator when they reference this package.
+         This is not a package dependency, so the "zero dependencies" contract still holds. -->
+    <None Include="..\SsalKit.Guard.Generator\bin\$(Configuration)\netstandard2.0\SsalKit.Guard.Generator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>
