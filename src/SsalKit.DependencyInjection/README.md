@@ -211,6 +211,7 @@ The generator validates your `[Service]` usage at compile time:
 | `SSAL012`| Error    | `'Factory' method has an unusable signature` — one or more methods with that name exist, but none is static, non-generic, parameterless-or-single-`IServiceProvider`-parameter, and returning exactly the decorated class. |
 | `SSAL013`| Error    | `'Factory' cannot be used on an open generic class` — Microsoft.Extensions.DependencyInjection has no factory-based registration API for open generics. |
 | `SSAL014`| Error    | `'Factory' method is not accessible to generated code` — the chosen factory method must be at least `internal` so the generated registration code (in a different file, same assembly) can call it. |
+| `SSAL015`| Warning  | The same service type (and `Key`) is registered with two or more *different* implementation types. A single-instance resolution returns the last registration, and the generator emits registrations ordered by implementation type name — so renaming a class can silently change the winner. Use `RegistrationMode.TryAddEnumerable` on every implementation if they are meant to be injected together as `IEnumerable<T>` (such a group is never reported), give them distinct `Key` values, or suppress the warning if one deliberately overrides the other. |
 
 ## License
 

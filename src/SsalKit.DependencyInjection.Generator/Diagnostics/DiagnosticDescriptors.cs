@@ -135,4 +135,14 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "The chosen factory method is invoked from the generated registration extension method, which lives in a separate file in the same assembly; a private or protected factory method cannot be called from there.");
+
+    public static readonly DiagnosticDescriptor ConflictingImplementations = new(
+        id: "SSAL015",
+        title: "Multiple implementations registered for the same service type",
+        messageFormat: "The service type '{0}'{1} is registered with {2} different implementation types ({3}); a single-instance resolution returns whichever of them is registered last, and the generator emits registrations ordered by implementation type name rather than by source order",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other.",
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
 }

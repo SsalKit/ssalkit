@@ -211,6 +211,7 @@ services.AddScoped<IApiClient, ApiClient>(sp => ApiClient.Create(sp));
 | `SSAL012` | Error     | `Factory` に指定した名前のメソッドは 1 つ以上存在しますが、そのいずれも static・非ジェネリックで、引数なしまたは `IServiceProvider` 引数を 1 つだけ持ち、登録対象のクラスを厳密に返すという、使用可能なシグネチャを満たしていません。 |
 | `SSAL013` | Error     | `Factory` は open generic クラスには使用できません —— Microsoft.Extensions.DependencyInjection には open generic 向けのファクトリーベースの登録 API が存在しません。 |
 | `SSAL014` | Error     | 選択された `Factory` メソッドが、生成されたコードからアクセスできません —— 少なくとも `internal` である必要があります。 |
+| `SSAL015` | Warning   | 同じサービス型（および `Key`）に対して、異なる実装型が 2 つ以上登録されています。単一インスタンスの解決では最後の登録が優先されますが、ジェネレーターは実装型の名前順に登録を出力するため、クラス名を変更しただけで優先される実装が静かに入れ替わることがあります。`IEnumerable<T>` としてまとめて注入する意図であれば、すべての実装に `RegistrationMode.TryAddEnumerable` を指定してください（すべてが TryAddEnumerable のグループは報告されません）。そうでない場合は異なる `Key` を指定するか、意図的な上書きであれば警告を抑制してください。 |
 
 ## ライセンス
 

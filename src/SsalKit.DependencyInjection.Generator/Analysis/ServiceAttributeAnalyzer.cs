@@ -10,13 +10,20 @@ using SsalKit.DependencyInjection.Generator.Parsing;
 namespace SsalKit.DependencyInjection.Generator.Analysis;
 
 /// <summary>
-/// Reports diagnostics SSAL001-SSAL014 for invalid or conflicting uses of
+/// Reports diagnostics SSAL001-SSAL015 for invalid or conflicting uses of
 /// <c>[SsalKit.DependencyInjection.Service]</c>.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 {
     private const string ServiceAttributeMetadataName = "SsalKit.DependencyInjection.ServiceAttribute";
+
+    /// <summary>
+    /// The <see cref="RegistrationRecord.KeyIdentity"/> placeholder for a non-keyed registration.
+    /// Not a possible <c>KeyLiteralFormatter</c>/<see cref="KeyIdentityNormalizer"/> output, so it
+    /// can never collide with a real key.
+    /// </summary>
+    private const string NoKeyIdentity = "<none>";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(
         DiagnosticDescriptors.InvalidTargetType,
@@ -32,7 +39,8 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.FactoryMethodNotFound,
         DiagnosticDescriptors.FactoryMethodInvalid,
         DiagnosticDescriptors.FactoryOnOpenGenericNotSupported,
-        DiagnosticDescriptors.FactoryMethodInaccessible);
+        DiagnosticDescriptors.FactoryMethodInaccessible,
+        DiagnosticDescriptors.ConflictingImplementations);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -55,7 +63,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 SymbolKind.NamedType);
 
             compilationStartContext.RegisterCompilationEndAction(
-                endContext => ReportDuplicates(endContext, records));
+                endContext => ReportCrossRegistrationDiagnostics(endContext, records));
         });
     }
 
@@ -101,7 +109,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
     /// <summary>
     /// Validates and reports diagnostics for a single <c>[Service]</c> attribute application, then
     /// (if valid) records one <see cref="RegistrationRecord"/> per resolved service type for later
-    /// cross-compilation duplicate detection by <see cref="ReportDuplicates"/>.
+    /// cross-compilation conflict detection by <see cref="ReportCrossRegistrationDiagnostics"/>.
     /// </summary>
     private static void AnalyzeAttribute(
         SymbolAnalysisContext context,
@@ -237,9 +245,9 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
         var keyIdentity = hasKey
             ? GetKeyIdentity(keyConstant!.Value, context.Compilation)
-            : "<none>";
+            : NoKeyIdentity;
 
-        // SSAL004 duplicate detection must key an open generic registration on its typeof-form
+        // SSAL004/SSAL015 conflict detection must key an open generic registration on its typeof-form
         // identity (e.g. "global::Ns.IRepo<>"), not the ordinary display FQN used for the
         // messages above (e.g. "global::Ns.IRepo<T>") -- otherwise `[Service]` (which infers
         // IRepo<T> from the implemented interface) and `[Service(As = typeof(IRepo<>))]` on the
@@ -254,7 +262,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 ? OpenGenericTypeofFormatter.Format(namedServiceType)
                 : serviceTypeFqns[i];
 
-            records.Add(new RegistrationRecord(recordServiceTypeFqn, recordImplementationTypeFqn, keyIdentity, location));
+            records.Add(new RegistrationRecord(recordServiceTypeFqn, recordImplementationTypeFqn, keyIdentity, mode, location));
         }
     }
 
@@ -463,7 +471,13 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         return true;
     }
 
-    private static void ReportDuplicates(CompilationAnalysisContext context, ConcurrentBag<RegistrationRecord> records)
+    /// <summary>
+    /// Runs the compilation-wide (CompilationEnd) checks that can only be decided once every
+    /// <c>[Service]</c> application in the compilation has been seen: SSAL004 (the exact same
+    /// (service type, implementation type, key) triple registered more than once) and SSAL015
+    /// (one (service type, key) pair registered with two or more *different* implementation types).
+    /// </summary>
+    private static void ReportCrossRegistrationDiagnostics(CompilationAnalysisContext context, ConcurrentBag<RegistrationRecord> records)
     {
         if (records.IsEmpty)
         {
@@ -472,13 +486,19 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
         // Symbol actions may run concurrently, so the bag's enumeration order is not guaranteed;
         // sort deterministically before grouping so which occurrence is treated as "the first, ok"
-        // one is stable across runs.
+        // one (SSAL004) and the order diagnostics are reported in are stable across runs.
         var ordered = records
             .OrderBy(r => r.Location.SourceSpan.Start)
             .ThenBy(r => r.ServiceTypeFqn, StringComparer.Ordinal)
             .ThenBy(r => r.ImplementationTypeFqn, StringComparer.Ordinal)
             .ToList();
 
+        ReportDuplicates(context, ordered);
+        ReportConflictingImplementations(context, ordered);
+    }
+
+    private static void ReportDuplicates(CompilationAnalysisContext context, List<RegistrationRecord> ordered)
+    {
         foreach (var group in ordered.GroupBy(r => (r.ServiceTypeFqn, r.ImplementationTypeFqn, r.KeyIdentity)))
         {
             var items = group.ToList();
@@ -487,7 +507,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            var keySuffix = group.Key.KeyIdentity == "<none>" ? string.Empty : $" with key {group.Key.KeyIdentity}";
+            var keySuffix = FormatKeySuffix(group.Key.KeyIdentity);
 
             for (var i = 1; i < items.Count; i++)
             {
@@ -501,6 +521,74 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         }
     }
 
+    /// <summary>
+    /// SSAL015: reports every (service type, key) pair that ends up bound to two or more
+    /// <em>different</em> implementation types, unless every registration in the pair uses
+    /// <see cref="WellKnownRegistrationMode.TryAddEnumerable"/> (for which multiple implementations
+    /// are the whole point, since they are consumed together as <c>IEnumerable&lt;T&gt;</c>).
+    /// </summary>
+    /// <remarks>
+    /// This is deliberately a different grouping key than SSAL004's: SSAL004 groups on the full
+    /// (service type, implementation type, key) triple and therefore only ever fires for a
+    /// genuinely repeated registration, which leaves the far more common "IFoo is bound to both
+    /// FooA and FooB" mistake unreported. It matters more here than in a hand-written
+    /// <c>ConfigureServices</c> because <c>ServiceRegistrationEmitter</c> sorts the emitted
+    /// registrations by implementation type FQN, so combined with Microsoft.Extensions.
+    /// DependencyInjection's last-registration-wins rule for a single-instance resolution, the
+    /// winner is decided by type *naming* -- not by the order the attributes appear in source.
+    /// <para>
+    /// Every registration in the conflicting group is reported (rather than all-but-the-first, as
+    /// SSAL004 does): there is no "first one is fine" registration here -- each one is equally
+    /// responsible for the ambiguity, and each is an equally valid place to fix it.
+    /// </para>
+    /// </remarks>
+    private static void ReportConflictingImplementations(CompilationAnalysisContext context, List<RegistrationRecord> ordered)
+    {
+        foreach (var group in ordered.GroupBy(r => (r.ServiceTypeFqn, r.KeyIdentity)))
+        {
+            var items = group.ToList();
+
+            // Ordinal-sorted, which is exactly the order ServiceRegistrationEmitter emits them in,
+            // so the last name listed in the message is the one that actually wins.
+            var implementationTypeFqns = items
+                .Select(r => r.ImplementationTypeFqn)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(fqn => fqn, StringComparer.Ordinal)
+                .ToList();
+
+            // A single implementation type registered any number of times is SSAL004's business,
+            // not this diagnostic's.
+            if (implementationTypeFqns.Count < 2)
+            {
+                continue;
+            }
+
+            // A group made up purely of TryAddEnumerable registrations is the intended way to bind
+            // several implementations to one service type; nothing is shadowed, so stay silent.
+            if (items.TrueForAll(r => r.Mode == (int)WellKnownRegistrationMode.TryAddEnumerable))
+            {
+                continue;
+            }
+
+            var keySuffix = FormatKeySuffix(group.Key.KeyIdentity);
+            var implementationList = string.Join(", ", implementationTypeFqns);
+
+            foreach (var item in items)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.ConflictingImplementations,
+                    item.Location,
+                    group.Key.ServiceTypeFqn,
+                    keySuffix,
+                    implementationTypeFqns.Count.ToString(CultureInfo.InvariantCulture),
+                    implementationList));
+            }
+        }
+    }
+
+    private static string FormatKeySuffix(string keyIdentity) =>
+        keyIdentity == NoKeyIdentity ? string.Empty : $" with key {keyIdentity}";
+
     private static Location GetLocation(AttributeData attributeData, INamedTypeSymbol fallbackSymbol)
     {
         var syntaxReference = attributeData.ApplicationSyntaxReference;
@@ -512,5 +600,10 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         return fallbackSymbol.Locations.Length > 0 ? fallbackSymbol.Locations[0] : Location.None;
     }
 
-    private readonly record struct RegistrationRecord(string ServiceTypeFqn, string ImplementationTypeFqn, string KeyIdentity, Location Location);
+    private readonly record struct RegistrationRecord(
+        string ServiceTypeFqn,
+        string ImplementationTypeFqn,
+        string KeyIdentity,
+        int Mode,
+        Location Location);
 }

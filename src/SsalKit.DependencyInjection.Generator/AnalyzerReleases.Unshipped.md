@@ -14,6 +14,7 @@ SSAL011 | SsalKit.DependencyInjection | Error    | 'Factory' method not found
 SSAL012 | SsalKit.DependencyInjection | Error    | 'Factory' method has an unusable signature
 SSAL013 | SsalKit.DependencyInjection | Error    | 'Factory' cannot be used on an open generic class
 SSAL014 | SsalKit.DependencyInjection | Error    | 'Factory' method is not accessible to generated code
+SSAL015 | SsalKit.DependencyInjection | Warning  | Multiple implementations registered for the same service type
 
 ; SSAL003's title/message/description were revised to reflect its narrowed scope (a class nested
 ; inside a generic type, rather than every open generic class), but its ID, category, and severity
