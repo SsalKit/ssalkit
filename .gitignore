@@ -59,5 +59,11 @@ StyleCopReport.xml
 # 로컬 개발용 문서 (git 미추적)
 claude.local.md
 
+# 로컬 설계 문서 (git 미추적)
+.design/
+
 # Verify snapshot testing scratch output
 *.received.*
+
+# BenchmarkDotNet output
+BenchmarkDotNet.Artifacts/
