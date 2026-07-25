@@ -64,3 +64,6 @@ claude.local.md
 
 # Verify snapshot testing scratch output
 *.received.*
+
+# BenchmarkDotNet output
+BenchmarkDotNet.Artifacts/
