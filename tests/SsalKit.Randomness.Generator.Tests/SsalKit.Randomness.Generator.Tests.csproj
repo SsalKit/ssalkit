@@ -11,6 +11,7 @@
          themselves via CSharpGeneratorDriver, and need the real RandomWeightAttribute /
          IRandomSource / WeightedRandomExtensions metadata in the compilations they build. -->
     <ProjectReference Include="..\..\src\SsalKit.Randomness\SsalKit.Randomness.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Generators.Toolkit.Testing\SsalKit.Generators.Toolkit.Testing.csproj" />
   </ItemGroup>
 
 </Project>

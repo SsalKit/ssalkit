@@ -27,7 +27,7 @@ public class GeneratorExclusionTests
             public abstract class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -42,7 +42,7 @@ public class GeneratorExclusionTests
             public static class Foo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -63,7 +63,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -82,7 +82,7 @@ public class GeneratorExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.DoesNotContain("IOther", generated);
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
@@ -100,7 +100,7 @@ public class GeneratorExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -118,7 +118,7 @@ public class GeneratorExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.DoesNotContain("TryAddEnumerable", generated);
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
@@ -134,7 +134,7 @@ public class GeneratorExclusionTests
             public class Foo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -149,7 +149,7 @@ public class GeneratorExclusionTests
             public class Foo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -169,7 +169,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -186,7 +186,7 @@ public class GeneratorExclusionTests
             file class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -206,7 +206,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -223,7 +223,7 @@ public class GeneratorExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -240,7 +240,7 @@ public class GeneratorExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -266,7 +266,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -289,7 +289,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.DoesNotContain("PrivateMarker", generated);
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Outer.Foo>();", generated);
@@ -314,7 +314,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -338,7 +338,7 @@ public class GeneratorExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, allowUnsafe: true);
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.Unsafe);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -356,7 +356,7 @@ public class GeneratorExclusionTests
             public unsafe class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, allowUnsafe: true).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.Unsafe).GetSingleSource();
 
         Assert.Contains("typeof(global::TestNs.IMarker*)", generated);
     }
@@ -374,7 +374,7 @@ public class GeneratorExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }

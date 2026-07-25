@@ -25,7 +25,7 @@ public class GeneratorSnapshotTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly).GetSingleSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -45,7 +45,7 @@ public class GeneratorSnapshotTests
             public class Repository<T> : IRepository<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly).GetSingleSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -66,7 +66,7 @@ public class GeneratorSnapshotTests
             public class Store<T> : IReader<T>, IWriter<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly).GetSingleSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -91,7 +91,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly).GetSingleSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -115,7 +115,7 @@ public class GeneratorSnapshotTests
             public class Repository<T> : IRepository<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly).GetSingleSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }

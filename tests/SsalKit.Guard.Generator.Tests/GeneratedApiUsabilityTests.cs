@@ -64,10 +64,10 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.SsalgDiagnostics);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -115,9 +115,9 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Empty(result.OutputCompilation.GetDiagnostics()
             .Where(diagnostic => diagnostic.Id is "CS8603" or "CS8602"));
     }
@@ -157,10 +157,10 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.SsalgDiagnostics);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -195,9 +195,9 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.SsalgDiagnostics);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(result.GetCompilationErrors());
     }
 }

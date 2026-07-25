@@ -146,15 +146,15 @@ public class RegisterImplementationsOfSnapshotTests
 
     private static Task Verify(string source)
     {
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
 
         var combined = string.Join(
             "\n",
             result.GeneratedSources
                 .OrderBy(s => s.HintName, StringComparer.Ordinal)
-                .Select(s => $"// ==== {s.HintName} ====\n{s.Source}"));
+                .Select(s => $"// ==== {s.HintName} ====\n{s.Text}"));
 
         return Verifier.Verify(combined).UseDirectory("Snapshots");
     }

@@ -27,7 +27,7 @@ public class OpenGenericEmissionTests
             public class Repository<T> : IRepository<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IRepository<>), typeof(global::TestNs.Repository<>));",
@@ -46,7 +46,7 @@ public class OpenGenericEmissionTests
             public class Thing<K, V> : IThing<K, V> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IThing<,>), typeof(global::TestNs.Thing<,>));",
@@ -73,7 +73,7 @@ public class OpenGenericEmissionTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(expected, generated);
     }
@@ -98,7 +98,7 @@ public class OpenGenericEmissionTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(expected, generated);
     }
@@ -113,7 +113,7 @@ public class OpenGenericEmissionTests
             public class Box<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.Box<>), typeof(global::TestNs.Box<>));",
@@ -133,7 +133,7 @@ public class OpenGenericEmissionTests
             public class Repo<T> : IRepo<T>, IOther<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IRepo<>), typeof(global::TestNs.Repo<>));",
@@ -158,7 +158,7 @@ public class OpenGenericEmissionTests
             public record class Repo<T> : IRepo<T>;
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IRepo<>), typeof(global::TestNs.Repo<>));",
@@ -181,7 +181,7 @@ public class OpenGenericEmissionTests
             public class Store<T> : IReader<T>, IWriter<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IReader<>), typeof(global::TestNs.Store<>));",
@@ -208,7 +208,7 @@ public class OpenGenericEmissionTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
         Assert.Contains(
@@ -259,9 +259,9 @@ public class OpenGenericEmissionTests
             public class SelfRegistered<T> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        var errors = result.GetOutputCompilationErrors();
+        var errors = result.GetCompilationErrors();
         Assert.True(errors.IsEmpty, "Generated code failed to compile:\n" + string.Join('\n', errors) + "\n\n" + result.GetSingleSource());
     }
 
@@ -280,7 +280,7 @@ public class OpenGenericEmissionTests
             public class C<T> : IRepo<string>, IRepo<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IRepo<>), typeof(global::TestNs.C<>));",
@@ -301,7 +301,7 @@ public class OpenGenericEmissionTests
             public class C<T> : IRepo<T>, IRepo<string> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IRepo<>), typeof(global::TestNs.C<>));",

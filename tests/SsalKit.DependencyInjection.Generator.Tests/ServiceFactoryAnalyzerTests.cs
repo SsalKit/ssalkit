@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -34,7 +35,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Empty(diagnostics);
     }
@@ -53,7 +54,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Empty(diagnostics);
     }
@@ -61,7 +62,7 @@ public class ServiceFactoryAnalyzerTests
     /// <summary>
     /// SSAL016 is normally pre-empted by CS0592 (<c>[AttributeUsage(AttributeTargets.Interface)]</c>),
     /// so this source is deliberately invalid C#. The attribute is still bound onto the class
-    /// symbol, and <see cref="GeneratorTestHelper.RunAnalyzerAsync"/> filters the compiler's own
+    /// symbol, and <see cref="GeneratorTestSupport.RunAnalyzerAsync"/> filters the compiler's own
     /// diagnostics out, which lets the defensive rule be exercised for real.
     /// </summary>
     [Theory]
@@ -78,11 +79,9 @@ public class ServiceFactoryAnalyzerTests
             {{declaration}}
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL016", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL016", DiagnosticSeverity.Error);
         Assert.Contains($"because it is {expectedReason}", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -96,11 +95,9 @@ public class ServiceFactoryAnalyzerTests
             public interface IEmptyFactory { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL017", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL017", DiagnosticSeverity.Error);
         Assert.Contains("it declares no members", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -123,7 +120,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL017", diagnostic.Id);
@@ -154,7 +151,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL017", diagnostic.Id);
@@ -180,7 +177,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL017", diagnostic.Id);
@@ -213,7 +210,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL017", diagnostic.Id);
@@ -246,11 +243,9 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL018", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL018", DiagnosticSeverity.Error);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
         Assert.Contains("global::TestNs.IBadSignatureFactory.Create", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
@@ -270,7 +265,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL018", diagnostic.Id);
@@ -294,11 +289,9 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL019", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL019", DiagnosticSeverity.Error);
         Assert.Contains("because it is generic", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -322,7 +315,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL019", diagnostic.Id);
@@ -349,11 +342,9 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL020", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL020", DiagnosticSeverity.Error);
         Assert.Contains("global::TestNs.Holder.IHiddenFactory", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -377,7 +368,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL020", diagnostic.Id);
@@ -404,7 +395,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL020", diagnostic.Id);
@@ -426,7 +417,7 @@ public class ServiceFactoryAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL020", diagnostic.Id);
@@ -459,7 +450,7 @@ public class ServiceFactoryAnalyzerTests
             public interface IBadFactory { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL017", diagnostic.Id);

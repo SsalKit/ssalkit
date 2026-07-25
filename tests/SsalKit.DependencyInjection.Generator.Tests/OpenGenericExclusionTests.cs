@@ -28,7 +28,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<string> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -45,7 +45,7 @@ public class OpenGenericExclusionTests
             public class Thing<K, V> : IThing<V, K> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -64,7 +64,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<IEnumerable<T>> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -81,7 +81,7 @@ public class OpenGenericExclusionTests
             public class Triple<K, V, W> : IPair<K, V> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -99,7 +99,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<T>, ISomething<string> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -117,7 +117,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -135,7 +135,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<T>, IThing<T, string> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -153,7 +153,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton(typeof(global::TestNs.IRepo<>), typeof(global::TestNs.Repo<>));",
@@ -175,7 +175,7 @@ public class OpenGenericExclusionTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -190,7 +190,7 @@ public class OpenGenericExclusionTests
             public class Box<T> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -209,7 +209,7 @@ public class OpenGenericExclusionTests
             public class C<T> : ISomething<T> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }

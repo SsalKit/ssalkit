@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SsalKit.DependencyInjection.Generator\SsalKit.DependencyInjection.Generator.csproj" />
     <ProjectReference Include="..\..\src\SsalKit.DependencyInjection\SsalKit.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Generators.Toolkit.Testing\SsalKit.Generators.Toolkit.Testing.csproj" />
   </ItemGroup>
 
 </Project>

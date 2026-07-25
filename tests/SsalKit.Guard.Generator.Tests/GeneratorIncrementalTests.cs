@@ -1,6 +1,6 @@
-using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using SsalKit.Generators.Toolkit.Testing;
 using SsalKit.Guard.Generator.Tests.TestSupport;
 
 namespace SsalKit.Guard.Generator.Tests;
@@ -145,12 +145,9 @@ public class GeneratorIncrementalTests
     [Fact]
     public void UnrelatedSyntaxTreeAddition_ReusesEveryCollectedStage()
     {
-        var trackedSteps = RunTwice(
-            ValidSource,
-            compilation => compilation.AddSyntaxTrees(
-                CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(ValidSource);
 
-        AssertEveryStageReused(trackedSteps);
+        AssertEveryStageReused(second);
     }
 
     [Fact]
@@ -158,12 +155,9 @@ public class GeneratorIncrementalTests
     {
         // A DiagnosticInfo carries a LocationInfo, not a Location: if it held the real thing, the
         // pipeline would compare two runs' diagnostics by reference and never cache.
-        var trackedSteps = RunTwice(
-            DiagnosticSource,
-            compilation => compilation.AddSyntaxTrees(
-                CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(DiagnosticSource);
 
-        AssertEveryStageReused(trackedSteps);
+        AssertEveryStageReused(second);
     }
 
     [Fact]
@@ -171,9 +165,9 @@ public class GeneratorIncrementalTests
     {
         // The "Exceptions" transform necessarily re-runs (the target's syntax tree changed), but the
         // candidates it produces are identical, so nothing downstream may recompute.
-        var trackedSteps = RunTwice(ValidSource, Replace(ValidSourceWithEditedBody));
+        var (_, second) = RunTwice(ValidSource, ValidSourceWithEditedBody);
 
-        AssertEveryStageReused(trackedSteps);
+        AssertEveryStageReused(second);
     }
 
     /// <summary>
@@ -185,9 +179,9 @@ public class GeneratorIncrementalTests
     [Fact]
     public void AddedExternalRegistration_InvalidatesTheEmissionModel()
     {
-        var trackedSteps = RunTwice(ValidSource, Replace(ValidSourceWithAnExternalRegistration));
+        var (_, second) = RunTwice(ValidSource, ValidSourceWithAnExternalRegistration);
 
-        AssertSomeOutputRecomputed(trackedSteps, ErrorCodesGenerator.TrackingNames.Models);
+        IncrementalAssert.SomeOutputRecomputed(second, ErrorCodesGenerator.TrackingNames.Models);
     }
 
     /// <summary>
@@ -197,9 +191,9 @@ public class GeneratorIncrementalTests
     [Fact]
     public void WidenedConstructor_InvalidatesTheEmissionModel()
     {
-        var trackedSteps = RunTwice(ValidSource, Replace(ValidSourceWithAWiderConstructor));
+        var (_, second) = RunTwice(ValidSource, ValidSourceWithAWiderConstructor);
 
-        AssertSomeOutputRecomputed(trackedSteps, ErrorCodesGenerator.TrackingNames.Models);
+        IncrementalAssert.SomeOutputRecomputed(second, ErrorCodesGenerator.TrackingNames.Models);
     }
 
     /// <summary>
@@ -208,76 +202,29 @@ public class GeneratorIncrementalTests
     [Fact]
     public void NewlyBrokenRule_InvalidatesTheDiagnostics()
     {
-        var trackedSteps = RunTwice(ValidSource, Replace(DiagnosticSource));
+        var (_, second) = RunTwice(ValidSource, DiagnosticSource);
 
-        AssertSomeOutputRecomputed(trackedSteps, ErrorCodesGenerator.TrackingNames.Diagnostics);
+        IncrementalAssert.SomeOutputRecomputed(second, ErrorCodesGenerator.TrackingNames.Diagnostics);
     }
 
-    private static Func<Compilation, Compilation> Replace(string source) =>
-        compilation => compilation.ReplaceSyntaxTree(
-            compilation.SyntaxTrees.Single(),
-            CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest)));
+    private static (GeneratorTestResult First, GeneratorTestResult Second) RunTwice(
+        string source, string editedSource) =>
+        GeneratorTest.RunTwice<ErrorCodesGenerator>(source, _ => editedSource, GeneratorTestSupport.Options);
 
-    private static ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> RunTwice(
-        string source, Func<Compilation, Compilation> change)
-    {
-        var generator = new ErrorCodesGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(
-                IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+    private static (GeneratorTestResult First, GeneratorTestResult Second) RunWithUnrelatedSyntaxTreeAdded(
+        string source) =>
+        GeneratorTest.RunTwiceWithCompilationChange<ErrorCodesGenerator>(
+            source,
+            compilation => compilation.AddSyntaxTrees(
+                CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))),
+            GeneratorTestSupport.Options);
 
-        var compilation = GeneratorTestHelper.CreateCompilation(source);
-        driver = driver.RunGenerators(compilation);
-        driver = driver.RunGenerators(change(compilation));
-
-        return driver.GetRunResult().Results.Single().TrackedSteps;
-    }
-
-    private static void AssertEveryStageReused(
-        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps)
-    {
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ErrorCodesGenerator.TrackingNames.CollectedExceptions);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ErrorCodesGenerator.TrackingNames.CollectedContainers);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ErrorCodesGenerator.TrackingNames.Analysis);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ErrorCodesGenerator.TrackingNames.Models);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ErrorCodesGenerator.TrackingNames.Diagnostics);
-    }
-
-    private static void AssertAllOutputsCachedOrUnchanged(
-        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps,
-        string stepName)
-    {
-        Assert.True(trackedSteps.TryGetValue(stepName, out var steps), $"No tracked steps found for '{stepName}'.");
-        Assert.NotEmpty(steps);
-
-        foreach (var step in steps)
-        {
-            Assert.NotEmpty(step.Outputs);
-
-            foreach (var (_, reason) in step.Outputs)
-            {
-                Assert.True(
-                    reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
-                    $"Expected step '{stepName}' output reason to be Cached or Unchanged after an unrelated " +
-                    $"compilation change, but was '{reason}'.");
-            }
-        }
-    }
-
-    private static void AssertSomeOutputRecomputed(
-        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps,
-        string stepName)
-    {
-        Assert.True(trackedSteps.TryGetValue(stepName, out var steps), $"No tracked steps found for '{stepName}'.");
-
-        var recomputed = steps
-            .SelectMany(step => step.Outputs)
-            .Any(output => output.Reason is IncrementalStepRunReason.Modified or IncrementalStepRunReason.New);
-
-        Assert.True(
-            recomputed,
-            $"Expected at least one '{stepName}' output to be Modified or New after a change the model captures, " +
-            "but every output was reused.");
-    }
+    private static void AssertEveryStageReused(GeneratorTestResult secondRun) =>
+        IncrementalAssert.AllCachedOrUnchanged(
+            secondRun,
+            ErrorCodesGenerator.TrackingNames.CollectedExceptions,
+            ErrorCodesGenerator.TrackingNames.CollectedContainers,
+            ErrorCodesGenerator.TrackingNames.Analysis,
+            ErrorCodesGenerator.TrackingNames.Models,
+            ErrorCodesGenerator.TrackingNames.Diagnostics);
 }

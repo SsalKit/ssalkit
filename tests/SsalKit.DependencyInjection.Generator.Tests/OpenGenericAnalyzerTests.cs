@@ -1,4 +1,6 @@
+using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -27,7 +29,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<string> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -45,7 +47,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -63,7 +65,7 @@ public class OpenGenericAnalyzerTests
             public class Thing<K, V> : IThing<V, K> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -81,7 +83,7 @@ public class OpenGenericAnalyzerTests
             public class Thing<K, V> : IThing<K> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -101,7 +103,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<IEnumerable<T>> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -119,7 +121,7 @@ public class OpenGenericAnalyzerTests
             public class Triple<K, V, W> : IPair<K, V> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -141,7 +143,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T>, ISomething<string> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -160,7 +162,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL002", diagnostic.Id);
@@ -181,7 +183,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T>, IThing<T, string> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);
@@ -199,7 +201,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL009");
     }
@@ -217,7 +219,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T>, IOther<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL009");
     }
@@ -232,7 +234,7 @@ public class OpenGenericAnalyzerTests
             public class Box<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL009");
     }
@@ -250,11 +252,9 @@ public class OpenGenericAnalyzerTests
             public class Store<T> : IReader<T>, IWriter<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL010", diagnostic.Id);
-        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Warning, diagnostic.Severity);
+        DiagnosticAssert.Single(diagnostics, "SSAL010", DiagnosticSeverity.Warning);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public class OpenGenericAnalyzerTests
             public class Store<T> : IReader<T>, IWriter<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Contains(diagnostics, d => d.Id == "SSAL010");
     }
@@ -287,7 +287,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL010");
     }
@@ -305,7 +305,7 @@ public class OpenGenericAnalyzerTests
             public class Store<T> : IReader<T>, IWriter<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL010");
     }
@@ -323,7 +323,7 @@ public class OpenGenericAnalyzerTests
             public class Store<T> : IReader<T>, IWriter<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL010");
     }
@@ -343,7 +343,7 @@ public class OpenGenericAnalyzerTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL010");
     }
@@ -360,7 +360,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL005", diagnostic.Id);
@@ -376,7 +376,7 @@ public class OpenGenericAnalyzerTests
             public class Box<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL006", diagnostic.Id);
@@ -401,7 +401,7 @@ public class OpenGenericAnalyzerTests
             public class Repo<T> : IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL004", diagnostic.Id);
@@ -425,7 +425,7 @@ public class OpenGenericAnalyzerTests
             public class C<T> : ISomething<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL006", diagnostic.Id);
@@ -447,7 +447,7 @@ public class OpenGenericAnalyzerTests
             public class C<T> : IRepo<string>, IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL009");
     }
@@ -466,7 +466,7 @@ public class OpenGenericAnalyzerTests
             public class C<T> : IRepo<T>, IRepo<string> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL009");
     }
@@ -485,7 +485,7 @@ public class OpenGenericAnalyzerTests
             public class C<T> : IRepo<string>, IRepo<int> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL009", diagnostic.Id);

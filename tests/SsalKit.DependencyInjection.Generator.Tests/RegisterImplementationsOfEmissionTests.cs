@@ -1,4 +1,5 @@
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -29,10 +30,10 @@ public class RegisterImplementationsOfEmissionTests
             public class WarmCaches : IStartupTask { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IStartupTask, global::TestNs.MigrateDatabase>());",
             generated);
@@ -54,7 +55,7 @@ public class RegisterImplementationsOfEmissionTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<global::TestNs.IStartupTask, global::TestNs.MigrateDatabase>());",
@@ -82,9 +83,9 @@ public class RegisterImplementationsOfEmissionTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains(expected, result.GetSingleSource());
     }
 
@@ -107,10 +108,10 @@ public class RegisterImplementationsOfEmissionTests
             public class BothHandler : IHandler<Ping, Pong>, IHandler<Tick, Tock> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<global::TestNs.IHandler<global::TestNs.Ping, global::TestNs.Pong>, global::TestNs.BothHandler>());",
             generated);
@@ -138,7 +139,7 @@ public class RegisterImplementationsOfEmissionTests
             public class TickHandler : IHandler<Tick, Tock> { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("global::TestNs.PingHandler", generated);
         Assert.DoesNotContain("global::TestNs.TickHandler", generated);
@@ -157,9 +158,9 @@ public class RegisterImplementationsOfEmissionTests
             public class DefaultValidator<T> : IValidator<T> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Transient(typeof(global::TestNs.IValidator<>), typeof(global::TestNs.DefaultValidator<>)));",
             result.GetSingleSource());
@@ -183,7 +184,7 @@ public class RegisterImplementationsOfEmissionTests
             public class Handler<T> : IHandler<T, Unit> { }
             """;
 
-        Assert.Empty(GeneratorTestHelper.RunGenerator(source).GeneratedSources);
+        Assert.Empty(GeneratorTestSupport.RunGenerator(source).GeneratedSources);
     }
 
     [Fact]
@@ -199,7 +200,7 @@ public class RegisterImplementationsOfEmissionTests
             public class GenericTask<T> : IStartupTask { }
             """;
 
-        Assert.Empty(GeneratorTestHelper.RunGenerator(source).GeneratedSources);
+        Assert.Empty(GeneratorTestSupport.RunGenerator(source).GeneratedSources);
     }
 
     [Fact]
@@ -219,7 +220,7 @@ public class RegisterImplementationsOfEmissionTests
             public class DerivedTask : TaskBase { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("global::TestNs.DerivedTask", generated);
         // The abstract base itself is not registrable.
@@ -244,7 +245,7 @@ public class RegisterImplementationsOfEmissionTests
             public class ExplicitTask : IStartupTask { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IStartupTask, global::TestNs.ConventionTask>());",
@@ -275,7 +276,7 @@ public class RegisterImplementationsOfEmissionTests
             {{declaration}}
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
         Assert.Empty(result.Diagnostics);
@@ -297,7 +298,7 @@ public class RegisterImplementationsOfEmissionTests
             }
             """;
 
-        Assert.Empty(GeneratorTestHelper.RunGenerator(source).GeneratedSources);
+        Assert.Empty(GeneratorTestSupport.RunGenerator(source).GeneratedSources);
     }
 
     [Fact]
@@ -316,7 +317,7 @@ public class RegisterImplementationsOfEmissionTests
             }
             """;
 
-        Assert.Empty(GeneratorTestHelper.RunGenerator(source).GeneratedSources);
+        Assert.Empty(GeneratorTestSupport.RunGenerator(source).GeneratedSources);
     }
 
     [Fact]
@@ -335,9 +336,9 @@ public class RegisterImplementationsOfEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains("global::TestNs.Outer.Inner", result.GetSingleSource());
     }
 
@@ -354,9 +355,9 @@ public class RegisterImplementationsOfEmissionTests
             public record class RecordTask : IStartupTask;
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IStartupTask, global::TestNs.RecordTask>());",
             result.GetSingleSource());
@@ -366,7 +367,7 @@ public class RegisterImplementationsOfEmissionTests
     public void ReferencedAssemblyImplementations_AreNeverDiscovered()
     {
         // The documented scope limit: the scan sees only the compilation it is declared in.
-        var contractAssembly = GeneratorTestHelper.CompileToReference(
+        var contractAssembly = GeneratorTest.CompileToReference(
             """
             namespace Contracts;
 
@@ -374,7 +375,8 @@ public class RegisterImplementationsOfEmissionTests
 
             public class ExternalTask : IStartupTask { }
             """,
-            "Contracts");
+            "Contracts",
+            GeneratorTestSupport.Options);
 
         const string source = Usings + """
             [assembly: RegisterImplementationsOf(typeof(Contracts.IStartupTask))]
@@ -384,8 +386,8 @@ public class RegisterImplementationsOfEmissionTests
             public class LocalTask : Contracts.IStartupTask { }
             """;
 
-        var generated = GeneratorTestHelper
-            .RunGenerator(source, extraReferences: new[] { contractAssembly })
+        var generated = GeneratorTestSupport
+            .RunGenerator(source, GeneratorTestSupport.Referencing(contractAssembly))
             .GetSingleSource();
 
         Assert.Contains("global::TestNs.LocalTask", generated);
@@ -406,10 +408,10 @@ public class RegisterImplementationsOfEmissionTests
             public class IntHandler : IHandler<int> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
 
         const string expected =
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IHandler<int>, global::TestNs.IntHandler>());";
@@ -433,10 +435,10 @@ public class RegisterImplementationsOfEmissionTests
             public class IntHandler : IHandler<int> { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<global::TestNs.IHandler<int>, global::TestNs.IntHandler>());",
             generated);
@@ -461,7 +463,7 @@ public class RegisterImplementationsOfEmissionTests
             public class GoodTask : IStartupTask { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         // The valid contract is unaffected by the invalid one alongside it.
         Assert.Contains("global::TestNs.GoodTask", generated);
@@ -482,7 +484,7 @@ public class RegisterImplementationsOfEmissionTests
             public class Task1 : IStartupTask { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Scoped<global::TestNs.IStartupTask, global::TestNs.Task1>());",
@@ -504,7 +506,7 @@ public class RegisterImplementationsOfEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.DoesNotContain("RegisterImplementationsOf", generated);
     }

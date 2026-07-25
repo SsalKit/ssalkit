@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using SsalKit.Generators.Toolkit.Testing;
 using SsalKit.Randomness.Generator.Tests.TestSupport;
 
 namespace SsalKit.Randomness.Generator.Tests;
@@ -56,12 +57,12 @@ public class DiagnosticTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
-        Assert.Equal(2, result.SsalrDiagnostics.Length);
+        Assert.Equal(2, result.Diagnostics.Length);
 
-        foreach (var diagnostic in result.SsalrDiagnostics)
+        foreach (var diagnostic in result.Diagnostics)
         {
             Assert.Equal("SSALR002", diagnostic.Id);
             Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
@@ -70,7 +71,7 @@ public class DiagnosticTests
         }
 
         // Both offending declarations are highlighted, not just the second one.
-        Assert.Equal(2, result.SsalrDiagnostics.Select(d => d.Location.SourceSpan.Start).Distinct().Count());
+        Assert.Equal(2, result.Diagnostics.Select(d => d.Location.SourceSpan.Start).Distinct().Count());
     }
 
     [Fact]
@@ -94,11 +95,11 @@ public class DiagnosticTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
-        Assert.Equal(2, result.SsalrDiagnostics.Length);
-        Assert.All(result.SsalrDiagnostics, diagnostic => Assert.Equal("SSALR002", diagnostic.Id));
+        Assert.Equal(2, result.Diagnostics.Length);
+        Assert.All(result.Diagnostics, diagnostic => Assert.Equal("SSALR002", diagnostic.Id));
     }
 
     [Fact]
@@ -119,12 +120,12 @@ public class DiagnosticTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
         Assert.Equal(
             new[] { "SSALR001", "SSALR002", "SSALR002" },
-            result.SsalrDiagnostics.Select(d => d.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray());
+            result.Diagnostics.Select(d => d.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray());
     }
 
     [Theory]
@@ -215,11 +216,11 @@ public class DiagnosticTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.SsalrDiagnostics);
+        Assert.Empty(result.Diagnostics);
         Assert.Single(result.GeneratedSources);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -307,13 +308,11 @@ public class DiagnosticTests
     /// </summary>
     private static Diagnostic AssertSingleDiagnostic(string source, string expectedId)
     {
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
 
-        var diagnostic = Assert.Single(result.SsalrDiagnostics);
-        Assert.Equal(expectedId, diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, expectedId, DiagnosticSeverity.Error);
         AssertReportedOnAnAttribute(diagnostic, source);
 
         return diagnostic;
