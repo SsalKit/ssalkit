@@ -74,6 +74,49 @@ string[] tenDrops = sampler.PickMany(rng, count: 10);
 | `WeightedRandomExtensions` | `PickWeighted`(단발, `long` 또는 `double` 가중치, 리스트 또는 span 형태), `PickManyWeighted`(복원 추출), `PickManyWeightedDistinct`(비복원 추출). |
 | `WeightedSampler<T>` | 고정된 `long` 가중치 항목 집합에서 반복 추첨할 때 쓰는, 불변·스레드 안전한 사전 빌드 alias method 샘플러. 빌드는 `O(n)`, `Pick`/`PickMany`는 호출당 `O(1)`. |
 
+## 성능
+
+SsalKit.Randomness는 순수 처리량 극대화가 아닌 다른 목표를 최적화합니다. 결정성·상태 직렬화·무할당을 성능 비용 없이 얻는 것입니다 — 실제로 `DeterministicRandom`의 스칼라 연산은 BCL의 모든 범용 대안보다 오히려 더 빠릅니다.
+
+BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에서 측정했습니다(SsalKit.Randomness 0.1.0 기준). 수치는 하드웨어에 따라 달라질 수 있으며, [벤치마크 프로젝트](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks)로 직접 재현할 수 있습니다.
+
+### 균등 생성
+
+| 연산 | DeterministicRandom | `new Random(seed)` | `Random.Shared` | CryptoRandomSource |
+|---|---:|---:|---:|---:|
+| NextUInt64 상당 | 1.8 ns / 0 B | 25.1 ns / 0 B | 3.7 ns / 0 B | 70.6 ns / 0 B |
+| Next(1000) | 2.4 ns / 0 B | 4.7 ns / 0 B | 3.5 ns / 0 B | 68.1 ns / 0 B |
+| NextInt64(범위 지정) | 1.9 ns / 0 B | 15.7 ns / 0 B | 3.6 ns / 0 B | 71.0 ns / 0 B |
+| NextDouble | 2.0 ns / 0 B | 3.8 ns / 0 B | 4.0 ns / 0 B | 71.7 ns / 0 B |
+
+`DeterministicRandom`은 측정된 모든 스칼라 연산에서 가장 빠릅니다(1.8~2.6 ns, 위 표에 없는 `NextRange`도 동일하게 2.6 ns). 시드를 지정한 레거시 `Random` 대비 최대 약 14배, `Random.Shared` 대비 약 1.5~2배 빠릅니다. 네 소스 모두 스칼라 생성에서 할당이 0바이트입니다.
+
+참고:
+- `Random.Shared`는 스레드 안전 래퍼이므로, 위의 단일 스레드 소스들과 완전히 동일한 조건의 비교는 아닙니다.
+- 유일한 예외는 64바이트 버퍼에 대한 `NextBytes`로, 이 경우에는 `Random.Shared`(16.5 ns)가 `DeterministicRandom`(19.2 ns)보다 근소하게 더 빠릅니다.
+- `CryptoRandomSource`는 전반적으로 `DeterministicRandom`보다 약 25~40배 느립니다 — `RandomNumberGenerator` 기반이라 암호학적 예측 불가능성을 제공하는 대가이며, 다른 소스들은 이 보장을 제공하지 않으므로 당연한 결과입니다.
+
+### 디스패치 비용
+
+| 호출 방식 | Mean |
+|---|---:|
+| `DeterministicRandom` 인스턴스 직접 호출 | 2.25 ns |
+| `IRandomSource` 확장 메서드 경유 | 2.69 ns |
+
+`IRandomSource` 추상화를 거치는 비용은 약 0.4 ns — 가상 호출 1회분입니다. 서브나노초 수준의 오버헤드이므로, 유연성(결정적/공유/암호학적 소스 교체)을 위해 `IRandomSource`를 대상으로 코드를 작성해도 사실상 공짜입니다. 핫루프에서 항상 하나의 구체 타입만 쓴다면, `DeterministicRandom`을 직접 호출해 이 비용마저 없앨 수 있습니다.
+
+### 가중치 추첨
+
+| 메서드 | N=10 | N=100 | N=1000 |
+|---|---:|---:|---:|
+| `PickWeighted`(리스트/델리게이트) | 43.1 ns / 104 B | 206.9 ns / 824 B | 1,590.5 ns / 8,024 B |
+| `PickWeighted`(span) | 36.7 ns / 0 B | 142.8 ns / 0 B | 1,363.5 ns / 8,024 B |
+| `WeightedSampler<T>.Pick` | 11.1 ns / 0 B | 10.6 ns / 0 B | 11.4 ns / 0 B |
+
+`WeightedSampler<T>.Pick`은 `N`과 무관하게 ~11 ns로 평탄합니다 — alias method 테이블 덕분에 매 추첨이 실제로 `O(1)`이라는 뜻입니다. span 기반 `PickWeighted` 오버로드는 항목 256개까지는 할당이 없으며, 그 이상에서는 힙 버퍼로 폴백합니다(위 N=1000의 8KB는 이 문서화된 폴백이지 누수가 아닙니다).
+
+`WeightedSampler<T>`를 빌드하는 비용은 공짜가 아닙니다 — `Create(...)`는 N=10에서 237 ns, N=100에서 1.7 μs, N=1000에서 14.9 μs가 걸립니다. 하지만 이는 일회성 비용입니다. N=1000 기준으로, 반복적인 단발 `PickWeighted`(span) 호출과 비교했을 때 샘플러를 빌드하는 비용은 약 **11회 추첨**이면 상환됩니다 — 같은 테이블에서 몇 번 이상 뽑을 계획이라면 샘플러 쪽이 이득입니다.
+
 ## 알고리즘 및 상태 계약 (v1)
 
 `DeterministicRandom`의 출력 수열은 **xoshiro256\*\***이며, 시드 확장(단일 `ulong` 시드에서 256bit 내부 상태로)은 **SplitMix64**입니다. 상태는 정확히 4개의 `ulong` 워드로 구성되며 `RandomState`로 노출됩니다.
