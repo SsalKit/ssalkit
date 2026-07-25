@@ -20,8 +20,6 @@ internal static class SymbolFacts
     /// </summary>
     public const string ErrorCodedExceptionMetadataName = "SsalKit.Guard.ErrorCodedException";
 
-    private const string GlobalPrefix = "global::";
-
     /// <summary>
     /// Returns the number of base-type steps from <paramref name="type"/> to
     /// <paramref name="exceptionType"/> (0 for <c>System.Exception</c> itself, 1 for a type deriving
@@ -179,13 +177,6 @@ internal static class SymbolFacts
     /// </summary>
     public static string ToFqn(ISymbol symbol) =>
         symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-
-    /// <summary>
-    /// Removes the <c>global::</c> alias qualifier, for the parts of a hint name that are not the
-    /// first (<c>HintNameSanitizer</c> strips only a leading one).
-    /// </summary>
-    public static string StripGlobalPrefix(string fqn) =>
-        fqn.StartsWith(GlobalPrefix, System.StringComparison.Ordinal) ? fqn.Substring(GlobalPrefix.Length) : fqn;
 
     /// <summary>
     /// The type's fully qualified name flattened into a single identifier

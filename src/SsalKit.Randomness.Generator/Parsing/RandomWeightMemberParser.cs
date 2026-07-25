@@ -167,8 +167,8 @@ internal static class RandomWeightMemberParser
         return CSharpNaming.JoinIdentifierSegments(names) + ExtensionClassSuffix;
     }
 
-    // HintNameSanitizer strips the leading "global::" itself, which is what keeps it out of every
-    // generated file name; the prefix carries no information here.
+    // HintNameSanitizer strips the "global::" qualifier itself, which is what keeps it out of every
+    // generated file name; the qualifier carries no information here.
     private static string BuildHintName(string typeFqn) =>
         HintNameSanitizer.Sanitize(typeFqn + HintNameSuffix);
 

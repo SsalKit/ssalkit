@@ -96,7 +96,7 @@ context.AddSource("MyAppWebServiceRegistration.g.cs", source);
 
 `Block(header)` は `header` を書き、続けて独立した行に開き括弧 `{` を書いてインデントを増やし、`using` スコープが終わると閉じ括弧 `}` を書きます。`Block(header, closer)` では別の閉じトークン(オブジェクト初期化子用の `"};"` など)を指定でき、`Indent()` は括弧を伴わない純粋なインデントスコープだけを提供します。
 
-生成メソッド1つで10〜20行になりがちな XML ドキュメントコメントには、`WriteDocLine(content)` と `WriteDocLines(params string[] contents)` が `/// ` プレフィックスを代わりに付けてくれます。
+生成メソッド1つで10〜20行になりがちな XML ドキュメントコメントには、`WriteDocLine(content)` と `WriteDocLines(contents)` が `/// ` プレフィックスを代わりに付けてくれます。
 
 ```csharp
 writer.WriteDocLines(
@@ -107,6 +107,20 @@ writer.WriteDocLines(
 ```
 
 空文字列を渡すと、末尾の空白なしで `///` だけを書きます。生成されたドキュメントブロックに末尾空白が残ることはありません。
+
+`WriteDocLines` にはオーバーロードが2つあります。上のようにリテラルを並べる場合は `params string[]`、条件によって行を足しながら組み立てる場合は `IEnumerable<string>` です。後者を配列リテラルだけで扱うと、ほとんど同じリスト2つを `if`/`else` で書き分けることになります。
+
+```csharp
+IEnumerable<string> docs = new[] { "<summary>", summaryText, "</summary>" };
+if (isObsolete)
+{
+    docs = docs.Concat(new[] { "<remarks>Superseded by <c>" + replacement + "</c>.</remarks>" });
+}
+
+writer.WriteDocLines(docs);
+```
+
+シーケンスは書き出しながらちょうど1回だけ列挙されるので、遅延クエリを事前に配列化する必要はありません。パラメーター型としては `string[]` のほうが具体的なため、既存の呼び出し(引数の列挙、明示的な `string[]`、引数なし)は従来どおり `params` オーバーロードにバインドされます。
 
 ### `CSharpNaming`
 
@@ -144,14 +158,18 @@ string hintName = HintNameSanitizer.Sanitize(typeSymbol.ToDisplayString());
 
 string fromFqn = HintNameSanitizer.Sanitize(
     typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
-// "global::Namespace.MyType" -> "Namespace.MyType.g.cs"(先頭のエイリアス修飾子は除去される)
+// "global::Namespace.MyType" -> "Namespace.MyType.g.cs"(エイリアス修飾子は除去される)
+
+// 2つの型名をつないだファイル名 — どちらも事前に剥がす必要はありません。
+string forPair = HintNameSanitizer.Sanitize(containerFqn + "." + codeEnumFqn + ".Mapping");
+// "global::My.Container.global::My.Codes.Mapping" -> "My.Container.My.Codes.Mapping.g.cs"
 
 context.AddSource(hintName, sourceText);
 ```
 
 `Sanitize` は結果が `suffix`(デフォルトは `".g.cs"`。すでに付いていれば重複して付加しません)で終わることを保証し、Roslyn が許容する hint-name 文字集合外のすべての文字を `_` に置き換え、全体の長さを 200 文字に制限します(先頭側から切り詰めるため、より識別力のある末尾部分と接尾辞は常に残ります)。複数回呼び出した場合の一意性は保証しません — 区別可能な入力を渡す責任は呼び出し側にあります。
 
-`SymbolDisplayFormat.FullyQualifiedFormat` がすべての名前に付ける先頭の `global::` は、1文字ずつ置換するのではなく**除去**されます。そのため完全修飾名をそのまま渡しても、生成されるすべてのファイル名に `global__` プレフィックスが残ることはありません。除去されるのは先頭の1回だけで、それ以外の位置にある `global::` は他のテキストと同様にサニタイズされます。候補が `global::` だけの場合は、`null`/空/空白と同様に `"Generated"` にフォールバックします。
+`SymbolDisplayFormat.FullyQualifiedFormat` がすべての名前に付ける `global::` は、1文字ずつ置換するのではなく**除去**されます。そのため完全修飾名をそのまま渡しても、生成されるファイル名に `global__` が残ることはありません。除去は先頭に限らず、現れるすべての位置で行われるため、完全修飾名を複数つないで作った hint name も呼び出し側で剥がす必要はありません。除去されるのは厳密に `global::` 修飾子だけで、単語が同じだけのセグメント(`global.MyType`)はそのまま残ります。候補が `global::` 修飾子だけで構成されている場合は、`null`/空/空白と同様に `"Generated"` にフォールバックします。
 
 ### `DiagnosticInfo` / `LocationInfo`
 
@@ -177,7 +195,9 @@ context.RegisterSourceOutput(diagnostics, static (spc, reported) =>
 });
 ```
 
-`LocationInfo.CreateFrom` は `Location` または `SyntaxNode` を受け取り、ソース上の位置でないもの(メタデータ位置や "none" 位置、`null` 引数)に対しては `null` を返します。これは `Diagnostic.Create` が「位置なしで報告」としてそのまま受け付ける値なので、後続で特別な処理は要りません。どちらの型も `IEquatable<T>` と整合する `GetHashCode` を実装しているため、`EquatableArray<T>` をはじめとするどのパイプラインモデルにも入れられます。メッセージ引数は `EquatableArray<string>` として保持され、`params string[]` のコンストラクターオーバーロードが代わりに構築してくれます。
+`LocationInfo.CreateFrom` は `Location` または `SyntaxNode` を受け取り、ソース上の位置でないもの(メタデータ位置や "none" 位置、`null` 引数)に対しては `null` を返します。これは `Diagnostic.Create` が「位置なしで報告」としてそのまま受け付ける値なので、後続で特別な処理は要りません。どちらの型も `IEquatable<T>` と整合する `GetHashCode` を実装しているため、`EquatableArray<T>` をはじめとするどのパイプラインモデルにも入れられます。
+
+メッセージ引数は `EquatableArray<string>` として保持されます。`Diagnostic.Create` 自身が受け取る `object?[]` ではなく、**文字列に固定**されています。任意の `object` 引数はその型が実装する等価性(多くの場合は参照等価性)をそのまま持ち込むため、「同じ」診断を生成した2回の実行が不等と判定されてキャッシュが無効化されかねません。さらに悪いことに、引数がシンボルや構文ノードであれば `Compilation` 全体を保持し続けてしまいます。そのため書式化は呼び出し側で完結させます — `DiagnosticInfo` を構築する前に各引数を文字列へ描画し(カルチャに依存する値はインバリアント書式で)、`ToDiagnostic()` はその文字列をそのまま渡します。`params string[]` のコンストラクターオーバーロードが配列を代わりに構築してくれます。
 
 ### `DiagnosticDescriptorFactory`
 

@@ -3,6 +3,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace SsalKit.Generators.Toolkit;
@@ -109,6 +110,29 @@ internal sealed class IndentedCodeWriter
     /// </summary>
     /// <param name="contents">The comment contents, without the leading slashes.</param>
     public void WriteDocLines(params string[] contents)
+    {
+        foreach (var content in contents)
+        {
+            WriteDocLine(content);
+        }
+    }
+
+    /// <summary>
+    /// Writes a run of XML documentation comment lines from an arbitrary sequence, one per element,
+    /// each through <see cref="WriteDocLine"/>.
+    /// </summary>
+    /// <param name="contents">
+    /// The comment contents, without the leading slashes. The sequence is enumerated exactly once,
+    /// as it is written, so a lazily built one (a filtered or conditionally extended run of doc
+    /// lines, say) never has to be materialized into an array first. An empty sequence writes
+    /// nothing.
+    /// </param>
+    /// <remarks>
+    /// This overload never displaces <see cref="WriteDocLines(string[])"/> for callers that pass
+    /// loose arguments or an actual <see cref="string"/> array: <c>string[]</c> is the more specific
+    /// parameter type, so existing call sites bind exactly as they did before.
+    /// </remarks>
+    public void WriteDocLines(IEnumerable<string> contents)
     {
         foreach (var content in contents)
         {

@@ -16,10 +16,30 @@ namespace SsalKit.Generators.Toolkit;
 /// through it, an entire <see cref="Compilation"/>) in the generator's cache.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Equality is by value across all three components, which is the whole point of the type: a
 /// pipeline stage that produces the same diagnostics twice must compare equal, or the generator
 /// re-reports on every keystroke. <see cref="DiagnosticDescriptor"/> instances are shared static
 /// singletons that already compare by value, so holding one here is safe.
+/// </para>
+/// <para>
+/// That is also why the message arguments are typed as <see cref="EquatableArray{T}"/> of
+/// <see cref="string"/> rather than the <c>object?[]</c> that
+/// <see cref="Diagnostic.Create(DiagnosticDescriptor, Location?, object?[])"/> itself takes. An
+/// arbitrary <see cref="object"/> argument carries whatever equality its own type happens to
+/// implement — reference equality, for most — so two runs that produced the "same" diagnostic
+/// could compare unequal and defeat the cache, or, worse, an argument could be a Roslyn symbol or
+/// syntax node and root a whole <see cref="Compilation"/> in it. Fixing the element type to
+/// <see cref="string"/> makes both impossible by construction.
+/// </para>
+/// <para>
+/// Formatting therefore happens at the call site, before the value enters the pipeline: whatever
+/// a caller wants spliced into the message format has to be rendered to a string first, and
+/// <see cref="ToDiagnostic"/> passes those strings through to
+/// <see cref="Diagnostic.Create(DiagnosticDescriptor, Location?, object?[])"/> verbatim. Any
+/// culture-sensitive conversion (numbers, dates) should be done with an invariant format so the
+/// diagnostic text does not vary with the build machine's locale.
+/// </para>
 /// </remarks>
 internal sealed class DiagnosticInfo : IEquatable<DiagnosticInfo>
 {
@@ -63,7 +83,8 @@ internal sealed class DiagnosticInfo : IEquatable<DiagnosticInfo>
     public LocationInfo? Location { get; }
 
     /// <summary>
-    /// The arguments spliced into the descriptor's message format.
+    /// The arguments spliced into the descriptor's message format, already rendered to strings.
+    /// See the type's remarks for why the element type is fixed to <see cref="string"/>.
     /// </summary>
     public EquatableArray<string> MessageArgs { get; }
 

@@ -276,10 +276,12 @@ internal static class ErrorCodesContainerParser
     /// The hint name carries the code enum as well as the container, because one class may be the
     /// container for several enums and every generated file needs its own name.
     /// </summary>
+    /// <remarks>
+    /// Both names arrive <c>global::</c>-qualified and neither is pre-stripped here:
+    /// <c>HintNameSanitizer</c> removes the alias qualifier wherever it appears, including the one
+    /// in the middle of this pair.
+    /// </remarks>
     private static string BuildHintName(INamedTypeSymbol container, INamedTypeSymbol codeEnum) =>
         HintNameSanitizer.Sanitize(
-            SymbolFacts.StripGlobalPrefix(SymbolFacts.ToFqn(container))
-            + "."
-            + SymbolFacts.StripGlobalPrefix(SymbolFacts.ToFqn(codeEnum))
-            + HintNameSuffix);
+            SymbolFacts.ToFqn(container) + "." + SymbolFacts.ToFqn(codeEnum) + HintNameSuffix);
 }

@@ -14,12 +14,20 @@ namespace SsalKit.Generators.Toolkit;
 /// <c>SourceProductionContext.AddSource</c>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Roslyn accepts a fairly permissive character set in hint names (letters, digits, <c>_</c>,
 /// <c>.</c>, <c>,</c>, <c>-</c>, <c>+</c>, <c>` </c>, parentheses, brackets, and spaces), but two
 /// characters from that allowed set are still replaced for readability: the backtick used in
 /// generic arity markers (e.g. <c>Foo`1</c>) and the plus sign used for nested types
 /// (e.g. <c>Outer+Inner</c>). Every character outside the allowed set (such as <c>&lt;</c>,
 /// <c>&gt;</c>, <c>:</c>, <c>/</c>, or <c>\</c>) is replaced as well.
+/// </para>
+/// <para>
+/// The <c>global::</c> alias qualifier is removed outright before that replacement rather than
+/// being mangled into <c>global__</c>. It is removed wherever it appears, not only at the front,
+/// so a candidate a caller composed from several fully qualified names — the common way to name a
+/// file after a pair of types — needs no pre-stripping of its own.
+/// </para>
 /// </remarks>
 internal static class HintNameSanitizer
 {
@@ -32,13 +40,13 @@ internal static class HintNameSanitizer
     /// tolerate for a single generated file name.
     /// </summary>
     /// <param name="candidate">
-    /// The raw candidate, typically a type's fully qualified or metadata name. A leading
-    /// <c>global::</c> alias qualifier — which
+    /// The raw candidate, typically a type's fully qualified or metadata name, or several of them
+    /// joined together. Every <c>global::</c> alias qualifier — which
     /// <c>SymbolDisplayFormat.FullyQualifiedFormat</c> puts on every name — is stripped rather
     /// than replaced character by character, since it carries no information here and would
-    /// otherwise turn into a <c>global__</c> prefix on every generated file name. A
-    /// <see langword="null"/>, empty, or whitespace-only value (including a bare
-    /// <c>global::</c>) is replaced with <c>"Generated"</c>.
+    /// otherwise turn into a <c>global__</c> run inside the generated file name. A
+    /// <see langword="null"/>, empty, or whitespace-only value (including one that is nothing but
+    /// <c>global::</c> qualifiers) is replaced with <c>"Generated"</c>.
     /// </param>
     /// <param name="suffix">
     /// The suffix the result must end with. If <paramref name="candidate"/> already ends with
@@ -51,14 +59,10 @@ internal static class HintNameSanitizer
     /// </returns>
     public static string Sanitize(string candidate, string suffix = ".g.cs")
     {
-        var basis = candidate ?? string.Empty;
-
-        // Only the leading alias qualifier, and only once: "global::global::X" is not a name any
-        // display format produces, and a second pass would silently rewrite a legitimate segment.
-        if (basis.StartsWith(GlobalPrefix, StringComparison.Ordinal))
-        {
-            basis = basis.Substring(GlobalPrefix.Length);
-        }
+        // Every occurrence, not just a leading one: hint names are routinely composed from more
+        // than one fully qualified name, and an alias qualifier is meaningless at any position.
+        // string.Replace(string, string) is ordinal, and makes a single left-to-right pass.
+        var basis = (candidate ?? string.Empty).Replace(GlobalPrefix, string.Empty);
 
         if (string.IsNullOrWhiteSpace(basis))
         {
