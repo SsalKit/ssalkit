@@ -1,12 +1,12 @@
 using System.Collections;
 using System.Collections.Immutable;
-using SsalKit.DependencyInjection.Generator.Models;
+using SsalKit.Generators.Toolkit;
 
-namespace SsalKit.DependencyInjection.Generator.Tests;
+namespace SsalKit.Generators.Toolkit.Tests;
 
 /// <summary>
 /// Direct unit tests for <see cref="EquatableArray{T}"/>, covering the value-equality semantics
-/// (including the <c>default</c>/uninitialized state) that the incremental generator pipeline
+/// (including the <c>default</c>/uninitialized state) that an incremental generator pipeline
 /// relies on for correct caching.
 /// </summary>
 public class EquatableArrayTests
@@ -90,6 +90,25 @@ public class EquatableArrayTests
         var array = default(EquatableArray<string>);
 
         Assert.Equal(0, array.GetHashCode());
+    }
+
+    [Fact]
+    public void GetHashCode_ArrayContainingNullElement_TreatsNullAsZeroContribution()
+    {
+        // Exercises the null-conditional branch of "item?.GetHashCode() ?? 0" for reference-type
+        // elements, alongside the non-null branch already covered by the other GetHashCode tests.
+        // The null-forgiving operator keeps the array's static element type as non-nullable
+        // "string" (satisfying EquatableArray<T>'s "where T : IEquatable<T>" constraint) while
+        // still storing an actual null reference at runtime.
+        var source = new[] { "a", null! };
+        var withNull = source.ToEquatableArray();
+        var withoutSecondElement = new[] { "a" }.ToEquatableArray();
+
+        // hash = ((17 * 31) + "a".GetHashCode()) * 31 + 0, i.e. one extra "* 31" step versus the
+        // single-element array, since a null element contributes 0 instead of its hash code.
+        var expected = (withoutSecondElement.GetHashCode() * 31) + 0;
+
+        Assert.Equal(expected, withNull.GetHashCode());
     }
 
     [Fact]

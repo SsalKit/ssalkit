@@ -1,3 +1,5 @@
+using SsalKit.Generators.Toolkit;
+
 namespace SsalKit.DependencyInjection.Generator.Models;
 
 /// <summary>

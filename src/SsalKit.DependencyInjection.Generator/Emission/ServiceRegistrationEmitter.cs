@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using SsalKit.DependencyInjection.Generator.Models;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Emission;
 
@@ -14,7 +15,7 @@ internal static class ServiceRegistrationEmitter
 
     public static (string HintName, string Source) Emit(ImmutableArray<ClassRegistrationModel> classes, string? assemblyName)
     {
-        var sanitizedName = AssemblyNameSanitizer.ToPascalCaseIdentifier(assemblyName);
+        var sanitizedName = CSharpNaming.ToPascalCaseIdentifier(assemblyName, "Assembly");
         var className = $"{sanitizedName}ServiceCollectionExtensions";
         var methodName = $"Add{sanitizedName}Services";
 
