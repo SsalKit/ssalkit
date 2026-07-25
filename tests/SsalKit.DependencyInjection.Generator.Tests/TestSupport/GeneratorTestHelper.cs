@@ -8,8 +8,9 @@ namespace SsalKit.DependencyInjection.Generator.Tests.TestSupport;
 
 /// <summary>
 /// Builds an in-memory <see cref="CSharpCompilation"/> from source text and drives the real
-/// <see cref="ServiceRegistrationGenerator"/> and <see cref="ServiceAttributeAnalyzer"/> against
-/// it, entirely in-process (no external `dotnet build`/MSBuild involved).
+/// <see cref="ServiceRegistrationGenerator"/>, <see cref="ServiceAttributeAnalyzer"/>, and
+/// <see cref="ServiceFactoryAnalyzer"/> against it, entirely in-process (no external
+/// `dotnet build`/MSBuild involved).
 /// </summary>
 internal static class GeneratorTestHelper
 {
@@ -46,8 +47,11 @@ internal static class GeneratorTestHelper
         bool allowUnsafe = false)
     {
         var compilation = CreateCompilation(source, assemblyName, extraReferences, allowUnsafe);
-        var analyzer = new ServiceAttributeAnalyzer();
-        var withAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(analyzer));
+
+        // Both analyzers always run together, exactly as they do when the package is consumed:
+        // whichever attribute a test source uses, the other analyzer must stay silent about it.
+        var withAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(
+            new ServiceAttributeAnalyzer(), new ServiceFactoryAnalyzer()));
 
         var diagnostics = await withAnalyzers.GetAllDiagnosticsAsync();
 
@@ -148,6 +152,20 @@ internal sealed record GeneratorRunResult(
     Compilation OutputCompilation)
 {
     public string GetSingleSource() => GeneratedSources.Single().Source;
+
+    /// <summary>
+    /// The assembly-wide registration file (<c>...ServiceCollectionExtensions.g.cs</c>), for runs
+    /// that also produce one <c>[ServiceFactory]</c> implementation file per factory interface and
+    /// therefore cannot use <see cref="GetSingleSource"/>.
+    /// </summary>
+    public string GetRegistrationSource() =>
+        GeneratedSources.Single(s => s.HintName.EndsWith("ServiceCollectionExtensions.g.cs", StringComparison.Ordinal)).Source;
+
+    /// <summary>
+    /// The generated source registered under exactly <paramref name="hintName"/>.
+    /// </summary>
+    public string GetSource(string hintName) =>
+        GeneratedSources.Single(s => s.HintName == hintName).Source;
 
     /// <summary>
     /// Returns the compiler errors (if any) in the compilation *after* the generated source has

@@ -37,6 +37,23 @@ public class GeneratorIncrementalTests
         public class Repo<T> : IRepo<T> { }
         """;
 
+    private const string ServiceFactorySource = """
+        using SsalKit.DependencyInjection;
+        using Microsoft.Extensions.DependencyInjection;
+
+        namespace TestNs;
+
+        public enum PaymentMethod { Card, Bank }
+
+        public interface IPaymentProcessor { }
+
+        [ServiceFactory]
+        public interface IPaymentProcessorFactory
+        {
+            IPaymentProcessor Create(PaymentMethod method);
+        }
+        """;
+
     private const string FactorySourceOriginalBody = """
         using SsalKit.DependencyInjection;
         using Microsoft.Extensions.DependencyInjection;
@@ -147,6 +164,62 @@ public class GeneratorIncrementalTests
 
         AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedClasses);
         AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+    }
+
+    [Fact]
+    public void ServiceFactory_UnrelatedSyntaxTreeAdditionReusesCollectedFactoriesAndCombinedSteps()
+    {
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new[] { generator.AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(ServiceFactorySource);
+        driver = driver.RunGenerators(compilation1);
+
+        var compilation2 = compilation1.AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
+        driver = driver.RunGenerators(compilation2);
+
+        var runResult = driver.GetRunResult();
+        var trackedSteps = runResult.Results.Single().TrackedSteps;
+
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedFactories);
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+    }
+
+    [Fact]
+    public void ServiceFactory_UnrelatedServiceClassEdit_ReusesCollectedFactoriesStep()
+    {
+        // The factory implementation files come off CollectedFactories alone, so adding a new
+        // [Service] class -- which necessarily re-runs CollectedClasses and Combined -- must leave
+        // every already-emitted factory file untouched.
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new[] { generator.AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(ServiceFactorySource);
+        driver = driver.RunGenerators(compilation1);
+
+        var compilation2 = compilation1.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
+            """
+            using SsalKit.DependencyInjection;
+
+            namespace TestNs;
+
+            public interface IUnrelated { }
+
+            [Service]
+            public class Unrelated : IUnrelated { }
+            """,
+            new CSharpParseOptions(LanguageVersion.Latest)));
+        driver = driver.RunGenerators(compilation2);
+
+        var runResult = driver.GetRunResult();
+        var trackedSteps = runResult.Results.Single().TrackedSteps;
+
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedFactories);
     }
 
     private static void AssertAllOutputsCachedOrUnchanged(

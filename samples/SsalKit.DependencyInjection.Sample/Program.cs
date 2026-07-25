@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SsalKit.DependencyInjection.Sample.Services.Clock;
 using SsalKit.DependencyInjection.Sample.Services.Greeting;
 using SsalKit.DependencyInjection.Sample.Services.Messaging;
+using SsalKit.DependencyInjection.Sample.Services.Notifications;
 using SsalKit.DependencyInjection.Sample.Services.Repository;
 using SsalKit.DependencyInjection.Sample.Services.Session;
 using SsalKit.DependencyInjection.Sample.Services.Startup;
@@ -96,3 +97,26 @@ Console.WriteLine();
 var banner = provider.GetRequiredService<IStartupBanner>();
 Console.WriteLine("[Factory]        IStartupBanner -> constructed by StartupBanner.Create(IServiceProvider)");
 Console.WriteLine($"                 {banner.Text}");
+Console.WriteLine();
+
+// ServiceFactory: nothing in this project implements INotificationSenderFactory -- the generator
+// emitted an implementation that forwards to GetRequiredKeyedService<INotificationSender>(channel)
+// and registered it as a Singleton, so the interface resolves like any other service. The enum
+// value is used verbatim as the keyed-service key, which is what makes it line up with the
+// [Service(Key = NotificationChannel.Email)] registrations.
+var senderFactory = provider.GetRequiredService<INotificationSenderFactory>();
+Console.WriteLine("[ServiceFactory] INotificationSenderFactory -> generated implementation");
+Console.WriteLine($"                 resolved as {senderFactory.GetType().Name}");
+Console.WriteLine($"                 Email -> {senderFactory.Create(NotificationChannel.Email).Send("deploy finished")}");
+Console.WriteLine($"                 Sms   -> {senderFactory.Create(NotificationChannel.Sms).Send("deploy finished")}");
+
+// NotificationChannel.Push has no [Service(Key = ...)] registration anywhere, and the factory adds
+// no fallback of its own: whatever GetRequiredKeyedService throws is the factory's contract too.
+try
+{
+    senderFactory.Create(NotificationChannel.Push);
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($"                 Push  -> {ex.GetType().Name}: no service registered for this key");
+}
