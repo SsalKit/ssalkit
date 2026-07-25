@@ -96,7 +96,7 @@ context.AddSource("MyAppWebServiceRegistration.g.cs", source);
 
 `Block(header)` writes `header`, an opening `{` on its own line, indents, and writes a closing `}` when the `using` scope ends. `Block(header, closer)` lets you supply a different closing token (e.g. `"};"` for an object initializer), and `Indent()` gives you a bare indentation scope without any braces at all.
 
-For XML documentation comments — which a generated method easily spends 10–20 lines on — `WriteDocLine(content)` and `WriteDocLines(params string[] contents)` attach the `/// ` prefix for you:
+For XML documentation comments — which a generated method easily spends 10–20 lines on — `WriteDocLine(content)` and `WriteDocLines(contents)` attach the `/// ` prefix for you:
 
 ```csharp
 writer.WriteDocLines(
@@ -107,6 +107,20 @@ writer.WriteDocLines(
 ```
 
 An empty string writes a bare `///` with no trailing space, so generated documentation blocks never carry trailing whitespace.
+
+`WriteDocLines` comes in two overloads: `params string[]` for the literal run above, and `IEnumerable<string>` for a block assembled conditionally, where an array literal forces the whole thing into an `if`/`else` over two nearly identical lists:
+
+```csharp
+IEnumerable<string> docs = new[] { "<summary>", summaryText, "</summary>" };
+if (isObsolete)
+{
+    docs = docs.Concat(new[] { "<remarks>Superseded by <c>" + replacement + "</c>.</remarks>" });
+}
+
+writer.WriteDocLines(docs);
+```
+
+The sequence is enumerated exactly once, as it is written, so a deferred query is never materialized first. `string[]` is the more specific parameter type, so existing call sites — loose arguments, an explicit `string[]`, or none at all — keep binding to the `params` overload exactly as before.
 
 ### `CSharpNaming`
 
@@ -144,14 +158,18 @@ string hintName = HintNameSanitizer.Sanitize(typeSymbol.ToDisplayString());
 
 string fromFqn = HintNameSanitizer.Sanitize(
     typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
-// "global::Namespace.MyType" -> "Namespace.MyType.g.cs" (the leading alias qualifier is stripped)
+// "global::Namespace.MyType" -> "Namespace.MyType.g.cs" (the alias qualifier is stripped)
+
+// One file named after a pair of types: no pre-stripping needed on either name.
+string forPair = HintNameSanitizer.Sanitize(containerFqn + "." + codeEnumFqn + ".Mapping");
+// "global::My.Container.global::My.Codes.Mapping" -> "My.Container.My.Codes.Mapping.g.cs"
 
 context.AddSource(hintName, sourceText);
 ```
 
 `Sanitize` guarantees the result ends with `suffix` (default `".g.cs"`, not duplicated if already present), replaces every character outside Roslyn's accepted hint-name set with `_`, and caps the overall length at 200 characters (trimming from the front, so the more distinguishing tail — and the suffix — always survive). It does not guarantee uniqueness across multiple calls; callers are responsible for passing distinguishable input.
 
-A leading `global::` — which `SymbolDisplayFormat.FullyQualifiedFormat` puts on every name — is **stripped**, not replaced character by character, so passing a fully qualified name straight through doesn't leave a `global__` prefix on every generated file name. Only the leading occurrence is stripped, and only once; a `global::` anywhere else is sanitized like any other text. A candidate that is nothing but `global::` falls back to `"Generated"`, as `null`/empty/whitespace does.
+Every `global::` — which `SymbolDisplayFormat.FullyQualifiedFormat` puts on every name — is **stripped**, not replaced character by character, so passing a fully qualified name straight through doesn't leave a `global__` run in the generated file name. The qualifier is removed wherever it appears, not just at the front, so a hint name a caller composed from several fully qualified names needs no pre-stripping of its own. Only the exact `global::` qualifier is removed: a segment that merely starts with the word (`global.MyType`) is left alone. A candidate that is nothing but `global::` qualifiers falls back to `"Generated"`, as `null`/empty/whitespace does.
 
 ### `DiagnosticInfo` / `LocationInfo`
 
@@ -177,7 +195,9 @@ context.RegisterSourceOutput(diagnostics, static (spc, reported) =>
 });
 ```
 
-`LocationInfo.CreateFrom` accepts a `Location` or a `SyntaxNode` and returns `null` for anything that isn't a location in source (a metadata or "none" location, or a `null` argument) — which is exactly what `Diagnostic.Create` accepts for "report without a location", so the `null` needs no special handling downstream. Both types implement `IEquatable<T>` with a matching `GetHashCode`, so they can sit inside an `EquatableArray<T>` or any other pipeline model. Message arguments are held as an `EquatableArray<string>`; the `params string[]` constructor overload builds one for you.
+`LocationInfo.CreateFrom` accepts a `Location` or a `SyntaxNode` and returns `null` for anything that isn't a location in source (a metadata or "none" location, or a `null` argument) — which is exactly what `Diagnostic.Create` accepts for "report without a location", so the `null` needs no special handling downstream. Both types implement `IEquatable<T>` with a matching `GetHashCode`, so they can sit inside an `EquatableArray<T>` or any other pipeline model.
+
+Message arguments are held as an `EquatableArray<string>` — **strings only**, not the `object?[]` that `Diagnostic.Create` itself takes. An arbitrary `object` argument brings whatever equality its own type implements (reference equality, for most), so two runs that produced the "same" diagnostic could compare unequal and defeat the cache; worse, such an argument could be a symbol or syntax node and root a whole `Compilation`. Format at the call site instead — render each argument to a string (with an invariant format, for anything culture-sensitive) before constructing the `DiagnosticInfo`, and `ToDiagnostic()` passes those strings through verbatim. The `params string[]` constructor overload builds the array for you.
 
 ### `DiagnosticDescriptorFactory`
 

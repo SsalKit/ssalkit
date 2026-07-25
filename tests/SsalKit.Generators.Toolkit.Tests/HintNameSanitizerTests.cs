@@ -5,7 +5,8 @@ namespace SsalKit.Generators.Toolkit.Tests;
 /// <summary>
 /// Direct unit tests for <see cref="HintNameSanitizer"/>: invalid-character replacement (generic
 /// arity, nested types, and Roslyn-disallowed characters), passthrough of the allowed character
-/// set, suffix handling, the empty/whitespace fallback, and length capping.
+/// set, removal of the <c>global::</c> alias qualifier at every position, suffix handling, the
+/// empty/whitespace fallback, and length capping.
 /// </summary>
 public class HintNameSanitizerTests
 {
@@ -106,19 +107,31 @@ public class HintNameSanitizerTests
     }
 
     [Fact]
-    public void Sanitize_GlobalAliasNotAtTheStart_IsReplacedLikeAnyOtherColon()
+    public void Sanitize_GlobalAliasNotAtTheStart_IsStrippedToo()
     {
         var result = HintNameSanitizer.Sanitize("MyNamespace.global::MyType");
 
-        Assert.Equal("MyNamespace.global__MyType.g.cs", result);
+        Assert.Equal("MyNamespace.MyType.g.cs", result);
+    }
+
+    /// <summary>
+    /// The reason the leading-only rule was widened: a hint name naming two types is built by
+    /// joining two fully qualified names, and every one of them carries the alias qualifier.
+    /// </summary>
+    [Fact]
+    public void Sanitize_JoinedFullyQualifiedNames_HasNoAliasQualifierLeft()
+    {
+        var result = HintNameSanitizer.Sanitize("global::My.Container.global::My.Codes");
+
+        Assert.Equal("My.Container.My.Codes.g.cs", result);
     }
 
     [Fact]
-    public void Sanitize_RepeatedGlobalAlias_StripsOnlyTheFirst()
+    public void Sanitize_RepeatedGlobalAlias_StripsEveryOccurrence()
     {
         var result = HintNameSanitizer.Sanitize("global::global::MyType");
 
-        Assert.Equal("global__MyType.g.cs", result);
+        Assert.Equal("MyType.g.cs", result);
     }
 
     [Fact]
@@ -127,6 +140,30 @@ public class HintNameSanitizerTests
         var result = HintNameSanitizer.Sanitize("global::");
 
         Assert.Equal("Generated.g.cs", result);
+    }
+
+    [Fact]
+    public void Sanitize_NothingButGlobalAliases_FallsBackToGenerated()
+    {
+        var result = HintNameSanitizer.Sanitize("global::global::");
+
+        Assert.Equal("Generated.g.cs", result);
+    }
+
+    /// <summary>
+    /// Only the exact eight-character qualifier is removed: a type or namespace segment that merely
+    /// starts with the word "global" keeps its name, and a lone colon pair is still sanitized.
+    /// </summary>
+    [Theory]
+    [InlineData("global.MyType", "global.MyType.g.cs")]
+    [InlineData("GlobalThing.MyType", "GlobalThing.MyType.g.cs")]
+    [InlineData("globals::MyType", "globals__MyType.g.cs")]
+    [InlineData("GLOBAL::MyType", "GLOBAL__MyType.g.cs")]
+    public void Sanitize_NamesResemblingTheAliasQualifier_AreLeftAlone(string candidate, string expected)
+    {
+        var result = HintNameSanitizer.Sanitize(candidate);
+
+        Assert.Equal(expected, result);
     }
 
     [Fact]

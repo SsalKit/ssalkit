@@ -1,10 +1,12 @@
+using System.Linq.Expressions;
 using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.Generators.Toolkit.Tests;
 
 /// <summary>
 /// Direct unit tests for <see cref="IndentedCodeWriter"/>: line writing, blank-line handling,
-/// nested indentation scopes, block scopes (default and custom closer), and the header helper.
+/// nested indentation scopes, block scopes (default and custom closer), the header helper, and
+/// both documentation-line overloads.
 /// </summary>
 public class IndentedCodeWriterTests
 {
@@ -237,4 +239,125 @@ public class IndentedCodeWriterTests
 
         Assert.Equal(string.Empty, writer.ToString());
     }
+
+    [Fact]
+    public void WriteDocLines_Sequence_WritesOneLinePerElementInOrder()
+    {
+        var writer = new IndentedCodeWriter();
+
+        writer.WriteDocLines(new List<string>
+        {
+            "<summary>",
+            "Picks an item.",
+            "</summary>",
+            string.Empty,
+            "<returns>The item.</returns>",
+        });
+
+        Assert.Equal(
+            "/// <summary>\n/// Picks an item.\n/// </summary>\n///\n/// <returns>The item.</returns>\n",
+            writer.ToString());
+    }
+
+    [Fact]
+    public void WriteDocLines_EmptySequence_WritesNothing()
+    {
+        var writer = new IndentedCodeWriter();
+
+        writer.WriteDocLines(Enumerable.Empty<string>());
+
+        Assert.Equal(string.Empty, writer.ToString());
+    }
+
+    [Fact]
+    public void WriteDocLines_Sequence_IsIndentedLikeAnyOtherLine()
+    {
+        var writer = new IndentedCodeWriter();
+
+        using (writer.Block("internal static class C"))
+        {
+            writer.WriteDocLines(new[] { "<summary>", "Docs.", "</summary>" }.AsEnumerable());
+        }
+
+        Assert.Equal(
+            "internal static class C\n{\n    /// <summary>\n    /// Docs.\n    /// </summary>\n}\n",
+            writer.ToString());
+    }
+
+    /// <summary>
+    /// The overload is meant for lazily assembled documentation, so it must enumerate as it writes
+    /// rather than buffer first -- and must do so exactly once, since a deferred query is free to
+    /// be expensive (or single-pass) on a second enumeration.
+    /// </summary>
+    [Fact]
+    public void WriteDocLines_DeferredSequence_IsEnumeratedExactlyOnceAndLazily()
+    {
+        var writer = new IndentedCodeWriter();
+        var enumerations = 0;
+
+        IEnumerable<string> Contents()
+        {
+            enumerations++;
+            yield return "<summary>";
+            yield return "Docs.";
+            yield return "</summary>";
+        }
+
+        var deferred = Contents();
+        Assert.Equal(0, enumerations);
+
+        writer.WriteDocLines(deferred);
+
+        Assert.Equal(1, enumerations);
+        Assert.Equal("/// <summary>\n/// Docs.\n/// </summary>\n", writer.ToString());
+    }
+
+    /// <summary>
+    /// The conditional-assembly case the overload was added for: a run of doc lines built up with
+    /// optional pieces, passed straight to the writer without being materialized into an array.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "/// <summary>\n/// Docs.\n/// </summary>\n/// <remarks>Extra.</remarks>\n")]
+    [InlineData(false, "/// <summary>\n/// Docs.\n/// </summary>\n")]
+    public void WriteDocLines_ConditionallyExtendedSequence_WritesOnlyTheIncludedLines(
+        bool includeRemarks, string expected)
+    {
+        var writer = new IndentedCodeWriter();
+
+        var contents = new[] { "<summary>", "Docs.", "</summary>" }
+            .Concat(includeRemarks ? new[] { "<remarks>Extra.</remarks>" } : Enumerable.Empty<string>());
+
+        writer.WriteDocLines(contents);
+
+        Assert.Equal(expected, writer.ToString());
+    }
+
+    /// <summary>
+    /// Overload resolution regression guard: <c>string[]</c> is the more specific parameter type, so
+    /// every pre-existing call site -- loose arguments, an explicit array, no arguments at all --
+    /// must still bind to the <c>params</c> overload now that a sequence overload exists.
+    /// </summary>
+    [Fact]
+    public void WriteDocLines_ArrayAndLooseArguments_StillBindToTheParamsOverload()
+    {
+        var array = new[] { "<summary>", "Docs.", "</summary>" };
+
+        Assert.Equal(typeof(string[]), BoundParameterTypeOf(() => new IndentedCodeWriter().WriteDocLines(array)));
+        Assert.Equal(
+            typeof(string[]),
+            BoundParameterTypeOf(() => new IndentedCodeWriter().WriteDocLines("<summary>", "</summary>")));
+        Assert.Equal(typeof(string[]), BoundParameterTypeOf(() => new IndentedCodeWriter().WriteDocLines("Docs.")));
+        Assert.Equal(typeof(string[]), BoundParameterTypeOf(() => new IndentedCodeWriter().WriteDocLines()));
+
+        Assert.Equal(
+            typeof(IEnumerable<string>),
+            BoundParameterTypeOf(() => new IndentedCodeWriter().WriteDocLines(array.AsEnumerable())));
+    }
+
+    /// <summary>
+    /// Reads back which <c>WriteDocLines</c> overload the C# compiler picked for a call, by
+    /// inspecting the method the expression tree recorded.
+    /// </summary>
+    private static Type BoundParameterTypeOf(Expression<Action> call) =>
+        ((MethodCallExpression)call.Body).Method.GetParameters()[0].ParameterType;
 }

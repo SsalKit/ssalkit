@@ -96,7 +96,7 @@ context.AddSource("MyAppWebServiceRegistration.g.cs", source);
 
 `Block(header)`는 `header`를 쓰고, 여는 `{`를 그 다음 줄에 쓴 뒤 들여쓰기를 늘리고, `using` 스코프가 끝날 때 닫는 `}`를 씁니다. `Block(header, closer)`는 다른 닫는 토큰(예: 객체 초기화자용 `"};"`)을 지정할 수 있게 해주며, `Indent()`는 중괄호 없이 순수한 들여쓰기 스코프만 제공합니다.
 
-생성 메서드 하나에 10~20줄씩 들어가기 쉬운 XML 문서 주석을 위해서는 `WriteDocLine(content)`와 `WriteDocLines(params string[] contents)`가 `/// ` 접두사를 대신 붙여줍니다.
+생성 메서드 하나에 10~20줄씩 들어가기 쉬운 XML 문서 주석을 위해서는 `WriteDocLine(content)`와 `WriteDocLines(contents)`가 `/// ` 접두사를 대신 붙여줍니다.
 
 ```csharp
 writer.WriteDocLines(
@@ -107,6 +107,20 @@ writer.WriteDocLines(
 ```
 
 빈 문자열을 넘기면 뒤에 공백 없이 `///`만 씁니다. 생성된 문서 블록에 후행 공백이 남지 않습니다.
+
+`WriteDocLines`는 오버로드가 둘입니다. 위처럼 리터럴을 나열할 때는 `params string[]`을, 조건에 따라 줄을 덧붙여 조립할 때는 `IEnumerable<string>`을 씁니다. 후자를 배열 리터럴로만 처리하면 거의 같은 목록 둘을 `if`/`else`로 나눠 써야 합니다.
+
+```csharp
+IEnumerable<string> docs = new[] { "<summary>", summaryText, "</summary>" };
+if (isObsolete)
+{
+    docs = docs.Concat(new[] { "<remarks>Superseded by <c>" + replacement + "</c>.</remarks>" });
+}
+
+writer.WriteDocLines(docs);
+```
+
+시퀀스는 쓰는 도중에 정확히 한 번만 열거하므로, 지연 쿼리를 미리 배열로 만들 필요가 없습니다. 매개변수 타입은 `string[]`이 더 구체적이므로 기존 호출부(인자 나열, 명시적 `string[]`, 인자 없음)는 전과 똑같이 `params` 오버로드로 바인딩됩니다.
 
 ### `CSharpNaming`
 
@@ -144,14 +158,18 @@ string hintName = HintNameSanitizer.Sanitize(typeSymbol.ToDisplayString());
 
 string fromFqn = HintNameSanitizer.Sanitize(
     typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
-// "global::Namespace.MyType" -> "Namespace.MyType.g.cs" (선행 별칭 한정자는 제거됨)
+// "global::Namespace.MyType" -> "Namespace.MyType.g.cs" (별칭 한정자는 제거됨)
+
+// 타입 두 개의 이름을 이어 붙인 파일 이름 — 어느 쪽도 미리 벗겨낼 필요가 없습니다.
+string forPair = HintNameSanitizer.Sanitize(containerFqn + "." + codeEnumFqn + ".Mapping");
+// "global::My.Container.global::My.Codes.Mapping" -> "My.Container.My.Codes.Mapping.g.cs"
 
 context.AddSource(hintName, sourceText);
 ```
 
 `Sanitize`는 결과가 `suffix`(기본값 `".g.cs"`, 이미 있으면 중복 추가하지 않음)로 끝남을 보장하고, Roslyn이 허용하는 hint-name 문자 집합 밖의 모든 문자를 `_`로 치환하며, 전체 길이를 200자로 제한합니다(앞쪽부터 잘라내므로 더 식별력 있는 뒷부분과 접미사는 항상 살아남습니다). 여러 번 호출했을 때의 유일성은 보장하지 않습니다 — 구별 가능한 입력을 넘기는 책임은 호출자에게 있습니다.
 
-`SymbolDisplayFormat.FullyQualifiedFormat`이 모든 이름에 붙이는 선행 `global::`은 문자 단위로 치환하지 않고 **제거**합니다. 덕분에 정규화된 이름을 그대로 넘겨도 생성되는 모든 파일 이름에 `global__` 접두사가 남지 않습니다. 제거 대상은 선행 위치 한 번뿐이며, 다른 위치의 `global::`은 다른 텍스트와 똑같이 정리됩니다. 후보 문자열이 `global::` 하나뿐이면 `null`/빈 문자열/공백과 마찬가지로 `"Generated"`로 대체됩니다.
+`SymbolDisplayFormat.FullyQualifiedFormat`이 모든 이름에 붙이는 `global::`은 문자 단위로 치환하지 않고 **제거**합니다. 덕분에 정규화된 이름을 그대로 넘겨도 생성되는 파일 이름에 `global__`이 남지 않습니다. 선행 위치뿐 아니라 나타나는 모든 위치에서 제거하므로, 정규화된 이름 여러 개를 이어 붙여 만든 hint name도 호출자가 직접 벗겨낼 필요가 없습니다. 제거 대상은 정확히 `global::` 한정자뿐이라, 단어만 같은 세그먼트(`global.MyType`)는 그대로 둡니다. 후보 문자열이 `global::` 한정자로만 이루어져 있으면 `null`/빈 문자열/공백과 마찬가지로 `"Generated"`로 대체됩니다.
 
 ### `DiagnosticInfo` / `LocationInfo`
 
@@ -177,7 +195,9 @@ context.RegisterSourceOutput(diagnostics, static (spc, reported) =>
 });
 ```
 
-`LocationInfo.CreateFrom`은 `Location`이나 `SyntaxNode`를 받고, 소스상의 위치가 아닌 것(메타데이터 위치, "none" 위치, `null` 인자)에 대해서는 `null`을 반환합니다. 이는 `Diagnostic.Create`가 "위치 없이 보고"로 그대로 받아들이는 값이므로, 이후 단계에서 별도 처리가 필요 없습니다. 두 타입 모두 `IEquatable<T>`와 짝이 맞는 `GetHashCode`를 구현하므로 `EquatableArray<T>`를 비롯한 어떤 파이프라인 모델 안에도 넣을 수 있습니다. 메시지 인자는 `EquatableArray<string>`으로 보관하며, `params string[]` 생성자 오버로드가 이를 대신 만들어 줍니다.
+`LocationInfo.CreateFrom`은 `Location`이나 `SyntaxNode`를 받고, 소스상의 위치가 아닌 것(메타데이터 위치, "none" 위치, `null` 인자)에 대해서는 `null`을 반환합니다. 이는 `Diagnostic.Create`가 "위치 없이 보고"로 그대로 받아들이는 값이므로, 이후 단계에서 별도 처리가 필요 없습니다. 두 타입 모두 `IEquatable<T>`와 짝이 맞는 `GetHashCode`를 구현하므로 `EquatableArray<T>`를 비롯한 어떤 파이프라인 모델 안에도 넣을 수 있습니다.
+
+메시지 인자는 `EquatableArray<string>`으로 보관합니다. `Diagnostic.Create`가 받는 `object?[]`가 아니라 **문자열 고정**입니다. 임의의 `object` 인자는 그 타입이 구현한 동등성(대개 참조 동등성)을 그대로 가져오므로, "같은" 진단을 만든 두 실행이 서로 다르다고 비교되어 캐시가 무력화될 수 있습니다. 더 나쁘게는 인자가 심볼이나 구문 노드라면 `Compilation` 전체를 붙잡습니다. 그래서 포맷은 호출부에서 끝냅니다 — `DiagnosticInfo`를 만들기 전에 각 인자를 문자열로 렌더링하고(문화권에 민감한 값은 invariant 포맷으로), `ToDiagnostic()`은 그 문자열을 그대로 넘깁니다. `params string[]` 생성자 오버로드가 배열을 대신 만들어 줍니다.
 
 ### `DiagnosticDescriptorFactory`
 
