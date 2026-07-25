@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- A Directory.Build.props in a subdirectory REPLACES the one above it rather than
+       adding to it, so the repo-root file (TreatWarningsAsErrors, Nullable, LangVersion,
+       ImplicitUsings, ...) must be imported explicitly or every test project silently
+       loses those settings. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- Test harness packages every project under tests/ needs. Versions come from the
+       repo-root Directory.Packages.props (central package management). -->
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
