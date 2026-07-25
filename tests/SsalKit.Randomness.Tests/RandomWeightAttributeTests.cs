@@ -4,9 +4,10 @@ namespace SsalKit.Randomness.Tests;
 
 /// <summary>
 /// Covers <see cref="RandomWeightAttribute"/>: its declared usage contract (the targets it may be
-/// applied to, non-multiple, non-inherited) and the <see cref="RandomWeightAttribute.InternalExtensions"/>
-/// property. The attribute carries no runtime behaviour, so what is worth pinning is the shape the
-/// source generator and consumers rely on.
+/// applied to, non-multiple, non-inherited) and its two opt-in properties,
+/// <see cref="RandomWeightAttribute.InternalExtensions"/> and
+/// <see cref="RandomWeightAttribute.SharedSourceOverloads"/>. The attribute carries no runtime
+/// behaviour, so what is worth pinning is the shape the source generator and consumers rely on.
 /// </summary>
 public class RandomWeightAttributeTests
 {
@@ -17,6 +18,9 @@ public class RandomWeightAttributeTests
 
         [RandomWeight(InternalExtensions = true)]
         public int WeightField = 1;
+
+        [RandomWeight(InternalExtensions = true, SharedSourceOverloads = true)]
+        public long BothOptions { get; init; }
     }
 
     [Fact]
@@ -65,13 +69,48 @@ public class RandomWeightAttributeTests
     }
 
     [Fact]
-    public void Attribute_OnProperty_IsDiscoverableWithDefaultInternalExtensions()
+    public void SharedSourceOverloads_DefaultsToFalse()
+    {
+        var attribute = new RandomWeightAttribute();
+
+        Assert.False(attribute.SharedSourceOverloads);
+    }
+
+    [Fact]
+    public void SharedSourceOverloads_RoundTripsWhenSet()
+    {
+        var attribute = new RandomWeightAttribute { SharedSourceOverloads = true };
+
+        Assert.True(attribute.SharedSourceOverloads);
+
+        attribute.SharedSourceOverloads = false;
+
+        Assert.False(attribute.SharedSourceOverloads);
+    }
+
+    [Fact]
+    public void TheTwoOptions_AreIndependent()
+    {
+        var attribute = new RandomWeightAttribute { SharedSourceOverloads = true };
+
+        Assert.True(attribute.SharedSourceOverloads);
+        Assert.False(attribute.InternalExtensions);
+
+        attribute.InternalExtensions = true;
+
+        Assert.True(attribute.SharedSourceOverloads);
+        Assert.True(attribute.InternalExtensions);
+    }
+
+    [Fact]
+    public void Attribute_OnProperty_IsDiscoverableWithBothOptionsDefaultingToFalse()
     {
         PropertyInfo property = typeof(Decorated).GetProperty(nameof(Decorated.WeightProperty))!;
         var attribute = property.GetCustomAttribute<RandomWeightAttribute>();
 
         Assert.NotNull(attribute);
         Assert.False(attribute.InternalExtensions);
+        Assert.False(attribute.SharedSourceOverloads);
     }
 
     [Fact]
@@ -82,5 +121,17 @@ public class RandomWeightAttributeTests
 
         Assert.NotNull(attribute);
         Assert.True(attribute.InternalExtensions);
+        Assert.False(attribute.SharedSourceOverloads);
+    }
+
+    [Fact]
+    public void Attribute_CarriesBothNamedArguments_WhenBothAreWritten()
+    {
+        PropertyInfo property = typeof(Decorated).GetProperty(nameof(Decorated.BothOptions))!;
+        var attribute = property.GetCustomAttribute<RandomWeightAttribute>();
+
+        Assert.NotNull(attribute);
+        Assert.True(attribute.InternalExtensions);
+        Assert.True(attribute.SharedSourceOverloads);
     }
 }

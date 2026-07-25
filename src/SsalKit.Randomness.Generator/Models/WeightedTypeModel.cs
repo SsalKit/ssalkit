@@ -23,6 +23,12 @@ namespace SsalKit.Randomness.Generator.Models;
 /// effective accessibility is below public, or when <c>[RandomWeight(InternalExtensions = true)]</c>
 /// forced it down.
 /// </param>
+/// <param name="SharedSourceOverloads">
+/// Whether <c>[RandomWeight(SharedSourceOverloads = true)]</c> asked for the argument-less overloads
+/// that draw from <c>SharedRandomSource.Instance</c> in addition to the ones taking the source
+/// explicitly. False by default, in which case the emitted file is byte-for-byte what it was before
+/// the option existed.
+/// </param>
 /// <param name="HintName">The <c>AddSource</c> hint name for this type's generated file.</param>
 internal sealed record WeightedTypeModel(
     string Namespace,
@@ -31,6 +37,7 @@ internal sealed record WeightedTypeModel(
     string MemberAccess,
     WeightKind Weight,
     bool IsPublic,
+    bool SharedSourceOverloads,
     string HintName);
 
 /// <summary>

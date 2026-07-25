@@ -199,6 +199,15 @@ LootEntry[] generatedDistinct = lootTable.PickManyWeightedDistinct(new Determini
 Console.WriteLine($"                 PickManyWeighted(4)         -> [{string.Join(", ", generatedDrops.Select(drop => drop.ItemId))}]");
 Console.WriteLine($"                 PickManyWeightedDistinct(3) -> [{string.Join(", ", generatedDistinct.Select(drop => drop.ItemId))}]");
 
+// [RandomWeight(SharedSourceOverloads = true)] additionally generates argument-less overloads that
+// draw from SharedRandomSource.Instance -- thread-safe, but unseedable and therefore unreproducible,
+// which is why they are opt-in per type. A loot table is exactly the kind of model that never needs
+// replaying; anything that does should keep passing the source explicitly, as every line above does.
+LootEntry sharedDrop = lootTable.PickWeighted();
+LootEntry[] sharedDrops = lootTable.PickManyWeighted(count: 3);
+Console.WriteLine($"                 PickWeighted()              -> {sharedDrop.ItemId}  (shared source, varies every run)");
+Console.WriteLine($"                 PickManyWeighted(3)         -> [{string.Join(", ", sharedDrops.Select(drop => drop.ItemId))}]  (shared source)");
+
 // Build once, draw many: ToWeightedSampler() is O(n), the draws are O(1). Building it here --
 // outside the draw loop -- is the whole point; calling it inside one would rebuild the alias
 // table on every iteration.
@@ -277,10 +286,14 @@ static string RollThreeD20(IRandomSource source)
 // PickWeighted / PickManyWeighted / PickManyWeightedDistinct / ToWeightedSampler extension methods
 // over IReadOnlyList<LootEntry>. Each one delegates to the selector-based runtime API, so the
 // exception contract and the draw sequence are identical to writing the selector by hand.
+//
+// SharedSourceOverloads = true additionally generates the argument-less forms used at the end of
+// section 8, which pass SharedRandomSource.Instance for you. It is off by default -- a loot table
+// opts in because its draws never need replaying.
 sealed class LootEntry
 {
     public required string ItemId { get; init; }
 
-    [RandomWeight]
+    [RandomWeight(SharedSourceOverloads = true)]
     public long Weight { get; init; }
 }

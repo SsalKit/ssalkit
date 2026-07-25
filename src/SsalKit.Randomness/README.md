@@ -113,7 +113,7 @@ WeightedSampler<LootEntry> sampler = lootTable.ToWeightedSampler();
 LootEntry sampled = sampler.Pick(rng);
 ```
 
-The receiver is the collection, and the random source stays an explicit argument — which source you draw from is a decision worth seeing at the call site, so there is deliberately no argument-less `lootTable.PickWeighted()`.
+The receiver is the collection, and the random source stays an explicit argument — which source you draw from is a decision worth seeing at the call site, so an argument-less `lootTable.PickWeighted()` is not generated unless the type asks for it (see [Shared-source overloads](#shared-source-overloads)).
 
 Three things make this worth an attribute:
 
@@ -139,6 +139,32 @@ The generated class is `public` by default, capped at the effective accessibilit
 [RandomWeight(InternalExtensions = true)]
 public long Weight { get; init; }
 ```
+
+### Shared-source overloads
+
+Passing the source at every call site is the right default, but for a model whose draws are never replayed it is pure ceremony. `SharedSourceOverloads = true` adds argument-less overloads that draw from `SharedRandomSource.Instance`:
+
+```csharp
+public sealed class GachaEntry
+{
+    public required string CharacterId { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+IReadOnlyList<GachaEntry> banner = [ /* ... */ ];
+
+GachaEntry pull       = banner.PickWeighted();                        // shared source
+GachaEntry[] tenPull  = banner.PickManyWeighted(count: 10);           // shared source
+GachaEntry[] distinct = banner.PickManyWeightedDistinct(count: 3);    // shared source
+
+GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); // still there
+```
+
+The overloads are added, never substituted: the source-taking forms stay exactly as they were, and each argument-less method is a one-line delegation to its counterpart, so validation, exceptions, and draw semantics are identical. `ToWeightedSampler()` is unchanged — it never took a source. The weight-type matrix is unchanged too: a `float`/`double` member gets `PickWeighted` in both forms and nothing else.
+
+It is off by default because `SharedRandomSource` is not seedable and cannot replay a sequence, and an argument-less call is precisely the one that doesn't show that at the call site. Leaving it off means a codebase built on seeded, reproducible runs can't quietly acquire a non-deterministic draw; turning it on is a per-type statement that this type's draws never need replaying — a gacha banner, a cosmetic drop table, a flavour-text picker. When in doubt, leave it off and keep passing the source.
 
 ### Diagnostics
 

@@ -20,6 +20,7 @@ namespace SsalKit.Randomness.Generator.Parsing;
 internal static class RandomWeightMemberParser
 {
     private const string InternalExtensionsArgumentName = "InternalExtensions";
+    private const string SharedSourceOverloadsArgumentName = "SharedSourceOverloads";
     private const string ExtensionClassSuffix = "RandomWeightExtensions";
     private const string HintNameSuffix = ".RandomWeight";
     private const string GlobalPrefix = "global::";
@@ -135,7 +136,8 @@ internal static class RandomWeightMemberParser
             ? string.Empty
             : containingNamespace.ToDisplayString();
 
-        var isPublic = GeneratedCodeAccessibility.IsEffectivelyPublic(declaringType) && !ForcesInternalExtensions(context);
+        var isPublic = GeneratedCodeAccessibility.IsEffectivelyPublic(declaringType)
+            && !IsNamedArgumentTrue(context, InternalExtensionsArgumentName);
 
         return new WeightedTypeModel(
             namespaceName,
@@ -144,6 +146,7 @@ internal static class RandomWeightMemberParser
             CSharpNaming.EscapeKeyword(member.Name),
             weightKind,
             isPublic,
+            IsNamedArgumentTrue(context, SharedSourceOverloadsArgumentName),
             BuildHintName(typeFqn));
     }
 
@@ -176,13 +179,18 @@ internal static class RandomWeightMemberParser
         return HintNameSanitizer.Sanitize(trimmed + HintNameSuffix);
     }
 
-    private static bool ForcesInternalExtensions(GeneratorAttributeSyntaxContext context)
+    /// <summary>
+    /// Reads one of the attribute's <see langword="bool"/> named arguments. An argument that was not
+    /// written, or was written as <see langword="false"/>, reads as <see langword="false"/> -- which
+    /// is also the property's default, so the two are indistinguishable by design.
+    /// </summary>
+    private static bool IsNamedArgumentTrue(GeneratorAttributeSyntaxContext context, string argumentName)
     {
         foreach (var attribute in context.Attributes)
         {
             foreach (var namedArgument in attribute.NamedArguments)
             {
-                if (namedArgument.Key == InternalExtensionsArgumentName && namedArgument.Value.Value is true)
+                if (namedArgument.Key == argumentName && namedArgument.Value.Value is true)
                 {
                     return true;
                 }

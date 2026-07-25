@@ -113,7 +113,7 @@ WeightedSampler<LootEntry> sampler = lootTable.ToWeightedSampler();
 LootEntry sampled = sampler.Pick(rng);
 ```
 
-리시버는 컬렉션이고, 난수 소스는 명시적인 인자로 남습니다 — 어떤 소스에서 뽑는지는 호출부에서 보여야 하는 결정이므로, 인자 없는 `lootTable.PickWeighted()`는 의도적으로 제공하지 않습니다.
+리시버는 컬렉션이고, 난수 소스는 명시적인 인자로 남습니다 — 어떤 소스에서 뽑는지는 호출부에서 보여야 하는 결정이므로, 인자 없는 `lootTable.PickWeighted()`는 타입이 직접 요청하지 않는 한 생성되지 않습니다([공유 소스 오버로드](#공유-소스-오버로드) 참고).
 
 이 기능을 특성으로 제공할 만한 이유는 세 가지입니다.
 
@@ -139,6 +139,32 @@ LootEntry sampled = sampler.Pick(rng);
 [RandomWeight(InternalExtensions = true)]
 public long Weight { get; init; }
 ```
+
+### 공유 소스 오버로드
+
+호출부마다 소스를 넘기는 것이 옳은 기본값이지만, 추첨을 다시 재현할 일이 전혀 없는 모델에서는 형식적인 절차일 뿐입니다. `SharedSourceOverloads = true`를 지정하면 `SharedRandomSource.Instance`에서 뽑는 인자 없는 오버로드가 추가로 생성됩니다.
+
+```csharp
+public sealed class GachaEntry
+{
+    public required string CharacterId { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+IReadOnlyList<GachaEntry> banner = [ /* ... */ ];
+
+GachaEntry pull       = banner.PickWeighted();                        // 공유 소스
+GachaEntry[] tenPull  = banner.PickManyWeighted(count: 10);           // 공유 소스
+GachaEntry[] distinct = banner.PickManyWeightedDistinct(count: 3);    // 공유 소스
+
+GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); // 그대로 사용 가능
+```
+
+오버로드는 대체가 아니라 추가입니다. 소스를 받는 형태는 전혀 달라지지 않고, 인자 없는 메서드는 각각 대응하는 오버로드로 한 줄 위임할 뿐이므로 검증·예외·추첨 의미가 완전히 동일합니다. `ToWeightedSampler()`는 애초에 소스를 받지 않으므로 변화가 없습니다. 가중치 타입 매트릭스도 그대로여서, `float`/`double` 멤버는 두 형태의 `PickWeighted`만 얻습니다.
+
+기본값이 꺼져 있는 이유는 `SharedRandomSource`가 시드를 받을 수 없어 수열을 재현할 수 없는데, 인자 없는 호출은 바로 그 사실이 호출부에서 보이지 않는 형태이기 때문입니다. 꺼진 상태를 기본으로 두면 시드 기반 재현성 위에 세운 코드베이스에 비결정적 추첨이 조용히 섞이지 않고, 켜는 행위는 "이 타입의 추첨은 재현할 일이 없다"는 타입 단위의 선언이 됩니다 — 가챠 배너, 외형 아이템 드롭 테이블, 대사 문구 추첨 같은 경우입니다. 애매하면 끈 채로 두고 소스를 계속 넘기세요.
 
 ### 진단
 

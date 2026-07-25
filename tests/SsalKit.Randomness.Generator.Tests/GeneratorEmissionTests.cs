@@ -91,6 +91,56 @@ public class GeneratorEmissionTests
     }
 
     [Fact]
+    public void SharedSourceOverloads_AreNotGeneratedByDefault()
+    {
+        var generated = GeneratorTestHelper
+            .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
+            .AssertCompilesCleanly();
+
+        Assert.DoesNotContain("SharedRandomSource", generated, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SharedSourceOverloads_DelegateToTheExplicitSourceOverloads()
+    {
+        var generated = GeneratorTestHelper
+            .RunGenerator(Source("[RandomWeight(SharedSourceOverloads = true)] public long Weight { get; init; }"))
+            .AssertCompilesCleanly();
+
+        // The argument-less forms go through the explicit-source ones rather than repeating the
+        // delegation to the runtime API, so there is a single place the selector is written.
+        Assert.Contains(
+            "=> PickWeighted(items, global::SsalKit.Randomness.SharedRandomSource.Instance);",
+            generated,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "=> PickManyWeighted(items, global::SsalKit.Randomness.SharedRandomSource.Instance, count);",
+            generated,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "=> PickManyWeightedDistinct(items, global::SsalKit.Randomness.SharedRandomSource.Instance, count);",
+            generated,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("float")]
+    [InlineData("double")]
+    public void SharedSourceOverloads_OnAFloatingWeight_AddPickWeightedOnly(string weightType)
+    {
+        var generated = GeneratorTestHelper
+            .RunGenerator(Source($"[RandomWeight(SharedSourceOverloads = true)] public {weightType} Weight {{ get; init; }}"))
+            .AssertCompilesCleanly();
+
+        Assert.Contains(
+            "=> PickWeighted(items, global::SsalKit.Randomness.SharedRandomSource.Instance);",
+            generated,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(" PickManyWeighted(", generated, StringComparison.Ordinal);
+        Assert.DoesNotContain(" ToWeightedSampler(", generated, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GeneratedReceiver_IsAnIReadOnlyListOfTheDecoratedType()
     {
         var generated = GeneratorTestHelper

@@ -113,7 +113,7 @@ WeightedSampler<LootEntry> sampler = lootTable.ToWeightedSampler();
 LootEntry sampled = sampler.Pick(rng);
 ```
 
-レシーバーはコレクションで、乱数ソースは明示的な引数のままです — どのソースから引くかは呼び出し側で見えるべき判断なので、引数なしの `lootTable.PickWeighted()` は意図的に用意していません。
+レシーバーはコレクションで、乱数ソースは明示的な引数のままです — どのソースから引くかは呼び出し側で見えるべき判断なので、引数なしの `lootTable.PickWeighted()` は型が自ら要求しない限り生成されません（[共有ソースのオーバーロード](#共有ソースのオーバーロード)を参照）。
 
 これを属性として提供する理由は 3 つあります。
 
@@ -139,6 +139,32 @@ LootEntry sampled = sampler.Pick(rng);
 [RandomWeight(InternalExtensions = true)]
 public long Weight { get; init; }
 ```
+
+### 共有ソースのオーバーロード
+
+呼び出しごとにソースを渡すのが正しい既定値ですが、抽選を再現する必要がまったくないモデルにとっては形式的な手間でしかありません。`SharedSourceOverloads = true` を指定すると、`SharedRandomSource.Instance` から引く引数なしのオーバーロードが追加で生成されます。
+
+```csharp
+public sealed class GachaEntry
+{
+    public required string CharacterId { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+IReadOnlyList<GachaEntry> banner = [ /* ... */ ];
+
+GachaEntry pull       = banner.PickWeighted();                        // 共有ソース
+GachaEntry[] tenPull  = banner.PickManyWeighted(count: 10);           // 共有ソース
+GachaEntry[] distinct = banner.PickManyWeightedDistinct(count: 3);    // 共有ソース
+
+GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); // これまで通り使えます
+```
+
+オーバーロードは置き換えではなく追加です。ソースを受け取る形はまったく変わらず、引数なしのメソッドはそれぞれ対応するオーバーロードへ 1 行で委譲するだけなので、検証・例外・抽選の意味は完全に同一です。`ToWeightedSampler()` はもともとソースを受け取らないため変化しません。重みの型のマトリクスも変わらず、`float`/`double` のメンバーは 2 つの形の `PickWeighted` だけを得ます。
+
+既定でオフにしているのは、`SharedRandomSource` がシードを取れず数列を再現できないからであり、引数なしの呼び出しはまさにその事実が呼び出し側から見えない形だからです。オフのままにしておけば、シードによる再現性の上に築いたコードベースに非決定的な抽選が静かに紛れ込むことはありません。オンにする行為は「この型の抽選は再現する必要がない」という型単位の宣言になります — ガチャのバナー、見た目アイテムのドロップテーブル、フレーバーテキストの抽選などです。迷ったらオフのままにして、ソースを渡し続けてください。
 
 ### 診断
 

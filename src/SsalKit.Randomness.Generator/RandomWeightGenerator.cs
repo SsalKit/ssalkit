@@ -27,6 +27,11 @@ namespace SsalKit.Randomness.Generator;
 /// (see <see cref="DiagnosticDescriptors"/>) rather than silently skipped, and a type with any
 /// diagnostic gets no extension class at all.
 /// </para>
+/// <para>
+/// Every generated method takes the random source explicitly. A type that declares
+/// <c>[RandomWeight(SharedSourceOverloads = true)]</c> additionally gets argument-less overloads
+/// that delegate to those, passing <c>SharedRandomSource.Instance</c>.
+/// </para>
 /// </remarks>
 [Generator(LanguageNames.CSharp)]
 public sealed class RandomWeightGenerator : IIncrementalGenerator

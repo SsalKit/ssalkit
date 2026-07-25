@@ -23,6 +23,7 @@ namespace SsalKit.Randomness.Generator.Emission;
 internal static class RandomWeightExtensionsEmitter
 {
     private const string RandomSourceType = "global::SsalKit.Randomness.IRandomSource";
+    private const string SharedRandomSourceInstance = "global::SsalKit.Randomness.SharedRandomSource.Instance";
     private const string WeightedRandomExtensionsType = "global::SsalKit.Randomness.WeightedRandomExtensions";
     private const string WeightedSamplerType = "global::SsalKit.Randomness.WeightedSampler";
     private const string ReadOnlyListType = "global::System.Collections.Generic.IReadOnlyList";
@@ -59,18 +60,40 @@ internal static class RandomWeightExtensionsEmitter
 
         using (writer.Block(visibility + " static class " + model.ExtensionClassName))
         {
+            // Each argument-less overload follows the one it delegates to, so a reader meets the
+            // explicit-source form -- the one that keeps a draw reproducible -- first.
             WritePickWeighted(writer, model);
+            WriteSharedSourceOverload(writer, model, WriteSharedPickWeighted);
 
             if (model.Weight == WeightKind.Integral)
             {
                 writer.WriteLine();
                 WritePickManyWeighted(writer, model, distinct: false);
+                WriteSharedSourceOverload(writer, model, static (w, m) => WriteSharedPickManyWeighted(w, m, distinct: false));
                 writer.WriteLine();
                 WritePickManyWeighted(writer, model, distinct: true);
+                WriteSharedSourceOverload(writer, model, static (w, m) => WriteSharedPickManyWeighted(w, m, distinct: true));
                 writer.WriteLine();
                 WriteToWeightedSampler(writer, model);
             }
         }
+    }
+
+    /// <summary>
+    /// Writes one argument-less overload, blank line included, when the type opted into them. When
+    /// it did not -- the default -- nothing at all is written, which is what keeps the emitted file
+    /// byte-for-byte identical to what it was before the option existed.
+    /// </summary>
+    private static void WriteSharedSourceOverload(
+        IndentedCodeWriter writer, WeightedTypeModel model, Action<IndentedCodeWriter, WeightedTypeModel> write)
+    {
+        if (!model.SharedSourceOverloads)
+        {
+            return;
+        }
+
+        writer.WriteLine();
+        write(writer, model);
     }
 
     private static void WritePickWeighted(IndentedCodeWriter writer, WeightedTypeModel model)
@@ -90,6 +113,51 @@ internal static class RandomWeightExtensionsEmitter
             writer.WriteLine("this " + ReceiverType(model) + " items,");
             writer.WriteLine(RandomSourceType + " source)");
             writer.WriteLine("=> " + WeightedRandomExtensionsType + ".PickWeighted(source, items, " + Selector(model) + ");");
+        }
+    }
+
+    private static void WriteSharedPickWeighted(IndentedCodeWriter writer, WeightedTypeModel model)
+    {
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine("/// Returns a single random element of <paramref name=\"items\"/>, selected with probability");
+        writer.WriteLine("/// proportional to its <c>" + model.MemberAccess + "</c> value, drawn from the shared random source.");
+        writer.WriteLine("/// </summary>");
+        writer.WriteLine("/// <param name=\"items\">The candidate items. Must not be empty.</param>");
+        writer.WriteLine("/// <returns>A weighted-randomly selected element of <paramref name=\"items\"/>.</returns>");
+        WriteSharedSourceRemarks(writer, "PickWeighted");
+
+        writer.WriteLine("public static " + model.TypeFqn + " PickWeighted(");
+        using (writer.Indent())
+        {
+            writer.WriteLine("this " + ReceiverType(model) + " items)");
+            writer.WriteLine("=> PickWeighted(items, " + SharedRandomSourceInstance + ");");
+        }
+    }
+
+    private static void WriteSharedPickManyWeighted(IndentedCodeWriter writer, WeightedTypeModel model, bool distinct)
+    {
+        var methodName = distinct ? "PickManyWeightedDistinct" : "PickManyWeighted";
+
+        writer.WriteLine("/// <summary>");
+        writer.WriteLine(distinct
+            ? "/// Draws <paramref name=\"count\"/> distinct random elements of <paramref name=\"items\"/> without"
+            : "/// Draws <paramref name=\"count\"/> random elements of <paramref name=\"items\"/> with replacement,");
+        writer.WriteLine(distinct
+            ? "/// replacement, each selected with probability proportional to its <c>" + model.MemberAccess + "</c> value,"
+            : "/// each selected with probability proportional to its <c>" + model.MemberAccess + "</c> value,");
+        writer.WriteLine("/// drawn from the shared random source.");
+        writer.WriteLine("/// </summary>");
+        writer.WriteLine("/// <param name=\"items\">The candidate items. Must not be empty.</param>");
+        writer.WriteLine("/// <param name=\"count\">The number of elements to draw.</param>");
+        writer.WriteLine("/// <returns>An array of <paramref name=\"count\"/> weighted-randomly selected elements.</returns>");
+        WriteSharedSourceRemarks(writer, methodName);
+
+        writer.WriteLine("public static " + model.TypeFqn + "[] " + methodName + "(");
+        using (writer.Indent())
+        {
+            writer.WriteLine("this " + ReceiverType(model) + " items,");
+            writer.WriteLine("int count)");
+            writer.WriteLine("=> " + methodName + "(items, " + SharedRandomSourceInstance + ", count);");
         }
     }
 
@@ -158,6 +226,23 @@ internal static class RandomWeightExtensionsEmitter
         writer.WriteLine("/// <c>SsalKit.Randomness.WeightedRandomExtensions." + methodName + "</c> overload, which defines");
         writer.WriteLine("/// the validation and exception contract (empty list, negative weight, zero total weight, and");
         writer.WriteLine("/// overflow behaviour).");
+        writer.WriteLine("/// </remarks>");
+    }
+
+    private static void WriteSharedSourceRemarks(IndentedCodeWriter writer, string methodName)
+    {
+        writer.WriteLine("/// <remarks>");
+        writer.WriteLine("/// <para>");
+        writer.WriteLine("/// Draws from <c>SsalKit.Randomness.SharedRandomSource.Instance</c>, which is thread-safe but");
+        writer.WriteLine("/// not seedable: <b>results are not reproducible across runs</b>. Generated because the weight");
+        writer.WriteLine("/// member declares <c>[RandomWeight(SharedSourceOverloads = true)]</c>; pass an");
+        writer.WriteLine("/// <c>IRandomSource</c> to the other overload wherever a draw has to be replayable.");
+        writer.WriteLine("/// </para>");
+        writer.WriteLine("/// <para>");
+        writer.WriteLine("/// Delegates to the <c>" + methodName + "</c> overload that takes the source explicitly, and");
+        writer.WriteLine("/// therefore shares its validation and exception contract (empty list, negative weight, zero");
+        writer.WriteLine("/// total weight, and overflow behaviour).");
+        writer.WriteLine("/// </para>");
         writer.WriteLine("/// </remarks>");
     }
 

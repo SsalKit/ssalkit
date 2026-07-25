@@ -33,6 +33,12 @@ namespace SsalKit.Randomness;
 /// <see langword="public"/> type.
 /// </para>
 /// <para>
+/// Every generated method takes the <see cref="IRandomSource"/> explicitly, so which source a draw
+/// comes from stays visible at the call site. Set <see cref="SharedSourceOverloads"/> to
+/// <see langword="true"/> to additionally generate argument-less overloads that draw from
+/// <see cref="SharedRandomSource.Instance"/>.
+/// </para>
+/// <para>
 /// This attribute has no runtime behaviour of its own. It carries no state that anything reads at
 /// run time, and if the source generator is not running (for example, when only the reference
 /// assembly is consumed, or an older compiler host declines to load analyzers), the attribute is
@@ -69,4 +75,31 @@ public sealed class RandomWeightAttribute : Attribute
     /// accessibility regardless.
     /// </remarks>
     public bool InternalExtensions { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether argument-less overloads that draw from
+    /// <see cref="SharedRandomSource.Instance"/> should be generated alongside the ones that take an
+    /// <see cref="IRandomSource"/> explicitly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Defaults to <see langword="false"/>. When set to <see langword="true"/>, the generator emits
+    /// <c>PickWeighted()</c>, <c>PickManyWeighted(count)</c>, and <c>PickManyWeightedDistinct(count)</c>
+    /// next to their source-taking counterparts, each delegating to the explicit overload with
+    /// <see cref="SharedRandomSource.Instance"/> as the source. <c>ToWeightedSampler()</c> is
+    /// unaffected, since it never took a source to begin with. The floating-point weight matrix is
+    /// unchanged too: a <see langword="float"/> or <see langword="double"/> member still yields
+    /// <c>PickWeighted</c> only, now in both forms.
+    /// </para>
+    /// <para>
+    /// <b>Do not turn this on for types whose draws have to be reproducible.</b>
+    /// <see cref="SharedRandomSource"/> is thread-safe but is not seedable and cannot replay a
+    /// sequence, so an argument-less call is unreproducible by construction — and it is invisible at
+    /// the call site, which is exactly what makes it dangerous in a codebase that relies on seeded
+    /// runs. It is left off by default so a deterministic codebase cannot acquire a non-deterministic
+    /// source by accident; opt in per type, where the type's own declaration says that its draws
+    /// never need replaying (gacha-style rarity tables and similar).
+    /// </para>
+    /// </remarks>
+    public bool SharedSourceOverloads { get; set; }
 }

@@ -67,6 +67,25 @@ public static class WeightedTables
         new() { Name = "b", Weight = 0.5f },
     ];
 
+    public static List<SharedSourceItem> SharedSource() =>
+    [
+        new() { Name = "a", Weight = 6 },
+        new() { Name = "b", Weight = 3 },
+        new() { Name = "c", Weight = 1 },
+    ];
+
+    public static List<SharedSourceDoubleItem> SharedSourceDoubles() =>
+    [
+        new() { Name = "a", Weight = 0.75 },
+        new() { Name = "b", Weight = 0.25 },
+    ];
+
+    public static List<SharedSourceInternalItem> SharedSourceInternal() =>
+    [
+        new() { Name = "a", Weight = 2 },
+        new() { Name = "b", Weight = 1 },
+    ];
+
     public static List<DerivedLootEntry> Derived() =>
     [
         new() { ItemId = "sword", Rarity = "common", Weight = 4 },

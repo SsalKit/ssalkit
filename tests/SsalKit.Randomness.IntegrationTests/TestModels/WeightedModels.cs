@@ -91,6 +91,44 @@ public sealed class ForcedInternalItem
 }
 
 /// <summary>
+/// Opts into the argument-less overloads with <c>[RandomWeight(SharedSourceOverloads = true)]</c>:
+/// the generated class gets <c>PickWeighted()</c>, <c>PickManyWeighted(count)</c>, and
+/// <c>PickManyWeightedDistinct(count)</c> alongside the source-taking forms, all seven drawing from
+/// <see cref="SharedRandomSource.Instance"/> in the argument-less case.
+/// </summary>
+public sealed class SharedSourceItem
+{
+    public required string Name { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+/// <summary>
+/// The opt-in on a <see cref="double"/> weight, which must not widen the floating-point matrix:
+/// still <c>PickWeighted</c> only, now in both forms.
+/// </summary>
+public sealed class SharedSourceDoubleItem
+{
+    public required string Name { get; init; }
+
+    [RandomWeight(SharedSourceOverloads = true)]
+    public double Weight { get; init; }
+}
+
+/// <summary>
+/// Both options at once, to confirm they are orthogonal: an <see langword="internal"/> extension
+/// class on a <see langword="public"/> type that also carries the argument-less overloads.
+/// </summary>
+public sealed class SharedSourceInternalItem
+{
+    public required string Name { get; init; }
+
+    [RandomWeight(InternalExtensions = true, SharedSourceOverloads = true)]
+    public long Weight { get; init; }
+}
+
+/// <summary>
 /// Container for the nested-type case: the generated class flattens the containing type's name into
 /// <c>WeightedContainer_NestedItemRandomWeightExtensions</c>, still top-level in this namespace.
 /// </summary>

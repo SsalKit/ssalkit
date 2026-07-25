@@ -38,6 +38,18 @@ public class GeneratorIncrementalTests
         }
         """;
 
+    private const string ValidSourceWithSharedSourceOverloads = """
+        using SsalKit.Randomness;
+
+        namespace Game.Loot;
+
+        public sealed class LootEntry
+        {
+            [RandomWeight(SharedSourceOverloads = true)]
+            public long Weight { get; init; }
+        }
+        """;
+
     private const string ValidSourceWithEditedBody = """
         using SsalKit.Randomness;
 
@@ -104,6 +116,25 @@ public class GeneratorIncrementalTests
         AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Diagnostics);
     }
 
+    /// <summary>
+    /// The other side of the caching contract: a change the model <em>does</em> capture has to
+    /// invalidate it. <c>SharedSourceOverloads</c> only reaches the emitter through
+    /// <c>WeightedTypeModel</c>, so if it were left out of the record's members, flipping it would
+    /// leave the previous output in place and the new overloads would never appear.
+    /// </summary>
+    [Fact]
+    public void SharedSourceOverloadsFlagFlip_InvalidatesTheEmissionModel()
+    {
+        var trackedSteps = RunTwice(
+            ValidSource,
+            compilation => compilation.ReplaceSyntaxTree(
+                compilation.SyntaxTrees.Single(),
+                CSharpSyntaxTree.ParseText(
+                    ValidSourceWithSharedSourceOverloads, new CSharpParseOptions(LanguageVersion.Latest))));
+
+        AssertSomeOutputRecomputed(trackedSteps, RandomWeightGenerator.TrackingNames.Types);
+    }
+
     private static ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> RunTwice(
         string source, Func<Compilation, Compilation> change)
     {
@@ -139,5 +170,21 @@ public class GeneratorIncrementalTests
                     $"compilation change, but was '{reason}'.");
             }
         }
+    }
+
+    private static void AssertSomeOutputRecomputed(
+        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps,
+        string stepName)
+    {
+        Assert.True(trackedSteps.TryGetValue(stepName, out var steps), $"No tracked steps found for '{stepName}'.");
+
+        var recomputed = steps
+            .SelectMany(step => step.Outputs)
+            .Any(output => output.Reason is IncrementalStepRunReason.Modified or IncrementalStepRunReason.New);
+
+        Assert.True(
+            recomputed,
+            $"Expected at least one '{stepName}' output to be Modified or New after a change the model captures, " +
+            "but every output was reused.");
     }
 }

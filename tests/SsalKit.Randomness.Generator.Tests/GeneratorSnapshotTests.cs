@@ -5,8 +5,8 @@ namespace SsalKit.Randomness.Generator.Tests;
 /// <summary>
 /// Full-file snapshot tests for the generated extension classes, covering the matrix that changes
 /// the emitted shape: weight kind (integral vs floating point), member kind (property vs field),
-/// declaring-type accessibility, the <c>InternalExtensions</c> opt-out, nested types, and the
-/// global namespace.
+/// declaring-type accessibility, the <c>InternalExtensions</c> opt-out, the
+/// <c>SharedSourceOverloads</c> opt-in, nested types, and the global namespace.
 /// </summary>
 /// <remarks>
 /// Every case also asserts the generated code actually compiles against the real
@@ -135,6 +135,120 @@ public class GeneratorSnapshotTests
         var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
+    /// The <c>SharedSourceOverloads</c> opt-in on an integral weight: seven methods, each
+    /// argument-less overload sitting right after the explicit-source one it delegates to, and
+    /// <c>ToWeightedSampler</c> untouched (it never took a source).
+    /// </summary>
+    [Fact]
+    public Task LongProperty_SharedSourceOverloads_GeneratesArgumentLessOverloadsToo()
+    {
+        const string source = """
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed class LootEntry
+            {
+                public string ItemId { get; init; } = "";
+
+                [RandomWeight(SharedSourceOverloads = true)]
+                public long Weight { get; init; }
+            }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
+    /// The opt-in does not widen the floating-point matrix: a <c>double</c> weight still yields
+    /// <c>PickWeighted</c> alone, now in both forms, and no <c>ToWeightedSampler</c>.
+    /// </summary>
+    [Fact]
+    public Task DoubleProperty_SharedSourceOverloads_GeneratesBothPickWeightedFormsOnly()
+    {
+        const string source = """
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed class LootEntry
+            {
+                [RandomWeight(SharedSourceOverloads = true)]
+                public double Weight { get; init; }
+            }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
+    /// The two options are orthogonal: an internal extension class with the argument-less overloads.
+    /// </summary>
+    [Fact]
+    public Task SharedSourceOverloadsWithInternalExtensions_CombineIndependently()
+    {
+        const string source = """
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed class LootEntry
+            {
+                [RandomWeight(InternalExtensions = true, SharedSourceOverloads = true)]
+                public long Weight { get; init; }
+            }
+            """;
+
+        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
+    /// Explicitly writing the default is the same as not writing it at all: no argument-less
+    /// overloads, byte-for-byte the plain <c>[RandomWeight]</c> output.
+    /// </summary>
+    [Fact]
+    public void SharedSourceOverloadsWrittenAsFalse_MatchesTheDefaultOutput()
+    {
+        const string withFlag = """
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed class LootEntry
+            {
+                public string ItemId { get; init; } = "";
+
+                [RandomWeight(SharedSourceOverloads = false)]
+                public long Weight { get; init; }
+            }
+            """;
+
+        const string withoutFlag = """
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed class LootEntry
+            {
+                public string ItemId { get; init; } = "";
+
+                [RandomWeight]
+                public long Weight { get; init; }
+            }
+            """;
+
+        Assert.Equal(
+            GeneratorTestHelper.RunGenerator(withoutFlag).AssertCompilesCleanly(),
+            GeneratorTestHelper.RunGenerator(withFlag).AssertCompilesCleanly());
     }
 
     [Fact]
