@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>10</LangVersion>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>SsalKit.Generators.Toolkit</PackageId>
+    <Description>Source-only toolkit for authoring Roslyn source generators: equatable arrays, an indented code writer, C# naming/casing helpers, hint-name sanitization, and a diagnostic descriptor factory, embedded directly into the consumer's compilation with no runtime assembly.</Description>
+    <PackageDescription>$(Description)</PackageDescription>
+    <PackageTags>source-generator;roslyn;analyzer;source-only;contentfiles;codegen</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded as contentFiles so consumers compile these sources directly (no runtime DLL).
+         The same *.cs files are also picked up by the SDK's implicit Compile glob, so this
+         project's own build verifies they compile cleanly under the exact contract shipped. -->
+    <Content Include="*.cs"
+             Pack="true"
+             PackagePath="contentFiles/cs/netstandard2.0/SsalKit.Generators.Toolkit/"
+             BuildAction="Compile"
+             CopyToOutput="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Build-time verification only. IncludeBuildOutput=false + PrivateAssets=all keep this
+         out of the package's own dependencies. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="4.8.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.Generators.Toolkit.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
