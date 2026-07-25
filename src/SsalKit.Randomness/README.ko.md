@@ -4,7 +4,7 @@
 
 # SsalKit.Randomness
 
-결정적(deterministic)이고 상태를 직렬화할 수 있는 PRNG(`xoshiro256**` + SplitMix64)와, 통일된 난수 소스 추상화, 가중치 랜덤 추첨을 제공하는 라이브러리입니다. 의존성이 없습니다.
+결정적(deterministic)이고 상태를 직렬화할 수 있는 PRNG(`xoshiro256**` + SplitMix64)와, 통일된 난수 소스 추상화, 가중치 랜덤 추첨을 제공하는 라이브러리입니다. `[RandomWeight]` 특성으로 셀렉터 없는 추첨 확장을 컴파일 타임에 생성하는 기능도 포함합니다. 의존성이 없습니다.
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness)
 
 ## 왜 SsalKit.Randomness인가
@@ -22,6 +22,7 @@ SsalKit.Randomness는 접근 방식 자체가 다릅니다.
 - **`DeterministicRandom`**은 `System.Random`과 비슷한 모양의 sealed PRNG(`xoshiro256**`)로, 256bit 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
 - **`IRandomSource`**는 결정적/공유(`Random.Shared`)/암호학적 난수를 하나의 인터페이스로 통일하므로, 범위 생성·셔플·추첨 코드를 한 번만 작성해 셋 중 무엇에도 적용할 수 있습니다.
 - **가중치 랜덤 추첨**(`PickWeighted`, `PickManyWeighted(Distinct)`, `WeightedSampler<T>`)이 라이브러리에 함께 제공되며, 명확한 예외 계약과 반복 추첨용 `O(1)` alias method 샘플러를 갖추고 있습니다.
+- **`[RandomWeight]`**로 모델 타입의 가중치 멤버를 표시하면, 패키지에 동봉된 소스 생성기가 셀렉터를 대신 작성해 줍니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)` 대신 `lootTable.PickWeighted(random)`이면 됩니다. 순수하게 컴파일 타임 코드 생성이므로 리플렉션이 없고 AOT·트리밍에 안전합니다.
 - **의존성 0.** `PackageReference` 없이 BCL만 사용합니다.
 
 ## 설치
@@ -58,6 +59,10 @@ string drop = rng.PickWeighted(items.AsSpan(), weights.AsSpan());
 WeightedSampler<string> sampler = WeightedSampler<string>.Create(items, weights.AsSpan());
 string anotherDrop = sampler.Pick(rng);
 string[] tenDrops = sampler.PickMany(rng, count: 10);
+
+// 항목이 가중치를 직접 들고 있다면: 가중치 셀렉터로 빌드하며, 항목 타입은 추론됩니다.
+(string Name, long Weight)[] loot = [("common", 80), ("rare", 18), ("legendary", 2)];
+var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 ```
 
 ## API 개요
@@ -71,8 +76,88 @@ string[] tenDrops = sampler.PickMany(rng, count: 10);
 | `SharedRandomSource` | `Random.Shared` 기반 `IRandomSource`. 스레드 안전하며, `SharedRandomSource.Instance`로 제공됩니다. |
 | `SystemRandomSource` | 임의의 `Random` 인스턴스를 감싸는 `IRandomSource` 어댑터로, interop과 테스트용입니다. |
 | `RandomSourceExtensions` | `IRandomSource`용 균등 확장 메서드: `Next`/`NextInt64`/`NextDouble`/`NextSingle`/`NextBoolean`, `Shuffle`, `Pick`. `DeterministicRandom`의 인스턴스 메서드와 알고리즘·출력이 완전히 동일합니다. |
-| `WeightedRandomExtensions` | `PickWeighted`(단발, `long` 또는 `double` 가중치, 리스트 또는 span 형태), `PickManyWeighted`(복원 추출), `PickManyWeightedDistinct`(비복원 추출). |
+| `WeightedRandomExtensions` | `PickWeighted`(단발, `long` 또는 `double` 가중치, 리스트 또는 span 형태), `PickManyWeighted`(복원 추출), `PickManyWeightedDistinct`(비복원 추출), 그리고 `ToWeightedSampler` — `items.ToWeightedSampler(x => x.Weight)` 형태로 리스트에서 바로 샘플러를 빌드하며, `WeightedSampler<T>.Create`처럼 타입 인자를 적을 필요 없이 항목 타입이 추론됩니다. |
 | `WeightedSampler<T>` | 고정된 `long` 가중치 항목 집합에서 반복 추첨할 때 쓰는, 불변·스레드 안전한 사전 빌드 alias method 샘플러. 빌드는 `O(n)`, `Pick`/`PickMany`는 호출당 `O(1)`. |
+| `RandomWeightAttribute` | 모델 타입의 가중치 프로퍼티 또는 필드에 붙이는 특성. 패키지에 동봉된 소스 생성기가 해당 타입의 `IReadOnlyList<T>`에 대한 셀렉터 없는 `PickWeighted`/`PickManyWeighted`/`PickManyWeightedDistinct`/`ToWeightedSampler` 확장을 컴파일 타임에 생성합니다. |
+
+## `[RandomWeight]`로 셀렉터 없이 추첨하기
+
+위의 가중치 API는 모두 셀렉터를 받습니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)`처럼요. 모델 타입에 가중치 멤버가 딱 하나뿐인데도 호출할 때마다 이 셀렉터를 반복해서 적는 것은 군더더기입니다. 대신 멤버에 표시만 해 두세요.
+
+```csharp
+using SsalKit.Randomness;
+
+namespace Game.Loot;
+
+public sealed class LootEntry
+{
+    public required string ItemId { get; init; }
+
+    [RandomWeight]
+    public long Weight { get; init; }
+}
+```
+
+이 특성 한 줄이 필요한 전부입니다. 생성기는 컴파일 타임에 `LootEntryRandomWeightExtensions` 클래스를 `LootEntry`와 같은 네임스페이스에 생성하므로, 타입을 쓸 수 있는 곳이면 확장 메서드도 이미 스코프 안에 들어와 있습니다.
+
+```csharp
+IReadOnlyList<LootEntry> lootTable = [ /* ... */ ];
+var rng = new DeterministicRandom(seed: 42);
+
+LootEntry drop      = lootTable.PickWeighted(rng);                        // 단건
+LootEntry[] drops   = lootTable.PickManyWeighted(rng, count: 4);          // 복원 추출
+LootEntry[] distinct = lootTable.PickManyWeightedDistinct(rng, count: 3); // 비복원 추출
+
+// alias 테이블을 한 번만 빌드하고, 추첨은 건당 O(1).
+WeightedSampler<LootEntry> sampler = lootTable.ToWeightedSampler();
+LootEntry sampled = sampler.Pick(rng);
+```
+
+리시버는 컬렉션이고, 난수 소스는 명시적인 인자로 남습니다 — 어떤 소스에서 뽑는지는 호출부에서 보여야 하는 결정이므로, 인자 없는 `lootTable.PickWeighted()`는 의도적으로 제공하지 않습니다.
+
+이 기능을 특성으로 제공할 만한 이유는 세 가지입니다.
+
+- **리플렉션도, 런타임 디스패치도 없습니다.** 생성된 메서드는 컴파일 타임에 만들어진 평범한 C# 코드라서 AOT·트리밍에 안전하고, 비용도 손으로 셀렉터를 적었을 때와 정확히 같습니다.
+- **따로 설치할 것이 없습니다.** 생성기는 `SsalKit.Randomness` 패키지 안에 analyzer로 동봉되어 있습니다. 패키지를 추가하면 특성과 생성기를 함께 받게 되며, 의존성 목록은 여전히 비어 있습니다.
+- **직접 셀렉터를 적었을 때와 동작이 동일합니다.** 생성된 메서드는 각각 대응하는 런타임 오버로드로 그대로 위임하므로, 아래 예외 섹션에 문서화된 예외 계약이 그대로 적용되고, 같은 시드에서는 같은 추첨 결과가 나옵니다.
+
+### 무엇이 생성되는가
+
+| 가중치 멤버 타입 | 생성되는 확장 |
+|---|---|
+| `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long` | `PickWeighted(source)`, `PickManyWeighted(source, count)`, `PickManyWeightedDistinct(source, count)`, `ToWeightedSampler()` |
+| `float`, `double` | `PickWeighted(source)`만 — 배치 추첨과 alias 테이블 샘플링을 `long` 가중치에 대해서만 제공하는 런타임 표면을 그대로 반영한 결과입니다 |
+| 그 외(`ulong`, `decimal`, enum, nullable 숫자 타입, 숫자가 아닌 타입) | 생성하지 않고 `SSALR001` 진단 |
+
+`ulong`은 의도적으로 제외했습니다. `long`으로 변환할 때 오버플로가 발생할 수 있기 때문입니다. 생성된 확장의 리시버는 모두 `IReadOnlyList<T>`이며, `List<T>`·배열·`ImmutableArray<T>`가 모두 여기에 해당합니다. 지연 시퀀스라면 먼저 `.ToList()`를 명시적으로 호출해야 합니다 — 가중치 추첨에는 인덱스 접근이 필요하고, 이 라이브러리는 그 비용을 숨기지 않습니다.
+
+### 가시성
+
+생성되는 클래스는 기본적으로 `public`이며, 대상 타입의 유효 접근성을 상한으로 합니다 — 따라서 `internal` 모델 타입이면 확장도 자동으로 `internal`이 되어 접근성 불일치가 생기지 않습니다. public 어셈블리의 공개 API 표면에 이 헬퍼들을 노출하고 싶지 않다면 명시적으로 지정하세요.
+
+```csharp
+[RandomWeight(InternalExtensions = true)]
+public long Weight { get; init; }
+```
+
+### 진단
+
+| ID | 보고 조건 |
+|---|---|
+| `SSALR001` | 가중치 멤버의 타입이 지원 대상이 아님(위 표 참고). |
+| `SSALR002` | 한 타입에 `[RandomWeight]` 멤버가 둘 이상 선언됨. |
+| `SSALR003` | 멤버가 `static`이거나 쓰기 전용 프로퍼티, 또는 인덱서임 — 읽을 수 있는 인스턴스 멤버여야 함. |
+| `SSALR004` | 멤버·선언 타입·바깥 타입 중 하나가 생성된 클래스에서 접근 불가(`private`, `protected`, file-local). |
+| `SSALR005` | 선언 타입이 제네릭이거나 제네릭 타입 안에 중첩되어 있음. |
+| `SSALR006` | 선언 타입이 `ref struct`라서 제네릭 타입 인자로 쓸 수 없음. |
+
+여섯 가지 모두 오류이며, 어떤 타입에서 하나라도 발생하면 그 타입에 대해서는 아무것도 생성되지 않습니다 — 부분 생성은 없습니다.
+
+### 알아 둘 점
+
+- **가중치는 일반 프로퍼티나 필드로 선언하세요.** 대상을 리다이렉트하는 특성 표기 — positional record 매개변수의 `[property: RandomWeight]`나 자동 프로퍼티의 `[field: RandomWeight]` — 는 생성기가 인식하지 못하며, 진단도 생성 코드도 없이 조용히 무시됩니다. 대신 `public long Weight { get; init; }`(또는 일반 필드)로 선언하세요.
+- **상속은 따라가지 않습니다.** base 타입에 `[RandomWeight]`를 붙이면 그 base 타입용 확장만 생성됩니다. `IReadOnlyList<out T>`의 공변성 덕분에 `List<Derived>`에서도 호출할 수 있지만, 반환되는 정적 타입은 base 타입이므로 `Derived`로 되돌리려면 캐스트가 필요합니다.
+- **샘플러는 한 번만 빌드하세요.** `ToWeightedSampler()`는 `O(n)`이고 `O(1)`인 것은 추첨뿐입니다. 추첨 루프 안에서 호출하면 매 반복마다 alias 테이블을 다시 만들게 되어 샘플러를 쓰는 이유 자체가 사라집니다. 가중치 테이블당 하나만 빌드해 두고(불변이며 스레드 안전합니다) 반복해서 뽑으세요. 한 번만 뽑을 거라면 `PickWeighted`를 쓰면 됩니다.
 
 ## 성능
 
