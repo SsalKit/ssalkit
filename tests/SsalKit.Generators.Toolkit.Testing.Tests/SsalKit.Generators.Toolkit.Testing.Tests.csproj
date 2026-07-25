@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- The harness is tested against purpose-built mini generators and analyzers declared in this
+         very assembly. They are never shipped as analyzers, so the packaging rules the Roslyn
+         analyzer analyzers enforce (extended analyzer rules, release tracking files) do not apply. -->
+    <NoWarn>$(NoWarn);RS1036;RS2008</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SsalKit.Generators.Toolkit.Testing\SsalKit.Generators.Toolkit.Testing.csproj" />
+  </ItemGroup>
+
+</Project>
