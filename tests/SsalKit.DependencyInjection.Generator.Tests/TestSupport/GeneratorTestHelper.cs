@@ -8,9 +8,9 @@ namespace SsalKit.DependencyInjection.Generator.Tests.TestSupport;
 
 /// <summary>
 /// Builds an in-memory <see cref="CSharpCompilation"/> from source text and drives the real
-/// <see cref="ServiceRegistrationGenerator"/>, <see cref="ServiceAttributeAnalyzer"/>, and
-/// <see cref="ServiceFactoryAnalyzer"/> against it, entirely in-process (no external
-/// `dotnet build`/MSBuild involved).
+/// <see cref="ServiceRegistrationGenerator"/>, <see cref="ServiceAttributeAnalyzer"/>,
+/// <see cref="ServiceFactoryAnalyzer"/>, and <see cref="RegisterImplementationsOfAnalyzer"/>
+/// against it, entirely in-process (no external `dotnet build`/MSBuild involved).
 /// </summary>
 internal static class GeneratorTestHelper
 {
@@ -48,10 +48,10 @@ internal static class GeneratorTestHelper
     {
         var compilation = CreateCompilation(source, assemblyName, extraReferences, allowUnsafe);
 
-        // Both analyzers always run together, exactly as they do when the package is consumed:
-        // whichever attribute a test source uses, the other analyzer must stay silent about it.
+        // Every analyzer always runs together, exactly as they do when the package is consumed:
+        // whichever attribute a test source uses, the others must stay silent about it.
         var withAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(
-            new ServiceAttributeAnalyzer(), new ServiceFactoryAnalyzer()));
+            new ServiceAttributeAnalyzer(), new ServiceFactoryAnalyzer(), new RegisterImplementationsOfAnalyzer()));
 
         var diagnostics = await withAnalyzers.GetAllDiagnosticsAsync();
 

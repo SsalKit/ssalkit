@@ -20,6 +20,12 @@ SSAL017 | SsalKit.DependencyInjection | Error    | [ServiceFactory] interface mu
 SSAL018 | SsalKit.DependencyInjection | Error    | [ServiceFactory] method must take a single enum parameter and return a service type
 SSAL019 | SsalKit.DependencyInjection | Error    | [ServiceFactory] cannot be applied to a generic interface or one nested inside a generic type
 SSAL020 | SsalKit.DependencyInjection | Error    | [ServiceFactory] type must be accessible to generated code
+SSAL021 | SsalKit.DependencyInjection | Error    | [RegisterImplementationsOf] contract must be an interface
+SSAL022 | SsalKit.DependencyInjection | Warning  | [RegisterImplementationsOf] contract matched no class in this assembly
+SSAL023 | SsalKit.DependencyInjection | Error    | Duplicate [RegisterImplementationsOf] contract
+SSAL024 | SsalKit.DependencyInjection | Error    | Undefined enum value on [RegisterImplementationsOf]
+SSAL025 | SsalKit.DependencyInjection | Error    | [RegisterImplementationsOf] contract must be accessible to generated code
+SSAL026 | SsalKit.DependencyInjection | Warning  | Overlapping [RegisterImplementationsOf] contracts register the same implementation differently
 
 ; SSAL003's title/message/description were revised to reflect its narrowed scope (a class nested
 ; inside a generic type, rather than every open generic class), but its ID, category, and severity

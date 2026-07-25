@@ -4,8 +4,9 @@ namespace SsalKit.DependencyInjection.Generator.Diagnostics;
 
 /// <summary>
 /// Diagnostic descriptors reported by <see cref="Analysis.ServiceAttributeAnalyzer"/> (SSAL001-
-/// SSAL015, for <c>[Service]</c>) and <see cref="Analysis.ServiceFactoryAnalyzer"/> (SSAL016-
-/// SSAL020, for <c>[ServiceFactory]</c>).
+/// SSAL015, for <c>[Service]</c>), <see cref="Analysis.ServiceFactoryAnalyzer"/> (SSAL016-SSAL020,
+/// for <c>[ServiceFactory]</c>), and <see cref="Analysis.RegisterImplementationsOfAnalyzer"/>
+/// (SSAL021-SSAL026, for <c>[assembly: RegisterImplementationsOf]</c>).
 /// </summary>
 internal static class DiagnosticDescriptors
 {
@@ -192,4 +193,60 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "The generated factory implementation lives in a separate file, in the SsalKit.DependencyInjection.Generated namespace, in the same assembly; it can only name the factory interface, its method's enum parameter type, and its return type when each of those (along with their containing types) is at least internal and not file-local.");
+
+    public static readonly DiagnosticDescriptor ContractNotInterface = new(
+        id: "SSAL021",
+        title: "[RegisterImplementationsOf] contract must be an interface",
+        messageFormat: "'{0}' cannot be used as a [RegisterImplementationsOf] contract because it is {1}; only an interface can be scanned for implementations",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A convention scan registers each matched class against the contract it implements, which is only a meaningful relationship for an interface. A base class, a struct, an enum, or a delegate type has no set of 'implementations' the generator can discover, so the declaration is rejected rather than silently matching nothing.");
+
+    public static readonly DiagnosticDescriptor ContractMatchedNothing = new(
+        id: "SSAL022",
+        title: "[RegisterImplementationsOf] contract matched no class in this assembly",
+        messageFormat: "No class in this assembly is registered for the [RegisterImplementationsOf] contract '{0}'; the convention scan only sees classes declared in the compilation it is applied to, never ones in referenced assemblies",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A contract that matches nothing registers nothing, and would otherwise fail completely silently -- the usual causes being a misspelled or wrong-namespace interface, an expectation that classes in a referenced assembly would be discovered (they are not: declare the attribute in that assembly instead), or every candidate class having been skipped because it is abstract, static, inaccessible from the generated code, nested inside a generic type, or already decorated with [Service].",
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+    public static readonly DiagnosticDescriptor DuplicateContract = new(
+        id: "SSAL023",
+        title: "Duplicate [RegisterImplementationsOf] contract",
+        messageFormat: "The contract '{0}' is already declared by another [assembly: RegisterImplementationsOf]; only the first declaration is used",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Two declarations of the same contract have no combined meaning: with differing lifetimes or modes there is no rule for which should win, and with identical ones the second is pure duplication (silently discarded at runtime by TryAddEnumerable, but a doubled registration under any other mode). Keep one declaration, and use [Service] on the individual classes that need to deviate from it.");
+
+    public static readonly DiagnosticDescriptor UndefinedContractEnumValue = new(
+        id: "SSAL024",
+        title: "Undefined enum value on [RegisterImplementationsOf]",
+        messageFormat: "The value '{0}' is not a defined '{1}' value",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The Lifetime and Mode arguments of [RegisterImplementationsOf] must be one of the values defined by ServiceLifetime/RegistrationMode; an out-of-range value (e.g. from an explicit numeric cast) is silently mishandled otherwise.");
+
+    public static readonly DiagnosticDescriptor ContractInaccessibleType = new(
+        id: "SSAL025",
+        title: "[RegisterImplementationsOf] contract must be accessible to generated code",
+        messageFormat: "'{0}' cannot be used as a [RegisterImplementationsOf] contract because it is not accessible from the generated registration code; make the type (and its containing types) at least 'internal' and not file-local",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generated registration extension method lives in a separate file, in the Microsoft.Extensions.DependencyInjection namespace, in the same assembly; every service type it names -- including a convention scan's contract -- must be (along with its containing types and generic type arguments) at least internal and not file-local.");
+
+    public static readonly DiagnosticDescriptor ConflictingContractRegistrations = new(
+        id: "SSAL026",
+        title: "Overlapping [RegisterImplementationsOf] contracts register the same implementation differently",
+        messageFormat: "'{1}' is registered as '{0}' by {2} overlapping [RegisterImplementationsOf] contracts that do not agree on lifetime and mode; both registrations are emitted",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Two contracts can overlap -- typically an unbound generic one (typeof(IHandler<>)) alongside a closed instantiation of it (typeof(IHandler<int>)) -- and match the same class under the same service type. Identical registrations produced this way are collapsed into one and reported nothing; registrations that disagree on lifetime or mode cannot be collapsed, so both are emitted and which one wins is decided by Microsoft.Extensions.DependencyInjection's own rules rather than by anything in the declarations.",
+        customTags: WellKnownDiagnosticTags.CompilationEnd);
 }

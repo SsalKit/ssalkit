@@ -54,6 +54,19 @@ public class GeneratorIncrementalTests
         }
         """;
 
+    private const string ConventionSource = """
+        using SsalKit.DependencyInjection;
+        using Microsoft.Extensions.DependencyInjection;
+
+        [assembly: RegisterImplementationsOf(typeof(TestNs.IStartupTask))]
+
+        namespace TestNs;
+
+        public interface IStartupTask { }
+
+        public class MigrateDatabase : IStartupTask { }
+        """;
+
     private const string FactorySourceOriginalBody = """
         using SsalKit.DependencyInjection;
         using Microsoft.Extensions.DependencyInjection;
@@ -220,6 +233,87 @@ public class GeneratorIncrementalTests
         var trackedSteps = runResult.Results.Single().TrackedSteps;
 
         AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedFactories);
+    }
+
+    [Fact]
+    public void ConventionScan_UnrelatedSyntaxTreeAddition_LeavesConventionsAndCombinedUnchanged()
+    {
+        // The convention scan is the one stage that cannot be driven by a per-node syntax provider
+        // -- which classes a contract matches is a property of the whole compilation -- so its
+        // input (CompilationProvider) is Modified by any edit at all and the scan itself always
+        // re-runs. What must hold is that its *output* is value-equal when nothing it looked at
+        // changed, so the combine/emit stages downstream are still skipped.
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new[] { generator.AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(ConventionSource);
+        driver = driver.RunGenerators(compilation1);
+
+        var compilation2 = compilation1.AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
+        driver = driver.RunGenerators(compilation2);
+
+        var runResult = driver.GetRunResult();
+        var trackedSteps = runResult.Results.Single().TrackedSteps;
+
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Conventions);
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+    }
+
+    [Fact]
+    public void NoConventionDeclared_UnrelatedSyntaxTreeAddition_LeavesConventionsAndCombinedUnchanged()
+    {
+        // The fast path every assembly that does not use the feature takes: the scan returns an
+        // empty (and therefore always equal) array, so adding it to the pipeline cannot cost an
+        // existing consumer a single regenerated file.
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new[] { generator.AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(Source);
+        driver = driver.RunGenerators(compilation1);
+
+        var compilation2 = compilation1.AddSyntaxTrees(
+            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
+        driver = driver.RunGenerators(compilation2);
+
+        var runResult = driver.GetRunResult();
+        var trackedSteps = runResult.Results.Single().TrackedSteps;
+
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Conventions);
+        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+    }
+
+    [Fact]
+    public void ConventionScan_NewMatchingClass_RecomputesConventionsAndRegeneratesTheSameWay()
+    {
+        // The complement of the caching tests: when the scan's result genuinely does change, the
+        // change must actually flow through -- a convention registration for a class added in a
+        // brand new syntax tree, which no per-node provider of this generator ever saw.
+        var generator = new ServiceRegistrationGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new[] { generator.AsSourceGenerator() });
+
+        var compilation1 = GeneratorTestHelper.CreateCompilation(ConventionSource);
+        driver = driver.RunGenerators(compilation1);
+
+        Assert.DoesNotContain("WarmCaches", driver.GetRunResult().GeneratedTrees.Single().ToString());
+
+        var compilation2 = compilation1.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
+            """
+            namespace TestNs;
+
+            public class WarmCaches : IStartupTask { }
+            """,
+            new CSharpParseOptions(LanguageVersion.Latest)));
+
+        driver = driver.RunGenerators(compilation2);
+
+        Assert.Contains(
+            "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IStartupTask, global::TestNs.WarmCaches>());",
+            driver.GetRunResult().GeneratedTrees.Single().ToString());
     }
 
     private static void AssertAllOutputsCachedOrUnchanged(

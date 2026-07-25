@@ -11,13 +11,22 @@
 // specifically so the generated file lands on disk for inspection.)
 
 using Microsoft.Extensions.DependencyInjection;
+using SsalKit.DependencyInjection;
 using SsalKit.DependencyInjection.Sample.Services.Clock;
 using SsalKit.DependencyInjection.Sample.Services.Greeting;
 using SsalKit.DependencyInjection.Sample.Services.Messaging;
 using SsalKit.DependencyInjection.Sample.Services.Notifications;
+using SsalKit.DependencyInjection.Sample.Services.Pipeline;
 using SsalKit.DependencyInjection.Sample.Services.Repository;
 using SsalKit.DependencyInjection.Sample.Services.Session;
 using SsalKit.DependencyInjection.Sample.Services.Startup;
+
+// Convention scan: these two lines are the *entire* registration story for every IPipelineStep and
+// every IQueryHandler<,> implementation in this project -- none of those classes carries a
+// [Service] attribute of its own. The scan only ever sees types declared in this compilation, and
+// a class that does carry [Service] (see PersistStep) is left for that attribute to register.
+[assembly: RegisterImplementationsOf(typeof(IPipelineStep))]
+[assembly: RegisterImplementationsOf(typeof(IQueryHandler<,>), ServiceLifetime.Scoped)]
 
 var services = new ServiceCollection();
 services.AddSsalKitDependencyInjectionSampleServices();
@@ -119,4 +128,32 @@ try
 catch (InvalidOperationException ex)
 {
     Console.WriteLine($"                 Push  -> {ex.GetType().Name}: no service registered for this key");
+}
+Console.WriteLine();
+
+// RegisterImplementationsOf: not one of the classes below is decorated. The two assembly-level
+// lines at the top of this file registered every implementation of IPipelineStep (as
+// TryAddEnumerable Singletons, the default, so they inject together as IEnumerable<IPipelineStep>)
+// and every implementation of the unbound IQueryHandler<,> (as Scoped, under each closed
+// instantiation it implements).
+var steps = provider.GetServices<IPipelineStep>().ToList();
+Console.WriteLine("[Convention]     IPipelineStep -> discovered by [assembly: RegisterImplementationsOf]");
+Console.WriteLine($"                 {steps.Count} step(s): [{string.Join(", ", steps.Select(step => step.Describe()))}]");
+Console.WriteLine("                 AuditStep is included via its abstract base class; AuditStepBase itself is skipped.");
+
+// PersistStep carries [Service(ServiceLifetime.Transient)], so the scan skipped it and only that
+// attribute registered it -- which is why it is Transient here rather than the scan's Singleton.
+var persistFirst = provider.GetServices<IPipelineStep>().First(step => step is PersistStep);
+var persistSecond = provider.GetServices<IPipelineStep>().First(step => step is PersistStep);
+Console.WriteLine($"                 PersistStep opted out via [Service(Transient)] -> new instance each time: {!ReferenceEquals(persistFirst, persistSecond)}");
+Console.WriteLine();
+
+using (var queryScope = provider.CreateScope())
+{
+    var countHandler = queryScope.ServiceProvider.GetRequiredService<IQueryHandler<CountQuery, int>>();
+    var nameHandler = queryScope.ServiceProvider.GetRequiredService<IQueryHandler<NameQuery, string>>();
+
+    Console.WriteLine("[Convention]     IQueryHandler<,> -> one registration per closed instantiation");
+    Console.WriteLine($"                 IQueryHandler<CountQuery, int>    -> {countHandler.Handle(new CountQuery("ssalkit"))}");
+    Console.WriteLine($"                 IQueryHandler<NameQuery, string>  -> {nameHandler.Handle(new NameQuery(42))}");
 }

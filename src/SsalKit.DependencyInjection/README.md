@@ -245,6 +245,76 @@ By the same token, the factory adds no lifetime of its own: it is a stateless wr
 
 **No diagnostic is reported** when the compilation that declares the factory contains no `[Service(Key = SomeEnum.X)]` registration for a given enum value. Declaring the factory interface in one assembly and registering the keyed implementations in another (or by hand, in `Program.cs`) is a supported, ordinary arrangement — the generator has no way to see the other assembly's registrations, so it does not guess. The trade-off is that a genuinely missing registration surfaces at resolution time rather than at compile time.
 
+## Registering every implementation of a contract
+
+Some registrations read better as a rule than as an attribute repeated on every class: *every* `IRequestHandler<,>` is `Scoped`, *every* `IStartupTask` is a `Singleton`. `[assembly: RegisterImplementationsOf]` states that rule once, and the generator resolves it at compile time — still no reflection, still nothing to scan at startup:
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using SsalKit.DependencyInjection;
+
+[assembly: RegisterImplementationsOf(typeof(IRequestHandler<,>), ServiceLifetime.Scoped)]
+[assembly: RegisterImplementationsOf(typeof(IStartupTask))]
+
+// None of these carries an attribute of its own — the two lines above register all three.
+public sealed class PingHandler : IRequestHandler<Ping, Pong> { }
+public sealed class MigrateDatabase : IStartupTask { }
+public sealed class WarmCaches : IStartupTask { }
+```
+
+emits:
+
+```csharp
+services.TryAddEnumerable(ServiceDescriptor.Scoped<IRequestHandler<Ping, Pong>, PingHandler>());
+services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupTask, MigrateDatabase>());
+services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupTask, WarmCaches>());
+```
+
+so `IEnumerable<IStartupTask>` can be constructor-injected directly.
+
+### The scan only sees the current compilation
+
+The scan runs over the types declared in **the assembly the attribute is applied to**. Classes in referenced assemblies are never discovered, even through a project reference — the generator compiles one assembly at a time and cannot reach into another's source. To register a referenced assembly's implementations, declare the attribute in that assembly too and call its own generated `Add{Assembly}Services()` method.
+
+### What matches
+
+The contract must be an **interface** (`SSAL021`).
+
+- A non-generic or closed generic contract (`typeof(IStartupTask)`, `typeof(IRequestHandler<Ping, Pong>)`) matches every class that implements it.
+- An **unbound generic** contract (`typeof(IRequestHandler<,>)`) matches every class implementing *any* instantiation of it, and registers one `(instantiation, class)` pair per implemented instantiation — a class implementing both `IRequestHandler<A, B>` and `IRequestHandler<C, D>` is registered twice, once under each.
+- An **open generic class** (`Validator<T> : IValidator<T>`) is registered as the `typeof`-based `(IValidator<>, Validator<>)` pair, provided it satisfies the same [exact-match rule](#exact-match-rule) that governs an open generic `[Service]`. A partially-applied shape such as `Handler<T> : IHandler<T, Unit>` cannot be expressed as an open generic registration and is skipped.
+
+Inherited implementations count: a class matches when the contract is anywhere in its interface set, including via a base class.
+
+### What is skipped, silently
+
+A convention scan describes a *shape*, not a specific type, so a class that simply does not fit is passed over rather than reported: `abstract` and `static` classes, types that are not classes at all, classes not accessible from the generated code (a `private` nested or `file`-local class, and anything nested inside one), classes nested inside a generic type (see `SSAL003`), and open generic classes whose implemented instantiation is not an exact match.
+
+Only mistakes in the *declaration* are diagnosed — including a contract that ends up matching **nothing** (`SSAL022`), so a typo or a namespace mix-up cannot silently register nothing at all.
+
+### `[Service]` wins over the convention
+
+A class carrying at least one `[Service]` attribute is excluded from every convention scan in the assembly, so its explicit registration is never duplicated or contradicted by one. That doubles as the per-class opt-out: give the class the `[Service]` registration you actually want — a different lifetime, `As` type, `Key`, or `Mode` — and the scan leaves it alone.
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IStartupTask))]
+
+public sealed class WarmCaches : IStartupTask { }          // TryAddEnumerable Singleton, from the scan
+
+[Service(ServiceLifetime.Transient)]
+public sealed class PersistStep : IStartupTask { }         // Transient Add, from [Service] alone
+```
+
+### Why the default `Mode` is `TryAddEnumerable`
+
+Registering "every implementation of X" is by nature a multi-implementation pattern whose result is consumed as `IEnumerable<X>`. `TryAddEnumerable` is the mode that makes that work without implementations shadowing one another, and it is the one mode `SSAL015` never reports as a conflict — so it is this attribute's default, unlike `[Service]`, whose default is `Add`. Set `Mode` explicitly for the rarer case where the scan is meant to bind a single implementation:
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IClock), Mode = RegistrationMode.TryAdd)]
+```
+
+Each matched service type gets its own independent registration. Unlike a multi-interface `[Service]`, a convention-scanned class is never registered once as its concrete type with the service types forwarded to it, so two service types matched on the same class do **not** resolve to a shared instance.
+
 ## Attribute Reference
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ..., Factory = ...)]`
@@ -261,9 +331,19 @@ A class can carry multiple `[Service]` attributes to register it several ways (d
 
 `[ServiceFactory]` takes no arguments and can only be applied to an interface, at most once. See [Enum-keyed service factories](#enum-keyed-service-factories).
 
+`[assembly: RegisterImplementationsOf(contract, lifetime, Mode = ...)]`
+
+| Property   | Type                 | Default                                | Description                                                                                     |
+|------------|----------------------|----------------------------------------|-------------------------------------------------------------------------------------------------|
+| `Contract` | `Type`                | *(required)*                           | Constructor argument. The interface to scan for implementations of — non-generic, closed generic, or an unbound `typeof(IHandler<,>)`. |
+| `Lifetime` | `ServiceLifetime`     | `ServiceLifetime.Singleton`            | Constructor argument. The lifetime every matched implementation is registered with.              |
+| `Mode`     | `RegistrationMode`    | `RegistrationMode.TryAddEnumerable`    | How each matched registration is applied — note the default differs from `[Service]`'s.          |
+
+The attribute is assembly-scoped and can be applied any number of times, once per contract. See [Registering every implementation of a contract](#registering-every-implementation-of-a-contract).
+
 ## Diagnostics
 
-The generator validates your `[Service]` and `[ServiceFactory]` usage at compile time:
+The generator validates your `[Service]`, `[ServiceFactory]`, and `[assembly: RegisterImplementationsOf]` usage at compile time:
 
 | ID       | Severity | Description                                                                 |
 |----------|----------|-------------------------------------------------------------------------------|
@@ -287,6 +367,12 @@ The generator validates your `[Service]` and `[ServiceFactory]` usage at compile
 | `SSAL018`| Error    | The `[ServiceFactory]` method's signature is unusable: it is generic, takes anything other than exactly one by-value `enum` parameter (`ref`/`out`/`in` included), returns `void`, or returns by reference. |
 | `SSAL019`| Error    | `[ServiceFactory]` was applied to a generic interface, or to one nested inside a generic type — the generated implementation is a non-generic singleton registered against one closed service type. |
 | `SSAL020`| Error    | The factory interface, its enum key type, or its return type is not accessible from the generated implementation (a separate file in the `SsalKit.DependencyInjection.Generated` namespace, same assembly); each must be at least `internal` and not file-local. |
+| `SSAL021`| Error    | The `[assembly: RegisterImplementationsOf]` contract is not an interface. A class, struct, enum, delegate, or array type has no set of "implementations" to discover. |
+| `SSAL022`| Warning  | An `[assembly: RegisterImplementationsOf]` contract matched no class at all, and therefore registered nothing. Usual causes: a misspelled or wrong-namespace interface, an expectation that a *referenced* assembly's classes would be discovered (they are not), or every candidate having been skipped for being abstract, static, inaccessible, nested inside a generic type, or already decorated with `[Service]`. |
+| `SSAL023`| Error    | The same contract is declared by two or more `[assembly: RegisterImplementationsOf]` attributes. Only the first is used; two declarations of one contract have no combined meaning. |
+| `SSAL024`| Error    | An undefined `ServiceLifetime` or `RegistrationMode` value (e.g. `(ServiceLifetime)42`) was supplied to `[assembly: RegisterImplementationsOf]`. |
+| `SSAL025`| Error    | The contract (or one of its generic type arguments) is not accessible from the generated registration code; it must be at least `internal` and not file-local. A `file`-local interface can be named at the attribute application site but never from the generated file. |
+| `SSAL026`| Warning  | Two overlapping contracts — typically an unbound `typeof(IHandler<>)` alongside a closed `typeof(IHandler<int>)` — match the same class under the same service type but disagree on `Lifetime`/`Mode`, so both registrations are emitted and which one wins is decided by Microsoft.Extensions.DependencyInjection rather than by the declarations. Overlapping contracts that *agree* are collapsed into a single registration and reported nothing. |
 
 ## License
 

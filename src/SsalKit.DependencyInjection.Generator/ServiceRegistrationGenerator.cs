@@ -3,14 +3,17 @@ using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Emission;
 using SsalKit.DependencyInjection.Generator.Models;
 using SsalKit.DependencyInjection.Generator.Parsing;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator;
 
 /// <summary>
 /// Generates a single <c>IServiceCollection</c> extension method per assembly that registers
-/// every class decorated with <c>[SsalKit.DependencyInjection.Service]</c>, plus one implementation
-/// class per interface decorated with <c>[SsalKit.DependencyInjection.ServiceFactory]</c> (each of
-/// which that same extension method registers as a singleton).
+/// every class decorated with <c>[SsalKit.DependencyInjection.Service]</c> and every class matched
+/// by an <c>[assembly: SsalKit.DependencyInjection.RegisterImplementationsOf]</c> contract, plus
+/// one implementation class per interface decorated with
+/// <c>[SsalKit.DependencyInjection.ServiceFactory]</c> (each of which that same extension method
+/// registers as a singleton).
 /// </summary>
 [Generator(LanguageNames.CSharp)]
 public sealed class ServiceRegistrationGenerator : IIncrementalGenerator
@@ -64,25 +67,42 @@ public sealed class ServiceRegistrationGenerator : IIncrementalGenerator
             .Collect()
             .WithTrackingName(TrackingNames.CollectedFactories);
 
+        // Unlike every other stage, this one is driven by the whole compilation rather than by the
+        // syntax nodes that declare it: which classes an [assembly: RegisterImplementationsOf]
+        // contract matches is a property of every type in the compilation, so there is no per-node
+        // provider that could express it. It therefore re-runs on every compilation change --
+        // cheaply for the assemblies that do not use the feature (ConventionScanner.Scan returns in
+        // constant time when no contract is declared), and always into an equatable model array, so
+        // an unrelated edit leaves the value unchanged and the combine/emit stages below are
+        // skipped. See ConventionScanner's remarks for the full reasoning.
+        IncrementalValueProvider<EquatableArray<ConventionRegistrationModel>> conventions = context.CompilationProvider
+            .Select(static (compilation, ct) => ConventionScanner.Scan(compilation, ct))
+            .WithTrackingName(TrackingNames.Conventions);
+
         IncrementalValueProvider<string?> assemblyName = context.CompilationProvider
             .Select(static (compilation, _) => compilation.AssemblyName)
             .WithTrackingName(TrackingNames.AssemblyName);
 
-        IncrementalValueProvider<((ImmutableArray<ClassRegistrationModel> Classes, ImmutableArray<ServiceFactoryModel> Factories) Registrations, string? AssemblyName)> combined =
+        IncrementalValueProvider<(((ImmutableArray<ClassRegistrationModel> Classes, ImmutableArray<ServiceFactoryModel> Factories) Registrations, EquatableArray<ConventionRegistrationModel> Conventions) Scanned, string? AssemblyName)> combined =
             collectedClasses
                 .Combine(collectedFactories)
+                .Combine(conventions)
                 .Combine(assemblyName)
                 .WithTrackingName(TrackingNames.Combined);
 
         context.RegisterSourceOutput(combined, static (spc, source) =>
         {
-            var (classes, factoryModels) = source.Registrations;
-            if (classes.IsDefaultOrEmpty && factoryModels.IsDefaultOrEmpty)
+            var (classes, factoryModels) = source.Scanned.Registrations;
+            var conventionModels = source.Scanned.Conventions.AsImmutableArray();
+
+            if (classes.IsDefaultOrEmpty && factoryModels.IsDefaultOrEmpty && conventionModels.IsEmpty)
             {
                 return;
             }
 
-            var (hintName, generatedSource) = ServiceRegistrationEmitter.Emit(classes, factoryModels, source.AssemblyName);
+            var (hintName, generatedSource) = ServiceRegistrationEmitter.Emit(
+                classes, conventionModels, factoryModels, source.AssemblyName);
+
             spc.AddSource(hintName, generatedSource);
         });
 
@@ -113,6 +133,7 @@ public sealed class ServiceRegistrationGenerator : IIncrementalGenerator
         public const string Factories = "Factories";
         public const string ValidFactories = "ValidFactories";
         public const string CollectedFactories = "CollectedFactories";
+        public const string Conventions = "Conventions";
         public const string AssemblyName = "AssemblyName";
         public const string Combined = "Combined";
     }
