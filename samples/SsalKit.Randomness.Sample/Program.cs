@@ -2,8 +2,8 @@
 //
 // Walks through the library's main features in order: determinism, state export/restore,
 // Fork(), shuffling/picking, weighted sampling (single-shot, pre-built sampler, and
-// without-replacement), and the IRandomSource abstraction shared across deterministic,
-// shared, and cryptographic sources.
+// without-replacement), selector-less weighted picking generated from [RandomWeight], and the
+// IRandomSource abstraction shared across deterministic, shared, and cryptographic sources.
 //
 // A fixed seed is used throughout so the DeterministicRandom-driven output below is exactly
 // reproducible from run to run (the two lines that use SharedRandomSource/CryptoRandomSource
@@ -166,7 +166,64 @@ Console.WriteLine($"                 [{string.Join(", ", distinctPicks)}]  (no r
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------------------
-// 8. Source abstraction: the exact same helper, written once against IRandomSource, runs
+// 8. [RandomWeight]: marking a model type's weight member with the attribute makes the source
+//    generator write the selector for you, so `lootTable.PickWeighted(rng)` replaces
+//    `rng.PickWeighted(lootTable, static x => (long)x.Weight)`. The generated methods are
+//    ordinary C# that delegates straight to the same runtime APIs used above -- no reflection,
+//    no runtime dispatch -- so the two forms below draw identically. See LootEntry at the
+//    bottom of this file for the entire opt-in.
+// ---------------------------------------------------------------------------------------
+List<LootEntry> lootTable =
+[
+    new() { ItemId = "wooden-sword", Weight = 60 },
+    new() { ItemId = "iron-sword", Weight = 30 },
+    new() { ItemId = "enchanted-blade", Weight = 9 },
+    new() { ItemId = "dragonslayer", Weight = 1 },
+];
+
+var generatedRng = new DeterministicRandom(Seed);
+var selectorRng = new DeterministicRandom(Seed);
+
+Console.WriteLine("[RandomWeight]   generated `table.PickWeighted(rng)` next to the hand-written selector call");
+for (int i = 0; i < 3; i++)
+{
+    LootEntry generated = lootTable.PickWeighted(generatedRng);
+    LootEntry selector = selectorRng.PickWeighted(lootTable, static entry => (long)entry.Weight);
+    Console.WriteLine($"                 generated: {generated.ItemId,-16}  selector: {selector.ItemId,-16}  match: {ReferenceEquals(generated, selector)}");
+}
+
+// Batched draws are generated too, for integral weight members (a float/double weight member
+// gets PickWeighted only, mirroring the runtime surface).
+LootEntry[] generatedDrops = lootTable.PickManyWeighted(new DeterministicRandom(Seed), count: 4);
+LootEntry[] generatedDistinct = lootTable.PickManyWeightedDistinct(new DeterministicRandom(Seed), count: 3);
+Console.WriteLine($"                 PickManyWeighted(4)         -> [{string.Join(", ", generatedDrops.Select(drop => drop.ItemId))}]");
+Console.WriteLine($"                 PickManyWeightedDistinct(3) -> [{string.Join(", ", generatedDistinct.Select(drop => drop.ItemId))}]");
+
+// Build once, draw many: ToWeightedSampler() is O(n), the draws are O(1). Building it here --
+// outside the draw loop -- is the whole point; calling it inside one would rebuild the alias
+// table on every iteration.
+WeightedSampler<LootEntry> lootSampler = lootTable.ToWeightedSampler();
+var lootSamplerRng = new DeterministicRandom(Seed);
+
+const int LootTrials = 10_000;
+Dictionary<string, int> lootCounts = lootTable.ToDictionary(entry => entry.ItemId, _ => 0);
+foreach (LootEntry drop in lootSampler.PickMany(lootSamplerRng, LootTrials))
+{
+    lootCounts[drop.ItemId]++;
+}
+
+long lootTotalWeight = lootTable.Sum(entry => entry.Weight);
+Console.WriteLine($"                 ToWeightedSampler() built once, then {LootTrials} draws:");
+foreach (LootEntry entry in lootTable)
+{
+    double expected = 100.0 * entry.Weight / lootTotalWeight;
+    double actual = 100.0 * lootCounts[entry.ItemId] / LootTrials;
+    Console.WriteLine($"                 {entry.ItemId,-16} expected {expected,5:F1}%  actual {actual,5:F1}%  ({lootCounts[entry.ItemId],5} draws)");
+}
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 9. Source abstraction: the exact same helper, written once against IRandomSource, runs
 //    unmodified against a deterministic, a shared, and a cryptographic source -- only the
 //    caller decides which one to hand in.
 // ---------------------------------------------------------------------------------------
@@ -212,4 +269,18 @@ static string RollThreeD20(IRandomSource source)
 {
     int[] rolls = [source.Next(1, 21), source.Next(1, 21), source.Next(1, 21)];
     return $"[{string.Join(", ", rolls)}]";
+}
+
+// A loot-table row, used by section 8. The single [RandomWeight] line is the entire opt-in: the
+// source generator (referenced as an analyzer from this project's csproj, and shipped inside the
+// SsalKit.Randomness package for consumers) emits a LootEntryRandomWeightExtensions class with
+// PickWeighted / PickManyWeighted / PickManyWeightedDistinct / ToWeightedSampler extension methods
+// over IReadOnlyList<LootEntry>. Each one delegates to the selector-based runtime API, so the
+// exception contract and the draw sequence are identical to writing the selector by hand.
+sealed class LootEntry
+{
+    public required string ItemId { get; init; }
+
+    [RandomWeight]
+    public long Weight { get; init; }
 }
