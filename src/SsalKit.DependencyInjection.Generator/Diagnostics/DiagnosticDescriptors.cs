@@ -3,7 +3,9 @@ using Microsoft.CodeAnalysis;
 namespace SsalKit.DependencyInjection.Generator.Diagnostics;
 
 /// <summary>
-/// Diagnostic descriptors reported by <see cref="Analysis.ServiceAttributeAnalyzer"/>.
+/// Diagnostic descriptors reported by <see cref="Analysis.ServiceAttributeAnalyzer"/> (SSAL001-
+/// SSAL015, for <c>[Service]</c>) and <see cref="Analysis.ServiceFactoryAnalyzer"/> (SSAL016-
+/// SSAL020, for <c>[ServiceFactory]</c>).
 /// </summary>
 internal static class DiagnosticDescriptors
 {
@@ -145,4 +147,49 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other.",
         customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+    public static readonly DiagnosticDescriptor ServiceFactoryTargetNotInterface = new(
+        id: "SSAL016",
+        title: "[ServiceFactory] can only be applied to an interface",
+        messageFormat: "[ServiceFactory] cannot be applied to '{0}' because it is {1}; only an interface can declare a service factory",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generator implements a [ServiceFactory] target by emitting a class that implements it, which is only possible for an interface. [AttributeUsage(AttributeTargets.Interface)] already makes any other target a CS0592 compiler error, so this rule only ever fires alongside that error, as a defence against the attribute's usage being widened without the generator following suit.");
+
+    public static readonly DiagnosticDescriptor ServiceFactoryMemberShapeInvalid = new(
+        id: "SSAL017",
+        title: "[ServiceFactory] interface must declare exactly one method",
+        messageFormat: "[ServiceFactory] interface '{0}' must declare exactly one member and that member must be an ordinary, non-static method, but {1}",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generated implementation only knows how to implement a single enum-keyed lookup method. Any additional member -- another method, a property, an event, a field, or a nested type -- would be left unimplemented, so the whole interface is rejected rather than generating code that does not compile.");
+
+    public static readonly DiagnosticDescriptor ServiceFactoryMethodSignatureInvalid = new(
+        id: "SSAL018",
+        title: "[ServiceFactory] method must take a single enum parameter and return a service type",
+        messageFormat: "The method '{0}.{1}' cannot be used as a service factory because {2}; it must be non-generic, take exactly one by-value parameter of an enum type, and return a non-void service type",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generated implementation forwards its single parameter verbatim as the service key to GetRequiredKeyedService<TReturn>, which requires exactly one by-value enum parameter and a non-void, non-by-ref return type. A generic method has no single closed form to implement against.");
+
+    public static readonly DiagnosticDescriptor ServiceFactoryGenericNotSupported = new(
+        id: "SSAL019",
+        title: "[ServiceFactory] cannot be applied to a generic interface or one nested inside a generic type",
+        messageFormat: "[ServiceFactory] cannot be applied to '{0}' because it is {1}; a service factory interface must be non-generic and not nested inside a generic type",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generated implementation is a non-generic class registered as a singleton against one closed service type. An open generic factory interface -- or a non-generic one that inherits type parameters from a containing generic type -- has no single closed form to register, so it is rejected at compile time.");
+
+    public static readonly DiagnosticDescriptor ServiceFactoryInaccessibleType = new(
+        id: "SSAL020",
+        title: "[ServiceFactory] type must be accessible to generated code",
+        messageFormat: "'{0}' cannot be used by the service factory generated for '{1}' because it is not accessible from the generated code; make the type (and its containing types) at least 'internal' and not file-local",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The generated factory implementation lives in a separate file, in the SsalKit.DependencyInjection.Generated namespace, in the same assembly; it can only name the factory interface, its method's enum parameter type, and its return type when each of those (along with their containing types) is at least internal and not file-local.");
 }

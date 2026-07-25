@@ -15,6 +15,11 @@ SSAL012 | SsalKit.DependencyInjection | Error    | 'Factory' method has an unusa
 SSAL013 | SsalKit.DependencyInjection | Error    | 'Factory' cannot be used on an open generic class
 SSAL014 | SsalKit.DependencyInjection | Error    | 'Factory' method is not accessible to generated code
 SSAL015 | SsalKit.DependencyInjection | Warning  | Multiple implementations registered for the same service type
+SSAL016 | SsalKit.DependencyInjection | Error    | [ServiceFactory] can only be applied to an interface
+SSAL017 | SsalKit.DependencyInjection | Error    | [ServiceFactory] interface must declare exactly one method
+SSAL018 | SsalKit.DependencyInjection | Error    | [ServiceFactory] method must take a single enum parameter and return a service type
+SSAL019 | SsalKit.DependencyInjection | Error    | [ServiceFactory] cannot be applied to a generic interface or one nested inside a generic type
+SSAL020 | SsalKit.DependencyInjection | Error    | [ServiceFactory] type must be accessible to generated code
 
 ; SSAL003's title/message/description were revised to reflect its narrowed scope (a class nested
 ; inside a generic type, rather than every open generic class), but its ID, category, and severity
