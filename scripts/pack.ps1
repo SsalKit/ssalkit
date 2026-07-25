@@ -1,11 +1,13 @@
 <#
 .SYNOPSIS
-    Cleans, builds, tests, and packs the SsalKit.DependencyInjection NuGet package.
+    Cleans, builds, tests, and packs every shippable SsalKit NuGet package.
 
 .DESCRIPTION
-    Local equivalent of the release CI pipeline. Runs `dotnet clean`, `dotnet build`,
-    `dotnet test`, and finally `dotnet pack` for the SsalKit.DependencyInjection project,
-    producing a .nupkg under <repo root>\artifacts.
+    Local equivalent of the release CI pipeline (.github\workflows\release.yml). Runs
+    `dotnet clean`, `dotnet build`, `dotnet test`, and finally `dotnet pack` for each
+    shippable project, producing one .nupkg per package under <repo root>\artifacts.
+
+    Keep the project list below in sync with the "Pack" step of release.yml.
 
     The script stops immediately on the first failing step (build error, test failure, etc.)
     and propagates a non-zero exit code.
@@ -33,8 +35,15 @@ $ErrorActionPreference = 'Stop'
 # Repo root is one level up from this script's directory.
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $SolutionPath = Join-Path $RepoRoot 'SsalKit.sln'
-$ProjectPath = Join-Path $RepoRoot 'src\SsalKit.DependencyInjection'
 $ArtifactsPath = Join-Path $RepoRoot 'artifacts'
+
+# Shippable packages, mirroring the "Pack" step of .github\workflows\release.yml.
+$PackageNames = @(
+    'SsalKit.DependencyInjection',
+    'SsalKit.Randomness',
+    'SsalKit.Generators.Toolkit',
+    'SsalKit.Guard'
+)
 
 function Invoke-Step {
     param(
@@ -56,10 +65,11 @@ function Invoke-Step {
     }
 }
 
-Write-Host "SsalKit.DependencyInjection pack" -ForegroundColor Green
+Write-Host "SsalKit pack" -ForegroundColor Green
 Write-Host "  Repo root     : $RepoRoot"
 Write-Host "  Version       : $Version"
 Write-Host "  Configuration : $Configuration"
+Write-Host "  Packages      : $($PackageNames -join ', ')"
 Write-Host ""
 
 Invoke-Step -Name 'Clean' -Arguments @('clean', $SolutionPath, '--configuration', $Configuration)
@@ -70,12 +80,19 @@ Invoke-Step -Name 'Build' -Arguments @('build', $SolutionPath, '--configuration'
 
 Invoke-Step -Name 'Test' -Arguments @('test', $SolutionPath, '--configuration', $Configuration, '--no-build')
 
-Invoke-Step -Name 'Pack' -Arguments @(
-    'pack', $ProjectPath,
-    '--configuration', $Configuration,
-    "-p:Version=$Version",
-    '-o', $ArtifactsPath
-)
+foreach ($PackageName in $PackageNames) {
+    $ProjectPath = Join-Path $RepoRoot "src\$PackageName"
+
+    Invoke-Step -Name "Pack $PackageName" -Arguments @(
+        'pack', $ProjectPath,
+        '--configuration', $Configuration,
+        "-p:Version=$Version",
+        '-o', $ArtifactsPath
+    )
+}
 
 Write-Host ""
-Write-Host "Pack succeeded. Output: $ArtifactsPath\SsalKit.DependencyInjection.$Version.nupkg" -ForegroundColor Green
+Write-Host "Pack succeeded. Output:" -ForegroundColor Green
+foreach ($PackageName in $PackageNames) {
+    Write-Host "  $ArtifactsPath\$PackageName.$Version.nupkg" -ForegroundColor Green
+}
