@@ -26,7 +26,7 @@ public class ServiceAttributeAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL001", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL001", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]
@@ -203,7 +203,7 @@ public class ServiceAttributeAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL004", DiagnosticSeverity.Warning);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL004", DiagnosticSeverity.Warning, exclusive: true);
     }
 
     [Fact]
@@ -450,7 +450,7 @@ public class ServiceAttributeAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        DiagnosticAssert.Single(diagnostics, "SSAL006", DiagnosticSeverity.Error);
+        DiagnosticAssert.Single(diagnostics, "SSAL006", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]

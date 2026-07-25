@@ -29,14 +29,4 @@ internal static class GeneratorTestSupport
     /// </summary>
     public static GeneratorTestResult RunGenerator(string source, GeneratorTestOptions? options = null) =>
         GeneratorTest.Run<ErrorCodesGenerator>(source, options ?? Options);
-
-    /// <summary>
-    /// Every generated file with its hint name above it, for the multi-container snapshots, whose
-    /// point is to cover the file names as well as their contents.
-    /// </summary>
-    public static string AllSourcesWithHintNames(this GeneratorTestResult result) =>
-        string.Join(
-            Environment.NewLine,
-            result.GeneratedSources.Select(generated =>
-                "// ==== " + generated.HintName + Environment.NewLine + generated.Text));
 }

@@ -81,7 +81,7 @@ public class ServiceFactoryAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL016", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL016", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains($"because it is {expectedReason}", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -97,7 +97,7 @@ public class ServiceFactoryAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL017", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL017", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains("it declares no members", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -245,7 +245,7 @@ public class ServiceFactoryAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL018", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL018", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
         Assert.Contains("global::TestNs.IBadSignatureFactory.Create", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
@@ -291,7 +291,7 @@ public class ServiceFactoryAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL019", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL019", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains("because it is generic", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -344,7 +344,7 @@ public class ServiceFactoryAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL020", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL020", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains("global::TestNs.Holder.IHiddenFactory", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 

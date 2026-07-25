@@ -131,12 +131,6 @@ public class ServiceFactorySnapshotTests
 
         Assert.Empty(result.GetCompilationErrors());
 
-        var combined = string.Join(
-            "\n",
-            result.GeneratedSources
-                .OrderBy(s => s.HintName, StringComparer.Ordinal)
-                .Select(s => $"// ==== {s.HintName} ====\n{s.Text}"));
-
-        return Verifier.Verify(combined).UseDirectory("Snapshots");
+        return Verifier.Verify(result.ToSnapshotText()).UseDirectory("Snapshots");
     }
 }

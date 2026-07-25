@@ -84,7 +84,7 @@ public class RegisterImplementationsOfAnalyzerTests
             """;
 
         var diagnostic = DiagnosticAssert.Single(
-            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL021", DiagnosticSeverity.Error);
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL021", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedDetail, diagnostic.GetMessage());
     }
 
@@ -134,7 +134,7 @@ public class RegisterImplementationsOfAnalyzerTests
             """;
 
         var diagnostic = DiagnosticAssert.Single(
-            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL022", DiagnosticSeverity.Warning);
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL022", DiagnosticSeverity.Warning, exclusive: true);
         Assert.Contains("global::TestNs.IStartupTask", diagnostic.GetMessage());
     }
 
@@ -272,7 +272,7 @@ public class RegisterImplementationsOfAnalyzerTests
             """;
 
         var diagnostic = DiagnosticAssert.Single(
-            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL024", DiagnosticSeverity.Error);
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL024", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedValue, diagnostic.GetMessage());
         Assert.Contains(expectedEnum, diagnostic.GetMessage());
     }
@@ -291,7 +291,7 @@ public class RegisterImplementationsOfAnalyzerTests
             """;
 
         DiagnosticAssert.Single(
-            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL025", DiagnosticSeverity.Error);
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL025", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]

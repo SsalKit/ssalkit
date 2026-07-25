@@ -57,6 +57,34 @@ public class DiagnosticAssertTests
     }
 
     [Fact]
+    public void Single_Exclusive_PassesWhenTheExpectedDiagnosticWasTheOnlyOne()
+    {
+        var diagnostics = DiagnosticsOf(TestSources.BadlyNamedType);
+
+        var diagnostic = DiagnosticAssert.Single(
+            diagnostics, "MINI001", DiagnosticSeverity.Error, exclusive: true);
+
+        Assert.Contains("BadWidget", diagnostic.GetMessage(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Single_Exclusive_RejectsASecondDiagnosticTheNonExclusiveFormWouldLetThrough()
+    {
+        var diagnostics = DiagnosticsOf(TestSources.BadAndOddlyNamedTypes);
+
+        // Exactly one MINI001 was reported, so the non-exclusive form is satisfied ...
+        DiagnosticAssert.Single(diagnostics, "MINI001");
+
+        // ... but MINI002 came along with it.
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => DiagnosticAssert.Single(diagnostics, "MINI001", exclusive: true));
+
+        Assert.Contains(
+            "to be the only diagnostic reported, but 2 were reported", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("MINI002 (Warning)", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Single_WithoutAnId_IsARejectedMisuse() =>
         Assert.Throws<ArgumentException>(() => DiagnosticAssert.Single([], ""));
 

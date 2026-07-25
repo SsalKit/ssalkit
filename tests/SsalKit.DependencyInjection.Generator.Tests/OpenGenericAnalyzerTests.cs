@@ -254,7 +254,7 @@ public class OpenGenericAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        DiagnosticAssert.Single(diagnostics, "SSAL010", DiagnosticSeverity.Warning);
+        DiagnosticAssert.Single(diagnostics, "SSAL010", DiagnosticSeverity.Warning, exclusive: true);
     }
 
     [Fact]

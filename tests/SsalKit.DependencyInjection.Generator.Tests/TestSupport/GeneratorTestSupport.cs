@@ -19,11 +19,13 @@ internal static class GeneratorTestSupport
     /// transitively, <c>IServiceCollection</c>/<c>ServiceLifetime</c>/<c>ServiceDescriptor</c> and
     /// the keyed-service extensions, so generated registrations type-check against the shipping API.
     /// Only <c>SSAL</c> diagnostics are surfaced, so a deliberately invalid test source's incidental
-    /// compiler diagnostics never reach an assertion.
+    /// compiler diagnostics never reach an assertion, and the generated files are ordered by hint
+    /// name so a multi-file snapshot cannot churn on production order.
     /// </summary>
     public static readonly GeneratorTestOptions Options = new()
     {
         DiagnosticIdPrefix = "SSAL",
+        SortGeneratedSourcesByHintName = true,
         AdditionalAssemblies =
         [
             typeof(SsalKit.DependencyInjection.ServiceAttribute).Assembly,

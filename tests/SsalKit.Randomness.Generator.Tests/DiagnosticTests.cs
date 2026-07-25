@@ -312,7 +312,7 @@ public class DiagnosticTests
 
         Assert.Empty(result.GeneratedSources);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, expectedId, DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, expectedId, DiagnosticSeverity.Error, exclusive: true);
         AssertReportedOnAnAttribute(diagnostic, source);
 
         return diagnostic;

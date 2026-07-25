@@ -15,6 +15,7 @@ Source-generator-first utility libraries for modern .NET.
 | `SsalKit.Randomness` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness) | Deterministic, state-serializable PRNG (`xoshiro256**` + SplitMix64) with weighted-random sampling. | [README](src/SsalKit.Randomness/README.md) |
 | `SsalKit.Generators.Toolkit` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit) | Source-only toolkit for authoring Roslyn source generators, embedded into the consumer's compilation with no runtime assembly. | [README](src/SsalKit.Generators.Toolkit/README.md) |
 | `SsalKit.Guard` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Guard.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Guard) | Error-code-based domain exceptions, static guard clauses, and a compile-time generated exception-to-code mapping table. | [README](src/SsalKit.Guard/README.md) |
+| `SsalKit.Generators.Toolkit.Testing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.Testing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit.Testing) | Test-framework-agnostic harness for incremental source generators and analyzers, including incremental caching assertions. | [README](src/SsalKit.Generators.Toolkit.Testing/README.md) |
 
 ## Why "SsalKit"?
 

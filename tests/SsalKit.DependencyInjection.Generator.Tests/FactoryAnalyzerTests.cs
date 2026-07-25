@@ -32,7 +32,7 @@ public class FactoryAnalyzerTests
 
         var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        DiagnosticAssert.Single(diagnostics, "SSAL011", DiagnosticSeverity.Error);
+        DiagnosticAssert.Single(diagnostics, "SSAL011", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]

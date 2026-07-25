@@ -294,7 +294,7 @@ public class GeneratorSnapshotTests
 
         Assert.Equal(2, result.GeneratedSources.Length);
 
-        return Verifier.Verify(result.AssertCompilesCleanly().AllSourcesWithHintNames()).UseDirectory("Snapshots");
+        return Verifier.Verify(result.AssertCompilesCleanly().ToSnapshotText()).UseDirectory("Snapshots");
     }
 
     /// <summary>

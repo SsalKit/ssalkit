@@ -119,6 +119,26 @@ public sealed class GeneratorTestResult
     }
 
     /// <summary>
+    /// Every generated file in one string, each preceded by a <c>// ==== &lt;hint name&gt;</c> header
+    /// line -- the text to hand to a snapshot/approval library when a single snapshot should cover
+    /// the whole run rather than one file of it.
+    /// </summary>
+    /// <returns>The generated sources concatenated in the order of
+    /// <see cref="GeneratedSources"/>, or an empty string when the run produced nothing.</returns>
+    /// <remarks>
+    /// Because the hint names are part of the text, the snapshot also records which files were
+    /// produced and under what names -- the half of a generator's output that per-file snapshots
+    /// silently omit. Pair it with
+    /// <see cref="GeneratorTestOptions.SortGeneratedSourcesByHintName"/> so the snapshot cannot
+    /// churn when an unrelated edit reorders the generator's output.
+    /// </remarks>
+    public string ToSnapshotText() =>
+        string.Join(
+            Environment.NewLine,
+            GeneratedSources.Select(static generated =>
+                "// ==== " + generated.HintName + Environment.NewLine + generated.Text));
+
+    /// <summary>
     /// Asserts that the compilation still has no errors once the generated sources are in it.
     /// </summary>
     /// <returns>This result, so the assertion can be chained before reading a source.</returns>

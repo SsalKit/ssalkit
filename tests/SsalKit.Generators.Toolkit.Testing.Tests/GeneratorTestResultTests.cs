@@ -71,6 +71,35 @@ public class GeneratorTestResultTests
     }
 
     [Fact]
+    public void ToSnapshotText_PutsEachHintNameAboveTheFileItNames()
+    {
+        var result = GeneratorTest.Run<MiniGenerator>(
+            TestSources.TwoMarkedTypes, new GeneratorTestOptions { SortGeneratedSourcesByHintName = true });
+
+        var snapshot = result.ToSnapshotText();
+
+        // The header is a line of its own, so the file it names starts on the next line.
+        Assert.StartsWith("// ==== Alpha.Mini.g.cs" + Environment.NewLine, snapshot, StringComparison.Ordinal);
+        Assert.Contains("// ==== Zeta.Mini.g.cs" + Environment.NewLine, snapshot, StringComparison.Ordinal);
+
+        // Both files are there, each body after its own header, in GeneratedSources order.
+        var alphaHeader = snapshot.IndexOf("// ==== Alpha", StringComparison.Ordinal);
+        var alphaBody = snapshot.IndexOf("AlphaGreeter", StringComparison.Ordinal);
+        var zetaHeader = snapshot.IndexOf("// ==== Zeta", StringComparison.Ordinal);
+        var zetaBody = snapshot.IndexOf("ZetaGreeter", StringComparison.Ordinal);
+
+        Assert.True(alphaHeader < alphaBody && alphaBody < zetaHeader && zetaHeader < zetaBody, snapshot);
+    }
+
+    [Fact]
+    public void ToSnapshotText_WhenNothingWasGenerated_IsEmptyRatherThanAStrayHeader()
+    {
+        var result = GeneratorTest.Run<MiniGenerator>(TestSources.NoMarkedType);
+
+        Assert.Equal(string.Empty, result.ToSnapshotText());
+    }
+
+    [Fact]
     public void AssertCompilesCleanly_ReturnsTheResultSoItCanBeChained()
     {
         var result = GeneratorTest.Run<MiniGenerator>(TestSources.OneMarkedType);

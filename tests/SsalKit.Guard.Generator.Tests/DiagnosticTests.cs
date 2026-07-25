@@ -39,7 +39,7 @@ public class DiagnosticTests
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG001", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG001", DiagnosticSeverity.Error, exclusive: true);
         Assert.Equal("SsalKit.Guard", diagnostic.Descriptor.Category);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
 
@@ -66,7 +66,7 @@ public class DiagnosticTests
 
         Assert.Empty(result.GeneratedSources);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG002", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG002", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCodes<");
     }
@@ -141,7 +141,7 @@ public class DiagnosticTests
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG004", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG004", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
         AssertReportedOnAttribute(diagnostic, source, "ExternalErrorCode<");
 
@@ -170,7 +170,7 @@ public class DiagnosticTests
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG005", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG005", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
 
@@ -222,7 +222,7 @@ public class DiagnosticTests
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG006", DiagnosticSeverity.Warning);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG006", DiagnosticSeverity.Warning, exclusive: true);
         Assert.Contains("Game.UserNotFoundException", diagnostic.GetMessage(), StringComparison.Ordinal);
         Assert.Contains("Game.GameErrors", diagnostic.GetMessage(), StringComparison.Ordinal);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
@@ -270,7 +270,7 @@ public class DiagnosticTests
 
         Assert.Empty(result.GeneratedSources);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG007", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG007", DiagnosticSeverity.Error, exclusive: true);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCodes<");
     }
 
@@ -308,7 +308,7 @@ public class DiagnosticTests
 
         Assert.Empty(result.GeneratedSources);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG008", DiagnosticSeverity.Warning);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG008", DiagnosticSeverity.Warning, exclusive: true);
         Assert.Contains("Game.GameStatusCode", diagnostic.GetMessage(), StringComparison.Ordinal);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
     }
@@ -388,7 +388,7 @@ public class DiagnosticTests
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG009", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG009", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
         AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
 
@@ -454,7 +454,7 @@ public class DiagnosticTests
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
-        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG009", DiagnosticSeverity.Error);
+        var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG009", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains("it is a file-local type", diagnostic.GetMessage(), StringComparison.Ordinal);
 
         var generated = result.AssertCompilesCleanly().GetSingleSource();

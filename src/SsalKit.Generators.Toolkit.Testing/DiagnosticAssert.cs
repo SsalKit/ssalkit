@@ -29,15 +29,21 @@ public static class DiagnosticAssert
     /// <param name="source">The source text the diagnostic was reported against, needed for
     /// <paramref name="locatedOnSnippet"/> when the diagnostic's location does not carry its syntax
     /// tree. See <see cref="LocatedOn"/>.</param>
+    /// <param name="exclusive">When <c>true</c>, also asserts that this was the <em>only</em>
+    /// diagnostic reported, so a second, unexpected diagnostic cannot slip through unnoticed
+    /// alongside the expected one. Leave it <c>false</c> when the test source deliberately triggers
+    /// more than one thing and this assertion only speaks for its own id.</param>
     /// <returns>The single matching diagnostic.</returns>
     /// <exception cref="GeneratorAssertionException">No diagnostic, or more than one, has that id;
-    /// or the severity or location did not match.</exception>
+    /// something else was reported too while <paramref name="exclusive"/> was set; or the severity
+    /// or location did not match.</exception>
     public static Diagnostic Single(
         ImmutableArray<Diagnostic> diagnostics,
         string id,
         DiagnosticSeverity? severity = null,
         string? locatedOnSnippet = null,
-        string? source = null)
+        string? source = null,
+        bool exclusive = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
 
@@ -49,6 +55,13 @@ public static class DiagnosticAssert
         {
             throw new GeneratorAssertionException(
                 $"Expected exactly one '{id}' diagnostic, but found {matches.Length}.{Describe(diagnostics)}");
+        }
+
+        if (exclusive && diagnostics.Length != 1)
+        {
+            throw new GeneratorAssertionException(
+                $"Expected '{id}' to be the only diagnostic reported, but {diagnostics.Length} were " +
+                $"reported.{Describe(diagnostics)}");
         }
 
         var match = matches[0];

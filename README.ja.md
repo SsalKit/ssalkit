@@ -15,6 +15,7 @@
 | `SsalKit.Randomness` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness) | 決定的・状態シリアライズ可能な PRNG（`xoshiro256**` + SplitMix64）と重み付きランダム抽選ライブラリ。 | [README](src/SsalKit.Randomness/README.ja.md) |
 | `SsalKit.Generators.Toolkit` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit) | Roslyn ソースジェネレーター開発用の source-only ツールキット。ランタイムアセンブリなしで利用者のコンパイルに埋め込まれます。 | [README](src/SsalKit.Generators.Toolkit/README.ja.md) |
 | `SsalKit.Guard` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Guard.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Guard) | エラーコードベースのドメイン例外と静的なガード節、そしてコンパイル時に生成される例外 → コードのマッピングテーブル。 | [README](src/SsalKit.Guard/README.ja.md) |
+| `SsalKit.Generators.Toolkit.Testing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.Testing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit.Testing) | インクリメンタルソースジェネレーターとアナライザーのための、テストフレームワーク非依存のハーネス。インクリメンタルキャッシュのアサーションを含みます。 | [README](src/SsalKit.Generators.Toolkit.Testing/README.ja.md) |
 
 ## 名前の由来
 
