@@ -211,6 +211,7 @@ services.AddScoped<IApiClient, ApiClient>(sp => ApiClient.Create(sp));
 | `SSAL012` | Error     | `Factory`로 지정한 이름의 메서드가 하나 이상 존재하지만, 그중 어느 것도 static, non-generic, 매개변수 없음 또는 `IServiceProvider` 매개변수 하나, 그리고 등록 대상 클래스를 정확히 반환하는 사용 가능한 시그니처를 갖고 있지 않습니다. |
 | `SSAL013` | Error     | `Factory`는 open generic 클래스에는 사용할 수 없습니다 — Microsoft.Extensions.DependencyInjection에는 open generic을 위한 팩토리 기반 등록 API가 없습니다. |
 | `SSAL014` | Error     | 선택된 `Factory` 메서드가 생성된 코드에서 접근할 수 없습니다 — 최소 `internal`이어야 합니다. |
+| `SSAL015` | Warning   | 동일한 서비스 타입(과 `Key`)에 서로 다른 구현 타입이 둘 이상 등록되었습니다. 단일 인스턴스 resolve는 마지막 등록이 이기는데, 생성기는 구현 타입 이름 순서로 등록문을 방출하므로 클래스 이름만 바꿔도 승자가 조용히 뒤바뀔 수 있습니다. `IEnumerable<T>`로 함께 주입할 의도라면 모든 구현에 `RegistrationMode.TryAddEnumerable`을 사용하고(전부 TryAddEnumerable인 그룹은 보고하지 않습니다), 그렇지 않으면 서로 다른 `Key`를 지정하거나, 의도적인 덮어쓰기라면 경고를 억제하세요. |
 
 ## 라이센스
 

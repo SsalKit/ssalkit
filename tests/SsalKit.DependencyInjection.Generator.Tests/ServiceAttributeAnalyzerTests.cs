@@ -225,7 +225,8 @@ public class ServiceAttributeAnalyzerTests
 
         var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
 
-        // Different implementation types => not a duplicate (ServiceType, ImplementationType, Key) triple.
+        // Different implementation types => not a duplicate (ServiceType, ImplementationType, Key)
+        // triple. This shape is SSAL015's business instead (see SSAL015_* below).
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
     }
 
@@ -836,5 +837,356 @@ public class ServiceAttributeAnalyzerTests
         var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL008");
+    }
+
+    [Fact]
+    public async Task SSAL015_TwoImplementations_ReportsWarningOnEveryAttribute()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        // Both registrations are equally responsible for the ambiguity, so both are reported --
+        // unlike SSAL004, which spares the first occurrence.
+        Assert.Equal(2, diagnostics.Length);
+        Assert.All(diagnostics, d =>
+        {
+            Assert.Equal("SSAL015", d.Id);
+            Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Warning, d.Severity);
+            Assert.Equal(
+                "The service type 'global::TestNs.IFoo' is registered with 2 different implementation "
+                + "types (global::TestNs.Foo, global::TestNs.OtherFoo); a single-instance resolution "
+                + "returns whichever of them is registered last, and the generator emits registrations "
+                + "ordered by implementation type name rather than by source order",
+                d.GetMessage());
+        });
+
+        // One diagnostic per [Service] attribute application, i.e. at two distinct locations.
+        Assert.Equal(2, diagnostics.Select(d => d.Location.SourceSpan).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task SSAL015_InferredInterfaceServiceType_ReportsWarning()
+    {
+        // No explicit `As`: the conflict must also be detected when the service type is inferred
+        // from the directly-implemented interface.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service]
+            public class Foo : IFoo { }
+
+            [Service]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Equal(2, diagnostics.Length);
+        Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));
+    }
+
+    [Fact]
+    public async Task SSAL015_AddAndTryAddMixed_ReportsWarning()
+    {
+        // TryAdd is still a single-instance registration: it only backs off if *something* already
+        // registered the service type, which does not make the resulting winner any less
+        // order-dependent.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.Add)]
+            public class Foo : IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAdd)]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Equal(2, diagnostics.Length);
+        Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));
+    }
+
+    [Fact]
+    public async Task SSAL015_TryAddEnumerableMixedWithAdd_ReportsWarning()
+    {
+        // A group is only exempt when *every* registration in it is TryAddEnumerable; a single
+        // non-TryAddEnumerable registration reintroduces the "which one wins" ambiguity, so the
+        // whole group -- including the TryAddEnumerable one -- is reported.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo : IFoo { }
+
+            [Service(Mode = RegistrationMode.Add)]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Equal(2, diagnostics.Length);
+        Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));
+    }
+
+    [Fact]
+    public async Task SSAL015_SameKey_DifferentImplementations_ReportsWarning()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo), Key = "k")]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo), Key = "k")]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Equal(2, diagnostics.Length);
+        Assert.All(diagnostics, d =>
+        {
+            Assert.Equal("SSAL015", d.Id);
+            Assert.Contains("""'global::TestNs.IFoo' with key "k" is registered""", d.GetMessage(), StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task SSAL015_ThreeImplementations_ListsAllThreeOnEachAttribute()
+    {
+        // The listed implementation types are ordinal-sorted, which is exactly the order
+        // ServiceRegistrationEmitter emits them in -- so the last one named is the one that wins.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class OtherFoo : IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class ThirdFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Equal(3, diagnostics.Length);
+        Assert.All(diagnostics, d =>
+        {
+            Assert.Equal("SSAL015", d.Id);
+            Assert.Contains(
+                "registered with 3 different implementation types (global::TestNs.Foo, "
+                + "global::TestNs.OtherFoo, global::TestNs.ThirdFoo)",
+                d.GetMessage(),
+                StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task SSAL015_DuplicateAndConflictingRegistrations_ReportBothDiagnostics()
+    {
+        // The two diagnostics are independent: SSAL004 fires once for the repeated (IFoo, Foo,
+        // <none>) triple, and SSAL015 fires for all three registrations bound to IFoo.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Single(diagnostics, d => d.Id == "SSAL004");
+        Assert.Equal(3, diagnostics.Count(d => d.Id == "SSAL015"));
+    }
+
+    [Fact]
+    public async Task SSAL015_AllTryAddEnumerable_DoesNotReport()
+    {
+        // The intended way to bind several implementations to one service type: nothing shadows
+        // anything, they are all consumed together as IEnumerable<IFoo>.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class Foo : IFoo { }
+
+            [Service(Mode = RegistrationMode.TryAddEnumerable)]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
+    }
+
+    [Fact]
+    public async Task SSAL015_DifferentKeys_DoesNotReport()
+    {
+        // Keyed registrations under distinct keys never shadow each other.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo), Key = "a")]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo), Key = "b")]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
+    }
+
+    [Fact]
+    public async Task SSAL015_KeyedAndUnkeyed_DoesNotReport()
+    {
+        // A keyed registration lives in a separate resolution space from the unkeyed one, so the
+        // "<none>" key identity must not group together with a real key.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo), Key = "a")]
+            public class Foo : IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            public class OtherFoo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
+    }
+
+    [Fact]
+    public async Task SSAL015_SameImplementationRegisteredTwice_DoesNotReport()
+    {
+        // One implementation type registered repeatedly is SSAL004's business; SSAL015 requires
+        // two or more *different* implementation types.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+
+            [Service(As = typeof(IFoo))]
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Contains(diagnostics, d => d.Id == "SSAL004");
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
+    }
+
+    [Fact]
+    public async Task SSAL015_DifferentServiceTypes_DoesNotReport()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IFoo { }
+            public interface IBar { }
+
+            [Service(As = typeof(IFoo))]
+            public class Foo : IFoo, IBar { }
+
+            [Service(As = typeof(IBar))]
+            public class OtherFoo : IFoo, IBar { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
+    }
+
+    [Fact]
+    public async Task SSAL015_OpenGenericAndClosedGenericServiceType_DoesNotReport()
+    {
+        // IRepo<> (the open generic registration's service type identity) and IRepo<int> are
+        // distinct service types to Microsoft.Extensions.DependencyInjection -- a closed request
+        // for IRepo<int> matches the closed registration outright -- so they must not be grouped.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IRepo<T> { }
+
+            [Service]
+            public class OpenRepo<T> : IRepo<T> { }
+
+            [Service]
+            public class ClosedRepo : IRepo<int> { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
+    }
+
+    [Fact]
+    public async Task SSAL015_TwoOpenGenericImplementations_ReportsWarning()
+    {
+        // Two open generic classes bound to the same open generic service type conflict exactly
+        // like their non-generic counterparts; the typeof-form identity ("IRepo<>") groups them.
+        const string source = Usings + """
+            namespace TestNs;
+
+            public interface IRepo<T> { }
+
+            [Service]
+            public class RepoA<T> : IRepo<T> { }
+
+            [Service]
+            public class RepoB<T> : IRepo<T> { }
+            """;
+
+        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+
+        Assert.Equal(2, diagnostics.Length);
+        Assert.All(diagnostics, d =>
+        {
+            Assert.Equal("SSAL015", d.Id);
+            Assert.Contains(
+                "The service type 'global::TestNs.IRepo<>' is registered with 2 different "
+                + "implementation types (global::TestNs.RepoA<>, global::TestNs.RepoB<>)",
+                d.GetMessage(),
+                StringComparison.Ordinal);
+        });
     }
 }
