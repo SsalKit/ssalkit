@@ -189,44 +189,44 @@ All six are errors, and when one fires for a type, nothing at all is generated f
 
 SsalKit.Randomness is optimized around a different goal than raw throughput: get determinism, state export, and zero allocation without paying for them — and in fact, `DeterministicRandom`'s scalar operations come out *faster* than every general-purpose alternative in the BCL.
 
-Measured with BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 (SsalKit.Randomness 0.1.0). Numbers vary by hardware; reproduce them with the [benchmark project](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks).
+Measured with BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 (SsalKit.Randomness 0.0.3). Numbers vary by hardware; reproduce them with the [benchmark project](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks).
 
 ### Uniform generation
 
 | Operation | DeterministicRandom | `new Random(seed)` | `Random.Shared` | CryptoRandomSource |
 |---|---:|---:|---:|---:|
-| NextUInt64-equivalent | 1.8 ns / 0 B | 25.1 ns / 0 B | 3.7 ns / 0 B | 70.6 ns / 0 B |
-| Next(1000) | 2.4 ns / 0 B | 4.7 ns / 0 B | 3.5 ns / 0 B | 68.1 ns / 0 B |
-| NextInt64 (bounded) | 1.9 ns / 0 B | 15.7 ns / 0 B | 3.6 ns / 0 B | 71.0 ns / 0 B |
-| NextDouble | 2.0 ns / 0 B | 3.8 ns / 0 B | 4.0 ns / 0 B | 71.7 ns / 0 B |
+| NextUInt64-equivalent | 1.5 ns / 0 B | 24.6 ns / 0 B | 3.0 ns / 0 B | 59.9 ns / 0 B |
+| Next(1000) | 2.1 ns / 0 B | 3.8 ns / 0 B | 2.9 ns / 0 B | 61.5 ns / 0 B |
+| NextInt64 (bounded) | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
+| NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
 
-`DeterministicRandom` is the fastest option for every scalar operation measured (1.8–2.6 ns, including `NextRange` at 2.6 ns which isn't shown above), up to ~14x faster than a seeded legacy `Random` and ~1.5–2x faster than `Random.Shared`. All four sources allocate zero bytes for scalar generation.
+`DeterministicRandom` is the fastest option for every scalar operation measured (1.5–2.2 ns, including `NextRange` at 2.2 ns which isn't shown above), up to ~17x faster than a seeded legacy `Random` and ~1.4–2x faster than `Random.Shared`. All four sources allocate zero bytes for scalar generation.
 
 Notes:
 - `Random.Shared` is a thread-safe wrapper, so it isn't an apples-to-apples comparison with the single-threaded sources above.
-- The one exception is `NextBytes` on a 64-byte buffer, where `Random.Shared` (16.5 ns) edges out `DeterministicRandom` (19.2 ns).
-- `CryptoRandomSource` is ~25–40x slower than `DeterministicRandom` across the board — expected, since it's backed by `RandomNumberGenerator` and buys cryptographic unpredictability that the other sources don't provide.
+- The one exception is `NextBytes` on a 64-byte buffer, where `Random.Shared` (14.4 ns) edges out `DeterministicRandom` (15.8 ns).
+- `CryptoRandomSource` is ~28–40x slower than `DeterministicRandom` across the board — expected, since it's backed by `RandomNumberGenerator` and buys cryptographic unpredictability that the other sources don't provide.
 
 ### Dispatch cost
 
 | Call site | Mean |
 |---|---:|
-| Direct `DeterministicRandom` instance call | 2.25 ns |
-| Through `IRandomSource` extension method | 2.69 ns |
+| Direct `DeterministicRandom` instance call | 2.2 ns |
+| Through `IRandomSource` extension method | 2.3 ns |
 
-Going through the `IRandomSource` abstraction costs about 0.4 ns — roughly one virtual call's worth. That's sub-nanosecond overhead, so writing against `IRandomSource` for flexibility (swapping deterministic/shared/crypto sources) is effectively free. If you're in a hot loop and only ever use one concrete type, calling `DeterministicRandom` directly avoids even that.
+Going through the `IRandomSource` abstraction costs about 0.16 ns — barely more than measurement noise. That's deep sub-nanosecond overhead, so writing against `IRandomSource` for flexibility (swapping deterministic/shared/crypto sources) is effectively free. If you're in a hot loop and only ever use one concrete type, calling `DeterministicRandom` directly avoids even that.
 
 ### Weighted picking
 
 | Method | N=10 | N=100 | N=1000 |
 |---|---:|---:|---:|
-| `PickWeighted` (list/delegate) | 43.1 ns / 104 B | 206.9 ns / 824 B | 1,590.5 ns / 8,024 B |
-| `PickWeighted` (span) | 36.7 ns / 0 B | 142.8 ns / 0 B | 1,363.5 ns / 8,024 B |
-| `WeightedSampler<T>.Pick` | 11.1 ns / 0 B | 10.6 ns / 0 B | 11.4 ns / 0 B |
+| `PickWeighted` (list/delegate) | 37.8 ns / 104 B | 157.7 ns / 824 B | 1,150.2 ns / 8,024 B |
+| `PickWeighted` (span) | 31.6 ns / 0 B | 124.8 ns / 0 B | 975.2 ns / 8,024 B |
+| `WeightedSampler<T>.Pick` | 9.6 ns / 0 B | 9.7 ns / 0 B | 10.0 ns / 0 B |
 
-`WeightedSampler<T>.Pick` stays flat at ~11 ns regardless of `N` — the alias-method table makes each draw genuinely `O(1)`. The span-based `PickWeighted` overload is allocation-free up to 256 items; past that it falls back to a heap buffer (the 8 KB at N=1000 above is that documented fallback, not a leak).
+`WeightedSampler<T>.Pick` stays flat at ~10 ns regardless of `N` — the alias-method table makes each draw genuinely `O(1)`. The span-based `PickWeighted` overload is allocation-free up to 256 items; past that it falls back to a heap buffer (the 8 KB at N=1000 above is that documented fallback, not a leak).
 
-Building a `WeightedSampler<T>` isn't free — `Create(...)` takes 237 ns at N=10, 1.7 μs at N=100, and 14.9 μs at N=1000. But it's a one-time cost: at N=1000, building the sampler pays for itself after roughly **11 picks** compared to repeated single-shot `PickWeighted` (span) calls — worthwhile as soon as you're drawing more than a handful of times from the same table.
+Building a `WeightedSampler<T>` isn't free — `Create(...)` takes 190 ns at N=10, 1.3 μs at N=100, and 11.6 μs at N=1000. But it's a one-time cost: at N=1000, building the sampler pays for itself after roughly **12 picks** compared to repeated single-shot `PickWeighted` (span) calls — worthwhile as soon as you're drawing more than a handful of times from the same table.
 
 ## Algorithm & state contract (v1)
 
