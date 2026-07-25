@@ -67,7 +67,7 @@ public class DiagnosticTests
             Assert.Equal("SSALR002", diagnostic.Id);
             Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
             Assert.Contains("'Bonus', 'Weight'", diagnostic.GetMessage(), StringComparison.Ordinal);
-            AssertReportedOnAnAttribute(diagnostic, source);
+            DiagnosticAssert.SpanStartsWith(diagnostic, "RandomWeight", source);
         }
 
         // Both offending declarations are highlighted, not just the second one.
@@ -313,21 +313,8 @@ public class DiagnosticTests
         Assert.Empty(result.GeneratedSources);
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, expectedId, DiagnosticSeverity.Error, exclusive: true);
-        AssertReportedOnAnAttribute(diagnostic, source);
+        DiagnosticAssert.SpanStartsWith(diagnostic, "RandomWeight", source);
 
         return diagnostic;
-    }
-
-    /// <summary>
-    /// The reported span must cover the <c>[RandomWeight]</c> application the user wrote (the
-    /// attribute syntax itself, i.e. without the enclosing brackets), so the squiggle lands on the
-    /// token they can delete.
-    /// </summary>
-    private static void AssertReportedOnAnAttribute(Diagnostic diagnostic, string source)
-    {
-        var span = diagnostic.Location.SourceSpan;
-        var reportedText = source.Substring(span.Start, span.Length);
-
-        Assert.StartsWith("RandomWeight", reportedText, StringComparison.Ordinal);
     }
 }

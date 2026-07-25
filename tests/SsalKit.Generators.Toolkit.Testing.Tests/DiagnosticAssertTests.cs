@@ -5,8 +5,9 @@ using SsalKit.Generators.Toolkit.Testing.Tests.Harness;
 namespace SsalKit.Generators.Toolkit.Testing.Tests;
 
 /// <summary>
-/// Diagnostic assertions, including the location check that lets a test name a position by a
-/// snippet of the source instead of by a line and column that drifts with every edit above it.
+/// Diagnostic assertions, including the location checks that let a test name a position by a
+/// snippet of the source -- or, where no snippet is unique, by what the reported span starts with
+/// -- instead of by a line and column that drifts with every edit above it.
 /// </summary>
 public class DiagnosticAssertTests
 {
@@ -203,6 +204,93 @@ public class DiagnosticAssertTests
 
         Assert.Throws<ArgumentNullException>(() => DiagnosticAssert.LocatedOn(null!, "BadThing"));
         Assert.Throws<ArgumentException>(() => DiagnosticAssert.LocatedOn(diagnostic, ""));
+    }
+
+    [Fact]
+    public async Task SpanStartsWith_FindsTheSourceItselfWhenTheLocationCarriesItsSyntaxTree()
+    {
+        var diagnostic = DiagnosticAssert.Single(await AnalyzerDiagnosticsAsync(AnalyzerSource), "MINI900");
+
+        DiagnosticAssert.SpanStartsWith(diagnostic, "BadThing");
+    }
+
+    [Fact]
+    public void SpanStartsWith_NamesAPositionLocatedOnCannot_BecauseTheTokenOccursSeveralTimes()
+    {
+        var diagnostics = DiagnosticsOf(TestSources.TwoBadlyNamedTypes);
+
+        // The attribute application the two diagnostics land on is written twice, so no snippet
+        // containing it is unique and LocatedOn refuses it ...
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => DiagnosticAssert.LocatedOn(
+                diagnostics[0], """Mini.Marker("hello")""", TestSources.TwoBadlyNamedTypes));
+
+        Assert.Contains("occurs more than once", exception.Message, StringComparison.Ordinal);
+
+        // ... while the prefix is matched against the reported span itself, so both pass. It is a
+        // prefix, not the whole span: each covers Mini.Marker("hello").
+        Assert.Equal(2, diagnostics.Length);
+
+        foreach (var diagnostic in diagnostics)
+        {
+            DiagnosticAssert.SpanStartsWith(diagnostic, "Mini.Marker", TestSources.TwoBadlyNamedTypes);
+        }
+    }
+
+    [Fact]
+    public void SpanStartsWith_ADiagnosticWithNoLocationAtAll_SaysSoRatherThanPassingVacuously()
+    {
+        var diagnostic = DiagnosticAssert.Single(DiagnosticsOf(TestSources.OddlyNamedType), "MINI002");
+
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => DiagnosticAssert.SpanStartsWith(diagnostic, "Mini.Marker", TestSources.OddlyNamedType));
+
+        Assert.Contains("a span starting with 'Mini.Marker'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("without a source location at all", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SpanStartsWith_AGeneratorDiagnosticWithoutItsTree_AsksForTheSource()
+    {
+        var diagnostic = DiagnosticAssert.Single(DiagnosticsOf(TestSources.BadlyNamedType), "MINI001");
+
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => DiagnosticAssert.SpanStartsWith(diagnostic, "Mini.Marker"));
+
+        Assert.Contains("does not carry a syntax tree", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'source' parameter", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SpanStartsWith_ADiagnosticSomewhereElse_QuotesWhatItActuallyCovers()
+    {
+        const string source = "public class BadThing { public int Elsewhere; }";
+        var diagnostic = DiagnosticAssert.Single(await AnalyzerDiagnosticsAsync(source), "MINI900");
+
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => DiagnosticAssert.SpanStartsWith(diagnostic, "Elsewhere"));
+
+        Assert.Contains("which covers 'BadThing'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SpanStartsWith_ASourceThatDoesNotEvenSpanTheDiagnostic_SaysSoInsteadOfCrashing()
+    {
+        var diagnostic = DiagnosticAssert.Single(await AnalyzerDiagnosticsAsync(AnalyzerSource), "MINI900");
+
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => DiagnosticAssert.SpanStartsWith(diagnostic, "BadThing", "xyz"));
+
+        Assert.Contains("a span outside this source text", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SpanStartsWith_NullArguments_AreRejectedMisuse()
+    {
+        var diagnostic = DiagnosticAssert.Single(await AnalyzerDiagnosticsAsync(AnalyzerSource), "MINI900");
+
+        Assert.Throws<ArgumentNullException>(() => DiagnosticAssert.SpanStartsWith(null!, "BadThing"));
+        Assert.Throws<ArgumentException>(() => DiagnosticAssert.SpanStartsWith(diagnostic, ""));
     }
 
     private static ImmutableArray<Diagnostic> DiagnosticsOf(string source) =>

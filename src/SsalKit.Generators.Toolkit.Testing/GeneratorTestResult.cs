@@ -160,6 +160,19 @@ public sealed class GeneratorTestResult
     }
 
     /// <summary>
+    /// Asserts that the compilation still has no errors once the generated sources are in it, then
+    /// returns the text of the one file the generator produced.
+    /// </summary>
+    /// <returns>The single generated source's text.</returns>
+    /// <exception cref="GeneratorAssertionException">The regenerated compilation has errors, or the
+    /// run produced a number of files other than one.</exception>
+    /// <remarks>
+    /// Exactly <see cref="AssertCompilesCleanly"/> followed by <see cref="GetSingleSource"/> -- the
+    /// pair almost every test of a single-output generator opens with, so it is worth one name.
+    /// </remarks>
+    public string AssertCompilesCleanlyAndGetSource() => AssertCompilesCleanly().GetSingleSource();
+
+    /// <summary>
     /// Asserts that the generator produced no files at all -- the assertion for the "this input is
     /// deliberately ignored" half of a generator's contract.
     /// </summary>

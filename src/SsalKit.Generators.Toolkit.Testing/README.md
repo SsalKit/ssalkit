@@ -67,13 +67,13 @@ public void EmitsAGreeterForEachMarkedType()
         public sealed class Widget;
         """);
 
-    string generated = result.AssertCompilesCleanly().GetSingleSource();
+    string generated = result.AssertCompilesCleanlyAndGetSource();
 
     Assert.Contains("public static class WidgetGreeter", generated);
 }
 ```
 
-`AssertCompilesCleanly()` re-checks the compilation *with* the generated sources in it and returns the result, so it chains straight into `GetSingleSource()`. It is the assertion that separates "the emitted text looks right" from "the emitted text is valid C# that binds against the API it calls into" — and it is the one most hand-rolled harnesses forget.
+`AssertCompilesCleanly()` re-checks the compilation *with* the generated sources in it. It is the assertion that separates "the emitted text looks right" from "the emitted text is valid C# that binds against the API it calls into" — and it is the one most hand-rolled harnesses forget. It returns the result, so it chains straight into whichever lookup follows; `AssertCompilesCleanlyAndGetSource()` is a name for the one pair almost every single-output generator test opens with.
 
 When a run produces several files, `GetSource("...Extensions.g.cs")` picks one out by a suffix of its hint name, and `ToSnapshotText()` renders all of them into a single string (each preceded by a `// ==== <hint name>` line) to hand to a snapshot library:
 
@@ -184,6 +184,7 @@ public void AMarkerOnAStructIsRejected()
 
 - `Single` asserts that exactly one diagnostic has that id, optionally checks its severity and location, and returns it so the message can be asserted too. `exclusive: true` additionally asserts it was the *only* diagnostic reported — use it whenever the test source is supposed to trigger exactly one thing, so a second, unexpected diagnostic can't slip through beside the expected one.
 - `LocatedOn` names a position by a **snippet of the source** rather than by a line and column, so the assertion stays readable and doesn't drift when the source above it is edited. The snippet must occur exactly once; the diagnostic's span must fall inside it. Generator diagnostics rebuilt from a cache-safe location record carry no syntax tree, so those need the source passed in (as above); analyzer diagnostics don't.
+- `SpanStartsWith(diagnostic, "Mine.Marker", source)` is the variant for when no snippet is unique — the same attribute applied to two members of one type, say, where every snippet naming it occurs twice. It matches the prefix against the reported span itself instead of searching the source for it, so it pins down where the span begins and what it begins with, but not how far it reaches. Prefer `LocatedOn` when a unique snippet exists, since that one checks the extent too.
 - `None(diagnostics, "MINE")` asserts that *nothing* with that prefix was reported — which also catches a diagnostic nobody thought to name in the test.
 
 Analyzers run through the same setup, as a set:
@@ -201,10 +202,10 @@ DiagnosticAssert.None(diagnostics, "MINE");
 |------|--------------|
 | `GeneratorTest` | The entry points. `Run<TGenerator>` for a single run; `RunTwice<TGenerator>`/`RunTwiceWithCompilationChange<TGenerator>` for the two-run pair the incremental assertions consume; `RunAnalyzerAsync<TAnalyzer>`/`RunAnalyzersAsync` for analyzers; `CreateCompilation` to build the compilation without running anything; `CompileToReference` to compile a second, separate assembly to reference. |
 | `GeneratorTestOptions` | The shared knobs, as an immutable record: `AssemblyName`, `LanguageVersion`, `NullableContextOptions`, `OutputKind`, `AllowUnsafe`, `AdditionalReferences`, `AdditionalAssemblies`, `DiagnosticIdPrefix`, `SortGeneratedSourcesByHintName`. `GeneratorTestOptions.Default` is what `null` means. |
-| `GeneratorTestResult` | What one run produced. Data: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`. Lookups: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. Assertions: `AssertCompilesCleanly()`, `AssertNoGeneratedSources()`. |
+| `GeneratorTestResult` | What one run produced. Data: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`. Lookups: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. Assertions: `AssertCompilesCleanly()`, `AssertCompilesCleanlyAndGetSource()`, `AssertNoGeneratedSources()`. |
 | `GeneratedSource` | One generated file: a `readonly record struct` of `HintName` and `Text`. |
 | `IncrementalAssert` | The caching contract: `AllCachedOrUnchanged(secondRun, ...names)` and `SomeOutputRecomputed(secondRun, ...names)`. |
-| `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`, `None(diagnostics, idPrefix)`, `LocatedOn(diagnostic, snippet, source?)`. |
+| `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`, `None(diagnostics, idPrefix)`, `LocatedOn(diagnostic, snippet, source?)`, `SpanStartsWith(diagnostic, prefix, source?)`. |
 | `GeneratorAssertionException` | The failure signal every assertion throws, carrying the diagnosis in its message. |
 
 ## Test-framework independence

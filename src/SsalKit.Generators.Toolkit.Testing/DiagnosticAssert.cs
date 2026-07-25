@@ -124,22 +124,7 @@ public static class DiagnosticAssert
         ArgumentNullException.ThrowIfNull(diagnostic);
         ArgumentException.ThrowIfNullOrEmpty(snippet);
 
-        if (diagnostic.Location.Kind == LocationKind.None)
-        {
-            throw new GeneratorAssertionException(
-                $"Expected '{diagnostic.Id}' to be reported on '{snippet}', but it was reported without a source " +
-                "location at all.");
-        }
-
-        var text = source ?? diagnostic.Location.SourceTree?.ToString();
-
-        if (text is null)
-        {
-            throw new GeneratorAssertionException(
-                $"Cannot check where '{diagnostic.Id}' was reported: its location does not carry a syntax tree " +
-                $"(it is a {diagnostic.Location.Kind} location), so the source text has to be passed in " +
-                $"explicitly via the '{nameof(source)}' parameter.");
-        }
+        var text = ResolveSourceText(diagnostic, source, $"'{snippet}'");
 
         var start = text.IndexOf(snippet, StringComparison.Ordinal);
 
@@ -170,6 +155,73 @@ public static class DiagnosticAssert
                 $"but it was reported at offsets {actual.Start}..{actual.End} ({diagnostic.Location.GetLineSpan()}), " +
                 $"which covers '{Excerpt(text, actual)}'.");
         }
+    }
+
+    /// <summary>
+    /// Asserts that the source a diagnostic was reported on <em>starts with</em> a given prefix.
+    /// </summary>
+    /// <param name="diagnostic">The diagnostic whose location is checked.</param>
+    /// <param name="prefix">The text the reported span must begin with. Unlike
+    /// <see cref="LocatedOn"/>'s snippet this need not occur only once in the source, because it is
+    /// matched against the reported span itself rather than searched for -- which is what makes it
+    /// the form to reach for when the token that should carry the squiggle (an attribute name the
+    /// test source applies several times, say) appears more than once.</param>
+    /// <param name="source">The source the diagnostic was reported against. Optional when the
+    /// diagnostic's location carries its syntax tree, exactly as for <see cref="LocatedOn"/>.</param>
+    /// <exception cref="GeneratorAssertionException">The diagnostic has no source location; the
+    /// source could not be determined; or the reported span does not start with the prefix.</exception>
+    /// <remarks>
+    /// This is the weaker of the two location assertions: it pins down where the span begins and
+    /// what it begins with, not how far it reaches. Prefer <see cref="LocatedOn"/> when a unique
+    /// snippet can name the position, since that one also checks the extent.
+    /// </remarks>
+    public static void SpanStartsWith(Diagnostic diagnostic, string prefix, string? source = null)
+    {
+        ArgumentNullException.ThrowIfNull(diagnostic);
+        ArgumentException.ThrowIfNullOrEmpty(prefix);
+
+        var text = ResolveSourceText(diagnostic, source, $"a span starting with '{prefix}'");
+
+        var actual = diagnostic.Location.SourceSpan;
+        var reported = Excerpt(text, actual);
+
+        if (!reported.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            throw new GeneratorAssertionException(
+                $"Expected '{diagnostic.Id}' to be reported on a span starting with '{prefix}', but it was " +
+                $"reported at offsets {actual.Start}..{actual.End} ({diagnostic.Location.GetLineSpan()}), " +
+                $"which covers '{reported}'.");
+        }
+    }
+
+    /// <summary>
+    /// The source text a location assertion should read, either the one passed in or the one the
+    /// diagnostic's own syntax tree carries.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="expectation"/> is how the caller's expectation reads in the failure message,
+    /// e.g. <c>"'[Marker]'"</c>.
+    /// </remarks>
+    private static string ResolveSourceText(Diagnostic diagnostic, string? source, string expectation)
+    {
+        if (diagnostic.Location.Kind == LocationKind.None)
+        {
+            throw new GeneratorAssertionException(
+                $"Expected '{diagnostic.Id}' to be reported on {expectation}, but it was reported without a source " +
+                "location at all.");
+        }
+
+        var text = source ?? diagnostic.Location.SourceTree?.ToString();
+
+        if (text is null)
+        {
+            throw new GeneratorAssertionException(
+                $"Cannot check where '{diagnostic.Id}' was reported: its location does not carry a syntax tree " +
+                $"(it is a {diagnostic.Location.Kind} location), so the source text has to be passed in " +
+                $"explicitly via the '{nameof(source)}' parameter.");
+        }
+
+        return text;
     }
 
     private static string Excerpt(string text, TextSpan span)

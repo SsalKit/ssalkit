@@ -41,10 +41,10 @@ public class DiagnosticTests
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG001", DiagnosticSeverity.Error, exclusive: true);
         Assert.Equal("SsalKit.Guard", diagnostic.Descriptor.Category);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCode<", source);
 
         // The offending registration is dropped; the container itself is still generated.
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.DoesNotContain("UserNotFoundException", generated, StringComparison.Ordinal);
     }
 
@@ -68,7 +68,7 @@ public class DiagnosticTests
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG002", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCodes<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCodes<", source);
     }
 
     [Fact]
@@ -143,11 +143,11 @@ public class DiagnosticTests
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG004", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
-        AssertReportedOnAttribute(diagnostic, source, "ExternalErrorCode<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ExternalErrorCode<", source);
 
         // The registration is dropped, and the rest of the container is generated as if it had
         // never been written.
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.Contains("MapOrDefault", generated, StringComparison.Ordinal);
     }
 
@@ -172,9 +172,9 @@ public class DiagnosticTests
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG005", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCode<", source);
 
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.DoesNotContain("UserNotFoundException", generated, StringComparison.Ordinal);
     }
 
@@ -225,9 +225,9 @@ public class DiagnosticTests
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG006", DiagnosticSeverity.Warning, exclusive: true);
         Assert.Contains("Game.UserNotFoundException", diagnostic.GetMessage(), StringComparison.Ordinal);
         Assert.Contains("Game.GameErrors", diagnostic.GetMessage(), StringComparison.Ordinal);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCode<", source);
 
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.Contains("is global::Game.UserNotFoundException", generated, StringComparison.Ordinal);
         Assert.DoesNotContain("ThrowUserNotFound", generated, StringComparison.Ordinal);
     }
@@ -271,7 +271,7 @@ public class DiagnosticTests
         Assert.Empty(result.GeneratedSources);
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG007", DiagnosticSeverity.Error, exclusive: true);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCodes<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCodes<", source);
     }
 
     [Fact]
@@ -310,7 +310,7 @@ public class DiagnosticTests
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG008", DiagnosticSeverity.Warning, exclusive: true);
         Assert.Contains("Game.GameStatusCode", diagnostic.GetMessage(), StringComparison.Ordinal);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCode<", source);
     }
 
     [Fact]
@@ -390,11 +390,11 @@ public class DiagnosticTests
 
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG009", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
-        AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
+        DiagnosticAssert.SpanStartsWith(diagnostic, "ErrorCode<", source);
 
         // Dropping the registration is the point: leaving it in would emit a file naming a type the
         // file cannot see, turning a mistake in the user's code into an error in generated code.
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.DoesNotContain("UserNotFoundException", generated, StringComparison.Ordinal);
     }
 
@@ -457,7 +457,7 @@ public class DiagnosticTests
         var diagnostic = DiagnosticAssert.Single(result.Diagnostics, "SSALG009", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains("it is a file-local type", diagnostic.GetMessage(), StringComparison.Ordinal);
 
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.DoesNotContain("UserNotFoundException", generated, StringComparison.Ordinal);
     }
 
@@ -488,7 +488,7 @@ public class DiagnosticTests
 
         Assert.Empty(result.Diagnostics);
 
-        var generated = result.AssertCompilesCleanly().GetSingleSource();
+        var generated = result.AssertCompilesCleanlyAndGetSource();
         Assert.Contains("internal static global::Game.Holder.UserNotFoundException UserNotFound", generated, StringComparison.Ordinal);
     }
 
@@ -525,17 +525,4 @@ public class DiagnosticTests
 
         {{declarations}}
         """;
-
-    /// <summary>
-    /// The reported span must cover the attribute application the user wrote (the attribute syntax
-    /// itself, i.e. without the enclosing brackets), so the squiggle lands on the token they can
-    /// delete.
-    /// </summary>
-    private static void AssertReportedOnAttribute(Diagnostic diagnostic, string source, string expectedPrefix)
-    {
-        var span = diagnostic.Location.SourceSpan;
-        var reportedText = source.Substring(span.Start, span.Length);
-
-        Assert.StartsWith(expectedPrefix, reportedText, StringComparison.Ordinal);
-    }
 }

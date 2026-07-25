@@ -67,13 +67,13 @@ public void EmitsAGreeterForEachMarkedType()
         public sealed class Widget;
         """);
 
-    string generated = result.AssertCompilesCleanly().GetSingleSource();
+    string generated = result.AssertCompilesCleanlyAndGetSource();
 
     Assert.Contains("public static class WidgetGreeter", generated);
 }
 ```
 
-`AssertCompilesCleanly()` は生成ソースを含んだ状態でコンパイルを再チェックし、その結果を返すので、そのまま `GetSingleSource()` へ連結できます。これは「出力されたテキストが正しく見える」ことと「出力されたテキストが呼び出し先の API に正しくバインドする有効な C# である」ことを分けるアサーションであり、自前で組んだハーネスの多くが見落としているものです。
+`AssertCompilesCleanly()` は生成ソースを含んだ状態でコンパイルを再チェックします。これは「出力されたテキストが正しく見える」ことと「出力されたテキストが呼び出し先の API に正しくバインドする有効な C# である」ことを分けるアサーションであり、自前で組んだハーネスの多くが見落としているものです。その結果をそのまま返すので、後続のどのルックアップにも直接連結でき、`AssertCompilesCleanlyAndGetSource()` は、ファイルを1つだけ出力するジェネレーターのテストがほぼ必ず書き出すこの組み合わせに名前を与えたものです。
 
 1回の実行が複数のファイルを生成する場合、`GetSource("...Extensions.g.cs")` は hint name の接尾辞でその1つを取り出せます。また `ToSnapshotText()` はすべてを(それぞれ `// ==== <hint name>` 行を前置して)1つの文字列にレンダリングし、スナップショットライブラリへ渡せるようにします。
 
@@ -184,6 +184,7 @@ public void AMarkerOnAStructIsRejected()
 
 - `Single` は、指定した id を持つ診断がちょうど1つであることを検証し、任意で severity と位置もチェックしたうえで、その診断を返すのでメッセージも併せて検証できます。`exclusive: true` を指定すると、報告された診断が*それだけ*であることも追加で検証します — テストソースがちょうど1つのことだけを引き起こすはずの場合に使えば、期待した診断の陰に想定外の2つ目の診断が紛れ込むのを防げます。
 - `LocatedOn` は行・列ではなく**ソースの断片**で位置を指定するため、アサーションが読みやすいまま保たれ、その上のソースが編集されても崩れません。指定した断片はソース中にちょうど1回だけ現れなければならず、診断のスパンはその中に収まっている必要があります。キャッシュ安全な位置レコードから復元されたジェネレーター診断は構文木を持たないため、そちらは(上記のように)ソースを渡す必要があります。analyzer の診断は不要です。
+- `SpanStartsWith(diagnostic, "Mine.Marker", source)` は、一意な断片が取れない場合のための変種です — 例えば同じ属性が1つの型の2つのメンバーに付いていて、それを指す断片がどれもソース中に2回現れるようなときです。接頭辞をソースから探すのではなく、報告されたスパンそのものと突き合わせるため、スパンがどこから始まり何で始まるかは固定しますが、どこまで伸びているかは検証しません。一意な断片が取れるなら、範囲まで検証してくれる `LocatedOn` を使ってください。
 - `None(diagnostics, "MINE")` は、その接頭辞を持つ診断が*1つも*報告されなかったことを検証します — テストで名前を付け忘れた診断も、これで捕まえられます。
 
 analyzer も同じ設定を通して、まとめて実行できます。
@@ -201,10 +202,10 @@ DiagnosticAssert.None(diagnostics, "MINE");
 |------|--------------|
 | `GeneratorTest` | すべてのエントリーポイントです。単発の実行には `Run<TGenerator>`、インクリメンタルアサーションが消費する2回実行のペアには `RunTwice<TGenerator>`/`RunTwiceWithCompilationChange<TGenerator>`、analyzer には `RunAnalyzerAsync<TAnalyzer>`/`RunAnalyzersAsync`、何も実行せずコンパイルだけを構築するには `CreateCompilation`、参照用に別の独立したアセンブリをコンパイルするには `CompileToReference` を使います。 |
 | `GeneratorTestOptions` | 共有される設定項目を持つイミュータブルな record です。`AssemblyName`、`LanguageVersion`、`NullableContextOptions`、`OutputKind`、`AllowUnsafe`、`AdditionalReferences`、`AdditionalAssemblies`、`DiagnosticIdPrefix`、`SortGeneratedSourcesByHintName` を持ちます。`null` が意味するのは `GeneratorTestOptions.Default` です。 |
-| `GeneratorTestResult` | 1回の実行が生成したものです。データ: `GeneratedSources`、`Diagnostics`、`OutputCompilation`、`RawResult`、`TrackedSteps`。検索: `GetSingleSource()`、`GetSource(hintNameSuffix)`、`GetCompilationErrors()`、`ToSnapshotText()`。アサーション: `AssertCompilesCleanly()`、`AssertNoGeneratedSources()`。 |
+| `GeneratorTestResult` | 1回の実行が生成したものです。データ: `GeneratedSources`、`Diagnostics`、`OutputCompilation`、`RawResult`、`TrackedSteps`。検索: `GetSingleSource()`、`GetSource(hintNameSuffix)`、`GetCompilationErrors()`、`ToSnapshotText()`。アサーション: `AssertCompilesCleanly()`、`AssertCompilesCleanlyAndGetSource()`、`AssertNoGeneratedSources()`。 |
 | `GeneratedSource` | 生成されたファイル1つ分です。`HintName` と `Text` を持つ `readonly record struct` です。 |
 | `IncrementalAssert` | キャッシュ契約です。`AllCachedOrUnchanged(secondRun, ...names)` と `SomeOutputRecomputed(secondRun, ...names)` を持ちます。 |
-| `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`、`None(diagnostics, idPrefix)`、`LocatedOn(diagnostic, snippet, source?)` を持ちます。 |
+| `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`、`None(diagnostics, idPrefix)`、`LocatedOn(diagnostic, snippet, source?)`、`SpanStartsWith(diagnostic, prefix, source?)` を持ちます。 |
 | `GeneratorAssertionException` | すべてのアサーションが投げる失敗シグナルで、診断内容をメッセージに含みます。 |
 
 ## テストフレームワーク非依存

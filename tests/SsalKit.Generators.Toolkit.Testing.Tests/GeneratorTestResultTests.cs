@@ -120,6 +120,34 @@ public class GeneratorTestResultTests
     }
 
     [Fact]
+    public void AssertCompilesCleanlyAndGetSource_IsTheTwoCallsInOne()
+    {
+        var result = GeneratorTest.Run<MiniGenerator>(TestSources.OneMarkedType);
+
+        Assert.Equal(result.AssertCompilesCleanly().GetSingleSource(), result.AssertCompilesCleanlyAndGetSource());
+    }
+
+    [Fact]
+    public void AssertCompilesCleanlyAndGetSource_StillReportsAnOutputThatDoesNotCompile()
+    {
+        var result = GeneratorTest.Run<BrokenOutputGenerator>("public class C { }");
+
+        var exception = Assert.Throws<GeneratorAssertionException>(result.AssertCompilesCleanlyAndGetSource);
+
+        Assert.Contains("Generated code failed to compile", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AssertCompilesCleanlyAndGetSource_WhenSeveralFilesWereGenerated_StillRefusesToPickOne()
+    {
+        var result = GeneratorTest.Run<MiniGenerator>(TestSources.TwoMarkedTypes);
+
+        var exception = Assert.Throws<GeneratorAssertionException>(result.AssertCompilesCleanlyAndGetSource);
+
+        Assert.Contains("produced 2", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetCompilationErrors_IsTheUnwrappedFormOfTheSameCheck()
     {
         var result = GeneratorTest.Run<BrokenOutputGenerator>("public class C { }");

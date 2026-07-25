@@ -16,7 +16,7 @@ public class GeneratorTestTests
         var result = GeneratorTest.Run<MiniGenerator>(TestSources.OneMarkedType);
 
         Assert.Equal("Widget.Mini.g.cs", Assert.Single(result.GeneratedSources).HintName);
-        Assert.Contains("WidgetGreeter", result.AssertCompilesCleanly().GetSingleSource(), StringComparison.Ordinal);
+        Assert.Contains("WidgetGreeter", result.AssertCompilesCleanlyAndGetSource(), StringComparison.Ordinal);
     }
 
     [Fact]

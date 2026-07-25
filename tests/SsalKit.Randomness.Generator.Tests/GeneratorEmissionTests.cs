@@ -39,7 +39,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source($"[RandomWeight] public {weightType} Weight {{ get; init; }}"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         foreach (var methodName in FullSurface.Split('\n').Select(name => name.Trim()))
         {
@@ -56,7 +56,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source($"[RandomWeight] public {weightType} Weight {{ get; init; }}"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(" PickWeighted(", generated, StringComparison.Ordinal);
         Assert.DoesNotContain(" PickManyWeighted(", generated, StringComparison.Ordinal);
@@ -70,7 +70,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(
             "=> global::SsalKit.Randomness.WeightedRandomExtensions.PickWeighted(source, items, static x => (long)x.Weight);",
@@ -95,7 +95,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.DoesNotContain("SharedRandomSource", generated, StringComparison.Ordinal);
     }
@@ -105,7 +105,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight(SharedSourceOverloads = true)] public long Weight { get; init; }"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         // The argument-less forms go through the explicit-source ones rather than repeating the
         // delegation to the runtime API, so there is a single place the selector is written.
@@ -130,7 +130,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source($"[RandomWeight(SharedSourceOverloads = true)] public {weightType} Weight {{ get; init; }}"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(
             "=> PickWeighted(items, global::SsalKit.Randomness.SharedRandomSource.Instance);",
@@ -145,7 +145,7 @@ public class GeneratorEmissionTests
     {
         var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(
             "this global::System.Collections.Generic.IReadOnlyList<global::Game.Loot.LootEntry> items",
@@ -203,7 +203,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanly().GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains("static x => (long)x.Weight", generated, StringComparison.Ordinal);
     }
@@ -248,7 +248,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanly().GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains("public static class LootEntryRandomWeightExtensions", generated, StringComparison.Ordinal);
     }
@@ -260,7 +260,7 @@ public class GeneratorEmissionTests
         // inside the generated method body, in the same assembly, so an internal member is fine.
         var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] internal long Weight { get; init; }"))
-            .AssertCompilesCleanly().GetSingleSource();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains("public static class LootEntryRandomWeightExtensions", generated, StringComparison.Ordinal);
     }

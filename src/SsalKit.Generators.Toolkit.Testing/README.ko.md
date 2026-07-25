@@ -67,13 +67,13 @@ public void EmitsAGreeterForEachMarkedType()
         public sealed class Widget;
         """);
 
-    string generated = result.AssertCompilesCleanly().GetSingleSource();
+    string generated = result.AssertCompilesCleanlyAndGetSource();
 
     Assert.Contains("public static class WidgetGreeter", generated);
 }
 ```
 
-`AssertCompilesCleanly()`는 생성된 소스가 *포함된* 상태로 컴파일을 다시 검사하고 그 결과를 반환하므로, 곧바로 `GetSingleSource()`로 체이닝됩니다. "내보낸 텍스트가 맞아 보인다"와 "내보낸 텍스트가 자신이 호출하는 API에 바인딩되는 유효한 C#이다"를 구분해 주는 단언이며, 손으로 만든 대부분의 하네스가 잊어버리는 부분이기도 합니다.
+`AssertCompilesCleanly()`는 생성된 소스가 *포함된* 상태로 컴파일을 다시 검사합니다. "내보낸 텍스트가 맞아 보인다"와 "내보낸 텍스트가 자신이 호출하는 API에 바인딩되는 유효한 C#이다"를 구분해 주는 단언이며, 손으로 만든 대부분의 하네스가 잊어버리는 부분이기도 합니다. 그 결과를 그대로 반환하므로 뒤이어 어떤 조회로든 바로 체이닝되며, `AssertCompilesCleanlyAndGetSource()`는 파일 하나만 내보내는 생성기의 테스트가 거의 항상 시작하는 그 한 쌍에 이름을 붙인 것입니다.
 
 한 번의 실행이 여러 파일을 만들어 낼 때는, `GetSource("...Extensions.g.cs")`가 hint name의 접미사로 그중 하나를 골라내고, `ToSnapshotText()`는 스냅샷 라이브러리에 넘길 수 있도록 전부를 하나의 문자열로 렌더링합니다(각 파일 앞에 `// ==== <hint name>` 줄이 붙습니다):
 
@@ -184,6 +184,7 @@ public void AMarkerOnAStructIsRejected()
 
 - `Single`은 정확히 하나의 진단만 그 id를 가지고 있음을 단언하고, 선택적으로 심각도와 위치를 확인하며, 메시지도 단언할 수 있도록 그 진단을 반환합니다. `exclusive: true`는 추가로 그것이 보고된 *유일한* 진단이었음을 단언합니다 — 테스트 소스가 정확히 한 가지만 유발하도록 되어 있을 때 사용하면, 예상하지 못한 두 번째 진단이 예상한 진단 옆으로 슬쩍 끼어드는 일을 막을 수 있습니다.
 - `LocatedOn`은 줄과 열이 아니라 **소스의 스니펫**으로 위치를 지정하므로, 단언이 읽기 쉽게 유지되고 위쪽 소스가 편집되어도 흔들리지 않습니다. 스니펫은 정확히 한 번만 나타나야 하며, 진단의 스팬은 그 안에 들어와야 합니다. 캐시 안전한 위치 레코드로부터 재구성된 생성기 진단은 신택스 트리를 갖지 않으므로, 이런 경우에는 위 예제처럼 소스를 함께 넘겨야 합니다. 분석기 진단은 그럴 필요가 없습니다.
+- `SpanStartsWith(diagnostic, "Mine.Marker", source)`는 유일한 스니펫을 잡을 수 없을 때 쓰는 변형입니다 — 예를 들어 한 타입의 멤버 두 곳에 같은 특성이 붙어 있어서, 그것을 가리키는 스니펫이 무엇이든 소스에 두 번 나타나는 경우입니다. 접두사를 소스에서 찾는 대신 보고된 스팬 자체와 대조하므로, 스팬이 어디서 시작하고 무엇으로 시작하는지는 고정하지만 어디까지 뻗는지는 확인하지 않습니다. 유일한 스니펫이 있다면 범위까지 확인해 주는 `LocatedOn` 쪽을 쓰세요.
 - `None(diagnostics, "MINE")`은 그 접두사를 가진 진단이 *아무것도* 보고되지 않았음을 단언합니다 — 이는 테스트에서 누구도 이름 붙일 생각을 하지 못한 진단까지도 잡아냅니다.
 
 분석기도 하나의 집합으로서 동일한 설정을 거쳐 실행됩니다:
@@ -201,10 +202,10 @@ DiagnosticAssert.None(diagnostics, "MINE");
 |------|--------------|
 | `GeneratorTest` | 진입점들입니다. 단일 실행에는 `Run<TGenerator>`, 증분 단언이 소비하는 두 번의 실행 쌍에는 `RunTwice<TGenerator>`/`RunTwiceWithCompilationChange<TGenerator>`, 분석기에는 `RunAnalyzerAsync<TAnalyzer>`/`RunAnalyzersAsync`, 아무것도 실행하지 않고 컴파일만 만들려면 `CreateCompilation`, 참조할 두 번째의 별도 어셈블리를 컴파일하려면 `CompileToReference`를 씁니다. |
 | `GeneratorTestOptions` | 공유 설정 값들을 담은 불변 레코드입니다: `AssemblyName`, `LanguageVersion`, `NullableContextOptions`, `OutputKind`, `AllowUnsafe`, `AdditionalReferences`, `AdditionalAssemblies`, `DiagnosticIdPrefix`, `SortGeneratedSourcesByHintName`. `null`이 뜻하는 것이 `GeneratorTestOptions.Default`입니다. |
-| `GeneratorTestResult` | 한 번의 실행이 만들어 낸 결과입니다. 데이터: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`. 조회: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. 단언: `AssertCompilesCleanly()`, `AssertNoGeneratedSources()`. |
+| `GeneratorTestResult` | 한 번의 실행이 만들어 낸 결과입니다. 데이터: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`. 조회: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. 단언: `AssertCompilesCleanly()`, `AssertCompilesCleanlyAndGetSource()`, `AssertNoGeneratedSources()`. |
 | `GeneratedSource` | 생성된 파일 하나입니다: `HintName`과 `Text`로 이루어진 `readonly record struct`입니다. |
 | `IncrementalAssert` | 캐싱 계약입니다: `AllCachedOrUnchanged(secondRun, ...names)`와 `SomeOutputRecomputed(secondRun, ...names)`. |
-| `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`, `None(diagnostics, idPrefix)`, `LocatedOn(diagnostic, snippet, source?)`. |
+| `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`, `None(diagnostics, idPrefix)`, `LocatedOn(diagnostic, snippet, source?)`, `SpanStartsWith(diagnostic, prefix, source?)`. |
 | `GeneratorAssertionException` | 모든 단언이 실패 신호로 던지는 예외이며, 메시지 안에 진단 내용을 담고 있습니다. |
 
 ## 테스트 프레임워크 비의존
