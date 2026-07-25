@@ -4,12 +4,12 @@
 
 # SsalKit.Generators.Toolkit
 
-Roslyn 소스 생성기 저작을 위한 source-only 툴킷입니다: 구조적 동등성 배열, 들여쓰기 코드 작성기, C# 명명 헬퍼, hint-name 정리, 진단 서술자 팩터리를 여러분의 컴파일에 직접 임베드합니다 — 별도로 배포할 런타임 어셈블리가 없습니다.
+Roslyn 소스 생성기 저작을 위한 source-only 툴킷입니다: 구조적 동등성 배열, 들여쓰기 코드 작성기, C# 명명 헬퍼, hint-name 정리, 캐시 안전한 진단 표현, 진단 서술자 팩터리를 여러분의 컴파일에 직접 임베드합니다 — 별도로 배포할 런타임 어셈블리가 없습니다.
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit)
 
 ## 왜 SsalKit.Generators.Toolkit인가
 
-웬만큼 규모가 있는 Roslyn 소스 생성기는 결국 같은 유틸리티 몇 가지를 매번 다시 구현하게 됩니다. `ImmutableArray<T>`에 구조적 동등성을 부여해 증분 파이프라인이 제대로 캐싱되도록 하는 래퍼, 생성 소스를 작성하며 들여쓰기를 추적하는 작은 코드 작성기, 임의의 심볼 이름을 유효한 C# 식별자로 바꿔주는 헬퍼, `AddSource`의 `hintName` 인자를 정리하는 sanitizer, 그리고 `DiagnosticDescriptor` 선언의 보일러플레이트를 줄여주는 팩터리 같은 것들입니다.
+웬만큼 규모가 있는 Roslyn 소스 생성기는 결국 같은 유틸리티 몇 가지를 매번 다시 구현하게 됩니다. `ImmutableArray<T>`에 구조적 동등성을 부여해 증분 파이프라인이 제대로 캐싱되도록 하는 래퍼, 생성 소스를 작성하며 들여쓰기를 추적하는 작은 코드 작성기, 임의의 심볼 이름을 유효한 C# 식별자로 바꿔주는 헬퍼, `AddSource`의 `hintName` 인자를 정리하는 sanitizer, 파이프라인에 SyntaxTree를 고정하지 않는 캐시 안전한 `Diagnostic` 대역, 그리고 `DiagnosticDescriptor` 선언의 보일러플레이트를 줄여주는 팩터리 같은 것들입니다.
 
 이걸 평범한 NuGet 패키지로 배포하려 하면 실질적인 문제가 생깁니다. 소스 생성기는 `analyzer`로 패키징되는데, 생성기가 의존하는 라이브러리가 있다면 그 DLL을 같은 `analyzers/dotnet/cs` 폴더에 **함께** 패키징해야 합니다 — analyzer 시점 DLL에는 일반적인 의존성 해석이 적용되지 않기 때문입니다. 즉 헬퍼 라이브러리를 쓰는 모든 소비자가 그저 그 라이브러리를 함께 실어 나르기 위해 커스텀 패키징을 해야 한다는 뜻입니다.
 
@@ -18,7 +18,7 @@ SsalKit.Generators.Toolkit은 접근 방식 자체가 다릅니다.
 - **런타임 어셈블리가 아닌 source-only.** 패키지는 평범한 `.cs` 파일을 [`contentFiles`](https://learn.microsoft.com/nuget/reference/nuspec#including-content-files) 형태로 배포하며, 이 파일들은 *여러분의* 생성기 프로젝트에 직접 컴파일됩니다. analyzer 옆에 함께 패키징해야 할 DLL이 아예 없습니다.
 - **패키지 의존성 0.** 임베드된 소스는 여러분의 생성기 프로젝트가 이미 참조하고 있는 Roslyn API만 필요로 합니다 — 새로 해석해야 할 것도, 여러분의 `Microsoft.CodeAnalysis.*` 버전 고정과 충돌할 것도 없습니다.
 - **소비자에게 보이지 않음.** 헬퍼들은 여러분의 생성기 어셈블리에 `internal` 타입으로 직접 컴파일되므로, 이 패키지의 존재는 여러분이 배포하는 생성기의 공개 표면에 전혀 드러나지 않습니다.
-- **프레임워크가 아니라 작고 독립적인 컴포넌트 5종**: `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticDescriptorFactory`. 필요한 것만 쓰면 되고, 쓰지 않는 `internal` 타입은 참조되지 않은 채 그냥 남아 있을 뿐입니다.
+- **프레임워크가 아니라 작고 독립적인 컴포넌트 6종**: `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticInfo`/`LocationInfo`, `DiagnosticDescriptorFactory`. 여기에 `netstandard2.0` 생성기가 `record` 모델을 쓰려면 반드시 필요한 `IsExternalInit` 폴리필이 함께 들어 있습니다. 필요한 것만 쓰면 되고, 쓰지 않는 `internal` 타입은 참조되지 않은 채 그냥 남아 있을 뿐입니다.
 
 ## 설치
 
@@ -96,6 +96,18 @@ context.AddSource("MyAppWebServiceRegistration.g.cs", source);
 
 `Block(header)`는 `header`를 쓰고, 여는 `{`를 그 다음 줄에 쓴 뒤 들여쓰기를 늘리고, `using` 스코프가 끝날 때 닫는 `}`를 씁니다. `Block(header, closer)`는 다른 닫는 토큰(예: 객체 초기화자용 `"};"`)을 지정할 수 있게 해주며, `Indent()`는 중괄호 없이 순수한 들여쓰기 스코프만 제공합니다.
 
+생성 메서드 하나에 10~20줄씩 들어가기 쉬운 XML 문서 주석을 위해서는 `WriteDocLine(content)`와 `WriteDocLines(params string[] contents)`가 `/// ` 접두사를 대신 붙여줍니다.
+
+```csharp
+writer.WriteDocLines(
+    "<summary>",
+    "Picks a single random element of <paramref name=\"items\"/>.",
+    "</summary>",
+    "<param name=\"items\">The candidate items.</param>");
+```
+
+빈 문자열을 넘기면 뒤에 공백 없이 `///`만 씁니다. 생성된 문서 블록에 후행 공백이 남지 않습니다.
+
 ### `CSharpNaming`
 
 임의의 텍스트(어셈블리 이름, 심볼 이름, 점이나 다른 구분자가 섞인 문자열 등)를 유효한 C# 식별자 조각으로 바꾸고, 예약 키워드를 이스케이프합니다.
@@ -111,9 +123,14 @@ string paramName = CSharpNaming.ToCamelCaseIdentifier(typeSymbol.Name);
 
 string safeParamName = CSharpNaming.EscapeKeyword(paramName);
 // "class" -> "@class"; 그 외에는 그대로 반환
+
+string flattened = CSharpNaming.JoinIdentifierSegments(new[] { "Outer", "Inner" });
+// -> "Outer_Inner" (중첩 타입 이름을 최상위 타입 이름으로 평탄화하는 통상적인 방법)
 ```
 
 `ToPascalCaseIdentifier`/`ToCamelCaseIdentifier`는 입력이 `null`, 빈 문자열이거나 글자·숫자가 하나도 없을 때 `fallback`을 반환하며, 결과가 숫자로 시작하게 될 경우 `_`를 앞에 붙입니다. `EscapeKeyword`는 *예약* 키워드(`class`, `namespace`, `return` 등)만 이스케이프합니다 — `var`나 `nameof` 같은 문맥 키워드는 항상 유효한 식별자이므로 건드리지 않습니다.
+
+`JoinIdentifierSegments`는 이어 붙이기만 할 뿐 정리하지 않습니다. 각 세그먼트가 이미 유효한 식별자라고 전제하므로, 그렇지 않다면 먼저 `ToPascalCaseIdentifier`를 통과시키세요. `null`이거나 빈 세그먼트는 이어 붙이지 않고 건너뛰므로, 결과가 구분자로 시작하거나 끝나지 않고 구분자가 연속으로 나오지도 않습니다. 빈 목록은 `string.Empty`를 반환합니다. 구분자 기본값은 `'_'`이며 변경할 수 있습니다.
 
 ### `HintNameSanitizer`
 
@@ -125,10 +142,42 @@ using SsalKit.Generators.Toolkit;
 string hintName = HintNameSanitizer.Sanitize(typeSymbol.ToDisplayString());
 // "Namespace.Outer<Inner>" -> "Namespace.Outer_Inner_.g.cs" (허용되지 않는 문자를 치환하고 접미사를 붙임)
 
+string fromFqn = HintNameSanitizer.Sanitize(
+    typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+// "global::Namespace.MyType" -> "Namespace.MyType.g.cs" (선행 별칭 한정자는 제거됨)
+
 context.AddSource(hintName, sourceText);
 ```
 
 `Sanitize`는 결과가 `suffix`(기본값 `".g.cs"`, 이미 있으면 중복 추가하지 않음)로 끝남을 보장하고, Roslyn이 허용하는 hint-name 문자 집합 밖의 모든 문자를 `_`로 치환하며, 전체 길이를 200자로 제한합니다(앞쪽부터 잘라내므로 더 식별력 있는 뒷부분과 접미사는 항상 살아남습니다). 여러 번 호출했을 때의 유일성은 보장하지 않습니다 — 구별 가능한 입력을 넘기는 책임은 호출자에게 있습니다.
+
+`SymbolDisplayFormat.FullyQualifiedFormat`이 모든 이름에 붙이는 선행 `global::`은 문자 단위로 치환하지 않고 **제거**합니다. 덕분에 정규화된 이름을 그대로 넘겨도 생성되는 모든 파일 이름에 `global__` 접두사가 남지 않습니다. 제거 대상은 선행 위치 한 번뿐이며, 다른 위치의 `global::`은 다른 텍스트와 똑같이 정리됩니다. 후보 문자열이 `global::` 하나뿐이면 `null`/빈 문자열/공백과 마찬가지로 `"Generated"`로 대체됩니다.
+
+### `DiagnosticInfo` / `LocationInfo`
+
+캐시 안전한 `Diagnostic` 대역입니다. 실제 `Diagnostic`(또는 `Location`)을 증분 파이프라인에 실어 나르면 그것이 유래한 `SyntaxTree`가, 나아가 `Compilation` 전체가 생성기 캐시에 고정됩니다. 메모리 누수도 문제지만, 동일한 소스에 대한 두 실행이 서로 같지 않은 `Location`을 만들어내므로 캐싱 자체가 무력화됩니다. `DiagnosticInfo`는 서술자, 선택적 `LocationInfo`(파일 경로 + 스팬), 메시지 인자만 담고 이 셋 전부를 값으로 비교합니다.
+
+```csharp
+using SsalKit.Generators.Toolkit;
+
+// transform 단계: 심볼/노드를 캐시 안전한 값으로 축약한다.
+var info = new DiagnosticInfo(
+    DiagnosticDescriptors.UnsupportedWeightType,
+    LocationInfo.CreateFrom(memberSymbol.Locations.FirstOrDefault()),
+    memberDisplayName,
+    memberType.ToDisplayString());
+
+// source-output 단계: 되살려서 보고한다.
+context.RegisterSourceOutput(diagnostics, static (spc, reported) =>
+{
+    foreach (var diagnostic in reported)
+    {
+        spc.ReportDiagnostic(diagnostic.ToDiagnostic());
+    }
+});
+```
+
+`LocationInfo.CreateFrom`은 `Location`이나 `SyntaxNode`를 받고, 소스상의 위치가 아닌 것(메타데이터 위치, "none" 위치, `null` 인자)에 대해서는 `null`을 반환합니다. 이는 `Diagnostic.Create`가 "위치 없이 보고"로 그대로 받아들이는 값이므로, 이후 단계에서 별도 처리가 필요 없습니다. 두 타입 모두 `IEquatable<T>`와 짝이 맞는 `GetHashCode`를 구현하므로 `EquatableArray<T>`를 비롯한 어떤 파이프라인 모델 안에도 넣을 수 있습니다. 메시지 인자는 `EquatableArray<string>`으로 보관하며, `params string[]` 생성자 오버로드가 이를 대신 만들어 줍니다.
 
 ### `DiagnosticDescriptorFactory`
 
@@ -160,6 +209,22 @@ internal static class DiagnosticDescriptors
 
 같은 팩터리 인스턴스가 만드는 모든 서술자는 동일한 id 접두사/category를 공유하고, `{idPrefix}{id:D3}` 형식(예: `"SSAL001"`)으로 포맷되며, `isEnabledByDefault: true`를 가집니다. `Error(...)`와 `Warning(...)` 모두 추가 서술자 태그를 위한 `params string[] customTags`를 선택적으로 받습니다.
 
+### `IsExternalInit` (컴파일러 폴리필)
+
+`netstandard2.0` 참조 어셈블리에는 `System.Runtime.CompilerServices.IsExternalInit`이 없습니다. C# 컴파일러는 `init` 접근자를 내보내기 전에 이 타입을 요구하며, 따라서 이 타입 없이는 `record` 선언 자체가 불가능합니다. 파이프라인 모델은 `record`를 쓰기 딱 좋은 자리이므로, 결국 모든 생성기 프로젝트가 똑같은 빈 타입을 손수 만들게 됩니다. 그 수고를 덜기 위해 패키지가 함께 배포합니다.
+
+이 파일은 `SsalKit.Generators.Toolkit` 네임스페이스에 들어 있지 않은 유일한 임베드 소스입니다. 컴파일러가 고정된 정규화 이름으로 이 타입을 찾기 때문에 옮길 수 없습니다.
+
+**옵트아웃.** 여러분의 컴파일에 이미 이 타입이 선언되어 있다면(직접 만든 폴리필이든 다른 패키지의 것이든) 정의가 둘이 되어 `CS0101` 중복 정의 오류가 납니다. `SSALKIT_GENERATORS_TOOLKIT_EXCLUDE_ISEXTERNALINIT`를 정의하면 이 사본이 빠집니다.
+
+```xml
+<PropertyGroup>
+  <DefineConstants>$(DefineConstants);SSALKIT_GENERATORS_TOOLKIT_EXCLUDE_ISEXTERNALINIT</DefineConstants>
+</PropertyGroup>
+```
+
+옵트아웃은 언제나 안전합니다. 패키지의 다른 어떤 것도 이 파일에 의존하지 않는데, 툴킷 자신의 소스가 이 폴리필이 열어주는 문법을 의도적으로 쓰지 않기 때문입니다(아래 참고).
+
 ## 임베드 소스 규약
 
 이 패키지가 배포하는 모든 `.cs` 파일은 동일한 세 줄로 시작합니다.
@@ -174,7 +239,11 @@ internal static class DiagnosticDescriptors
 - `#pragma warning disable`은 파일 내 모든 경고를 무조건 해제하여, `TreatWarningsAsErrors`를 포함한 여러분 프로젝트의 정확한 경고 설정 아래에서도 깨끗하게 컴파일되도록 합니다.
 - `#nullable enable`은 여러분 프로젝트의 nullable 설정과 무관하게 파일 자체의 nullable 계약을 고정합니다.
 
-이 헤더 외에도, 5개 컴포넌트 전체에서 모든 타입은 `internal`이며, 모든 파일은 고정된 `SsalKit.Generators.Toolkit` 네임스페이스에 있습니다 — 타입이 `internal`이므로, 이 패키지를 각자 임베드하는 서로 다른 두 생성기 어셈블리가 충돌할 일은 없습니다. 소스는 의도적으로 `record` 타입과 `init` 전용 속성을 피합니다. `netstandard2.0`에서 이 문법을 쓰려면 `IsExternalInit` 컴파일러 폴리필이 필요한데, 여러분의 프로젝트(또는 다른 임베드 패키지)가 이미 그 폴리필 타입을 정의하고 있다면 두 번째로 임베드하는 순간 `CS0101` 중복 정의 오류가 나기 때문입니다. 이 문제를 조율하려 애쓰는 대신, 아예 해당 문법을 배제해 원천적으로 피합니다. 그 외의 문법 상한도 C# 10입니다(파일 스코프 네임스페이스는 괜찮지만, primary constructor와 컬렉션 표현식은 사용하지 않습니다) — 여러분 프로젝트의 `LangVersion`이 그보다 최신이라고 가정할 수 없기 때문입니다.
+이 헤더 외에도, 6개 컴포넌트 전체에서 모든 타입은 `internal`이며, 모든 파일은 고정된 `SsalKit.Generators.Toolkit` 네임스페이스에 있습니다 — 타입이 `internal`이므로, 이 패키지를 각자 임베드하는 서로 다른 두 생성기 어셈블리가 충돌할 일은 없습니다. (`IsExternalInit` 폴리필만은 위에서 설명한 이유로 이 네임스페이스 규칙에서 의도적으로 제외됩니다.)
+
+폴리필을 함께 배포하게 된 지금도, 소스 자신은 의도적으로 `record` 타입과 `init` 전용 속성을 쓰지 않습니다. 그래야 폴리필 옵트아웃이 대가 없는 선택으로 남기 때문입니다 — 툴킷 자신의 코드가 `init`을 필요로 한다면, 폴리필을 빼는 순간 패키지의 나머지까지 함께 깨집니다. 그래서 `DiagnosticInfo`와 `LocationInfo`도 `record`가 아니라 `IEquatable<T>`를 직접 구현한 평범한 클래스입니다. 조건부 컴파일이 허용되는 파일도 `IsExternalInit.cs` 하나뿐이며, 나머지는 소비자의 `DefineConstants`가 무엇이든 동일하게 컴파일됩니다.
+
+문법 상한은 C# 10입니다(파일 스코프 네임스페이스는 괜찮지만, primary constructor와 컬렉션 표현식은 사용하지 않습니다) — 여러분 프로젝트의 `LangVersion`이 그보다 최신이라고 가정할 수 없기 때문입니다.
 
 ## 알려진 제약
 

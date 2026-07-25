@@ -4,12 +4,12 @@
 
 # SsalKit.Generators.Toolkit
 
-Roslyn ソースジェネレーター開発のための source-only ツールキットです。構造的等価性を持つ配列、インデント付きコードライター、C# 命名ヘルパー、hint-name サニタイザー、診断descriptorファクトリーを、あなたのコンパイルに直接埋め込みます — 出荷すべきランタイムアセンブリはありません。
+Roslyn ソースジェネレーター開発のための source-only ツールキットです。構造的等価性を持つ配列、インデント付きコードライター、C# 命名ヘルパー、hint-name サニタイザー、キャッシュ安全な診断表現、診断descriptorファクトリーを、あなたのコンパイルに直接埋め込みます — 出荷すべきランタイムアセンブリはありません。
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit)
 
 ## なぜ SsalKit.Generators.Toolkit なのか
 
-ある程度の規模の Roslyn ソースジェネレーターは、結局のところ同じいくつかのユーティリティを毎回作り直すことになります。`ImmutableArray<T>` に構造的等価性を持たせ、インクリメンタルパイプラインが正しくキャッシュされるようにするラッパー、生成ソースを書きながらインデントを追跡する小さなコードライター、任意のシンボル名を有効な C# 識別子に変換するヘルパー、`AddSource` の `hintName` 引数を整えるサニタイザー、そして `DiagnosticDescriptor` 宣言の定型コードを減らすファクトリーなどです。
+ある程度の規模の Roslyn ソースジェネレーターは、結局のところ同じいくつかのユーティリティを毎回作り直すことになります。`ImmutableArray<T>` に構造的等価性を持たせ、インクリメンタルパイプラインが正しくキャッシュされるようにするラッパー、生成ソースを書きながらインデントを追跡する小さなコードライター、任意のシンボル名を有効な C# 識別子に変換するヘルパー、`AddSource` の `hintName` 引数を整えるサニタイザー、パイプラインに SyntaxTree を固定しないキャッシュ安全な `Diagnostic` の代役、そして `DiagnosticDescriptor` 宣言の定型コードを減らすファクトリーなどです。
 
 これを普通の NuGet パッケージとして配布しようとすると、実際的な問題が生じます。ソースジェネレーターは `analyzer` としてパッケージ化されますが、ジェネレーターが依存するライブラリがあれば、そのDLLを同じ `analyzers/dotnet/cs` フォルダーに**一緒に**パッケージ化しなければなりません — analyzer 時点の DLL には通常の依存関係解決が効かないためです。つまり、ヘルパーライブラリを使うすべての利用者が、それを一緒に運ぶためだけにカスタムパッケージングをしなければならなくなります。
 
@@ -18,7 +18,7 @@ SsalKit.Generators.Toolkit はアプローチそのものが異なります。
 - **ランタイムアセンブリではなく source-only。** パッケージは普通の `.cs` ファイルを [`contentFiles`](https://learn.microsoft.com/nuget/reference/nuspec#including-content-files) として配布し、それらのファイルは*あなたの*ジェネレータープロジェクトに直接コンパイルされます。analyzer と一緒にパッケージ化すべき DLL はそもそも存在しません。
 - **パッケージ依存関係ゼロ。** 埋め込まれたソースは、あなたのジェネレータープロジェクトがすでに参照している Roslyn API しか必要としません — 新たに解決すべきものも、あなた自身の `Microsoft.CodeAnalysis.*` バージョン固定と衝突するものもありません。
 - **利用者からは見えない。** ヘルパーはあなたのジェネレーターアセンブリに `internal` 型として直接コンパイルされるため、このパッケージの存在は、あなたが出荷するジェネレーターの公開表面にはまったく現れません。
-- **フレームワークではなく、小さく独立した5つのコンポーネント**: `EquatableArray<T>`、`IndentedCodeWriter`、`CSharpNaming`、`HintNameSanitizer`、`DiagnosticDescriptorFactory`。必要なものだけ使えばよく、使わない `internal` 型は参照されないままそこにあるだけです。
+- **フレームワークではなく、小さく独立した6つのコンポーネント**: `EquatableArray<T>`、`IndentedCodeWriter`、`CSharpNaming`、`HintNameSanitizer`、`DiagnosticInfo`/`LocationInfo`、`DiagnosticDescriptorFactory`。加えて、`netstandard2.0` のジェネレーターが `record` モデルを書くために必ず必要になる `IsExternalInit` ポリフィルも同梱しています。必要なものだけ使えばよく、使わない `internal` 型は参照されないままそこにあるだけです。
 
 ## インストール
 
@@ -96,6 +96,18 @@ context.AddSource("MyAppWebServiceRegistration.g.cs", source);
 
 `Block(header)` は `header` を書き、続けて独立した行に開き括弧 `{` を書いてインデントを増やし、`using` スコープが終わると閉じ括弧 `}` を書きます。`Block(header, closer)` では別の閉じトークン(オブジェクト初期化子用の `"};"` など)を指定でき、`Indent()` は括弧を伴わない純粋なインデントスコープだけを提供します。
 
+生成メソッド1つで10〜20行になりがちな XML ドキュメントコメントには、`WriteDocLine(content)` と `WriteDocLines(params string[] contents)` が `/// ` プレフィックスを代わりに付けてくれます。
+
+```csharp
+writer.WriteDocLines(
+    "<summary>",
+    "Picks a single random element of <paramref name=\"items\"/>.",
+    "</summary>",
+    "<param name=\"items\">The candidate items.</param>");
+```
+
+空文字列を渡すと、末尾の空白なしで `///` だけを書きます。生成されたドキュメントブロックに末尾空白が残ることはありません。
+
 ### `CSharpNaming`
 
 任意のテキスト(アセンブリ名、シンボル名、ドットなどの区切り文字を含む文字列)を有効な C# 識別子の断片に変換し、予約キーワードをエスケープします。
@@ -111,9 +123,14 @@ string paramName = CSharpNaming.ToCamelCaseIdentifier(typeSymbol.Name);
 
 string safeParamName = CSharpNaming.EscapeKeyword(paramName);
 // "class" -> "@class"; それ以外はそのまま返す
+
+string flattened = CSharpNaming.JoinIdentifierSegments(new[] { "Outer", "Inner" });
+// -> "Outer_Inner"(ネスト型の名前をトップレベル型の名前に平坦化する通常の方法)
 ```
 
 `ToPascalCaseIdentifier`/`ToCamelCaseIdentifier` は、入力が `null`、空文字列、または文字・数字を一切含まない場合に `fallback` を返し、結果が数字で始まってしまう場合は先頭に `_` を付加します。`EscapeKeyword` は*予約*キーワード(`class`、`namespace`、`return` など)のみをエスケープします — `var` や `nameof` のような文脈キーワードはどの位置でも有効な識別子であるため、変更されません。
+
+`JoinIdentifierSegments` は連結するだけで、サニタイズはしません。各セグメントがすでに有効な識別子であることを前提とするため、そうでない場合はまず `ToPascalCaseIdentifier` を通してください。`null` や空のセグメントは連結せずにスキップされるので、結果が区切り文字で始まったり終わったりせず、区切り文字が連続することもありません。空のリストは `string.Empty` を返します。区切り文字の既定値は `'_'` で、変更できます。
 
 ### `HintNameSanitizer`
 
@@ -125,10 +142,42 @@ using SsalKit.Generators.Toolkit;
 string hintName = HintNameSanitizer.Sanitize(typeSymbol.ToDisplayString());
 // "Namespace.Outer<Inner>" -> "Namespace.Outer_Inner_.g.cs"(安全でない文字を置換し、接尾辞を付加)
 
+string fromFqn = HintNameSanitizer.Sanitize(
+    typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+// "global::Namespace.MyType" -> "Namespace.MyType.g.cs"(先頭のエイリアス修飾子は除去される)
+
 context.AddSource(hintName, sourceText);
 ```
 
 `Sanitize` は結果が `suffix`(デフォルトは `".g.cs"`。すでに付いていれば重複して付加しません)で終わることを保証し、Roslyn が許容する hint-name 文字集合外のすべての文字を `_` に置き換え、全体の長さを 200 文字に制限します(先頭側から切り詰めるため、より識別力のある末尾部分と接尾辞は常に残ります)。複数回呼び出した場合の一意性は保証しません — 区別可能な入力を渡す責任は呼び出し側にあります。
+
+`SymbolDisplayFormat.FullyQualifiedFormat` がすべての名前に付ける先頭の `global::` は、1文字ずつ置換するのではなく**除去**されます。そのため完全修飾名をそのまま渡しても、生成されるすべてのファイル名に `global__` プレフィックスが残ることはありません。除去されるのは先頭の1回だけで、それ以外の位置にある `global::` は他のテキストと同様にサニタイズされます。候補が `global::` だけの場合は、`null`/空/空白と同様に `"Generated"` にフォールバックします。
+
+### `DiagnosticInfo` / `LocationInfo`
+
+キャッシュ安全な `Diagnostic` の代役です。本物の `Diagnostic`(や `Location`)をインクリメンタルパイプラインに載せて運ぶと、その出所である `SyntaxTree` が、ひいては `Compilation` 全体がジェネレーターのキャッシュに固定されます。メモリリークになるだけでなく、同一ソースに対する2回の実行が決して等しくならない `Location` を生むため、キャッシュそのものが無効化されます。`DiagnosticInfo` が保持するのは descriptor、省略可能な `LocationInfo`(ファイルパスとスパン)、メッセージ引数だけで、この3つすべてを値で比較します。
+
+```csharp
+using SsalKit.Generators.Toolkit;
+
+// transform 段階: シンボル/ノードをキャッシュ安全な値に還元する。
+var info = new DiagnosticInfo(
+    DiagnosticDescriptors.UnsupportedWeightType,
+    LocationInfo.CreateFrom(memberSymbol.Locations.FirstOrDefault()),
+    memberDisplayName,
+    memberType.ToDisplayString());
+
+// source-output 段階: 復元して報告する。
+context.RegisterSourceOutput(diagnostics, static (spc, reported) =>
+{
+    foreach (var diagnostic in reported)
+    {
+        spc.ReportDiagnostic(diagnostic.ToDiagnostic());
+    }
+});
+```
+
+`LocationInfo.CreateFrom` は `Location` または `SyntaxNode` を受け取り、ソース上の位置でないもの(メタデータ位置や "none" 位置、`null` 引数)に対しては `null` を返します。これは `Diagnostic.Create` が「位置なしで報告」としてそのまま受け付ける値なので、後続で特別な処理は要りません。どちらの型も `IEquatable<T>` と整合する `GetHashCode` を実装しているため、`EquatableArray<T>` をはじめとするどのパイプラインモデルにも入れられます。メッセージ引数は `EquatableArray<string>` として保持され、`params string[]` のコンストラクターオーバーロードが代わりに構築してくれます。
 
 ### `DiagnosticDescriptorFactory`
 
@@ -160,6 +209,22 @@ internal static class DiagnosticDescriptors
 
 同じファクトリーインスタンスが生成するすべての descriptor は同じ id プレフィックス/category を共有し、`{idPrefix}{id:D3}` 形式(例: `"SSAL001"`)でフォーマットされ、`isEnabledByDefault: true` を持ちます。`Error(...)` と `Warning(...)` はどちらも、追加の descriptor タグ用に `params string[] customTags` を任意で受け取れます。
 
+### `IsExternalInit`(コンパイラーポリフィル)
+
+`netstandard2.0` の参照アセンブリには `System.Runtime.CompilerServices.IsExternalInit` が含まれていません。C# コンパイラーは `init` アクセサーを出力する前にこの型を要求するため、この型がなければ `record` 宣言自体が通りません。パイプラインモデルは `record` を使いたくなる典型的な場所なので、結局どのジェネレータープロジェクトも同じ空の型を手書きすることになります。その手間を省くために、パッケージが同梱しています。
+
+これは `SsalKit.Generators.Toolkit` 名前空間に属さない唯一の埋め込みソースです。コンパイラーが固定の完全修飾名でこの型を探すため、移動できません。
+
+**オプトアウト。** あなたのコンパイルにすでにこの型が宣言されている場合(自前のポリフィルでも、他のパッケージのものでも)、定義が2つになり `CS0101` 重複定義エラーになります。`SSALKIT_GENERATORS_TOOLKIT_EXCLUDE_ISEXTERNALINIT` を定義すると、このコピーが除外されます。
+
+```xml
+<PropertyGroup>
+  <DefineConstants>$(DefineConstants);SSALKIT_GENERATORS_TOOLKIT_EXCLUDE_ISEXTERNALINIT</DefineConstants>
+</PropertyGroup>
+```
+
+オプトアウトは常に安全です。パッケージ内の他の何もこのファイルに依存していません — ツールキット自身のソースが、このポリフィルによって可能になる構文を意図的に使っていないからです(下記参照)。
+
 ## 埋め込みソースの規約
 
 このパッケージが配布するすべての `.cs` ファイルは、同じ3行で始まります。
@@ -174,7 +239,11 @@ internal static class DiagnosticDescriptors
 - `#pragma warning disable` はファイル内のすべての警告を無条件に解除し、`TreatWarningsAsErrors` を含むあなたのプロジェクトの正確な警告設定の下でもクリーンにコンパイルされるようにします。
 - `#nullable enable` は、あなたのプロジェクトの nullable 設定とは無関係に、ファイル自身の nullable 契約を固定します。
 
-このヘッダーに加えて、5つのコンポーネントすべてで、すべての型は `internal` であり、すべてのファイルは固定された `SsalKit.Generators.Toolkit` 名前空間に属します — 型が `internal` であるため、このパッケージをそれぞれ埋め込んだ2つの異なるジェネレーターアセンブリが互いに衝突することはありません。ソースは意図的に `record` 型と `init` 専用プロパティを避けています。`netstandard2.0` でこの構文を使うには `IsExternalInit` コンパイラーポリフィルが必要になりますが、あなたのプロジェクト(または他の埋め込みパッケージ)がすでにそのポリフィル型を定義している場合、2つ目を埋め込むと `CS0101` 重複定義エラーになるためです。この問題を調整しようとするのではなく、その構文自体を排除することで根本的に回避しています。それ以外の構文の上限も C# 10 です(ファイルスコープ名前空間は問題ありませんが、primary constructor やコレクション式は使用しません)— あなたのプロジェクトの `LangVersion` がそれより新しいとは仮定できないためです。
+このヘッダーに加えて、6つのコンポーネントすべてで、すべての型は `internal` であり、すべてのファイルは固定された `SsalKit.Generators.Toolkit` 名前空間に属します — 型が `internal` であるため、このパッケージをそれぞれ埋め込んだ2つの異なるジェネレーターアセンブリが互いに衝突することはありません。(`IsExternalInit` ポリフィルだけは、上で述べた理由によりこの名前空間ルールから意図的に除外されています。)
+
+ポリフィルを同梱するようになった今も、ソース自身は意図的に `record` 型と `init` 専用プロパティを使いません。そうすることで、ポリフィルのオプトアウトが代償のない選択のままでいられるからです — ツールキット自身のコードが `init` を必要とするなら、ポリフィルを外した瞬間にパッケージの残りまで一緒に壊れてしまいます。そのため `DiagnosticInfo` と `LocationInfo` も `record` ではなく、`IEquatable<T>` を手書きで実装した普通のクラスです。条件付きコンパイルが許されるファイルも `IsExternalInit.cs` だけで、それ以外は利用者の `DefineConstants` が何であれ同一にコンパイルされます。
+
+構文の上限は C# 10 です(ファイルスコープ名前空間は問題ありませんが、primary constructor やコレクション式は使用しません)— あなたのプロジェクトの `LangVersion` がそれより新しいとは仮定できないためです。
 
 ## 既知の制約
 

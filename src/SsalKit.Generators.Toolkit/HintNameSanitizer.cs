@@ -24,6 +24,7 @@ namespace SsalKit.Generators.Toolkit;
 internal static class HintNameSanitizer
 {
     private const int MaxLength = 200;
+    private const string GlobalPrefix = "global::";
 
     /// <summary>
     /// Sanitizes <paramref name="candidate"/> into a safe hint name, ensuring it ends with
@@ -31,9 +32,13 @@ internal static class HintNameSanitizer
     /// tolerate for a single generated file name.
     /// </summary>
     /// <param name="candidate">
-    /// The raw candidate, typically a type's fully qualified or metadata name. A
-    /// <see langword="null"/>, empty, or whitespace-only value is replaced with
-    /// <c>"Generated"</c>.
+    /// The raw candidate, typically a type's fully qualified or metadata name. A leading
+    /// <c>global::</c> alias qualifier — which
+    /// <c>SymbolDisplayFormat.FullyQualifiedFormat</c> puts on every name — is stripped rather
+    /// than replaced character by character, since it carries no information here and would
+    /// otherwise turn into a <c>global__</c> prefix on every generated file name. A
+    /// <see langword="null"/>, empty, or whitespace-only value (including a bare
+    /// <c>global::</c>) is replaced with <c>"Generated"</c>.
     /// </param>
     /// <param name="suffix">
     /// The suffix the result must end with. If <paramref name="candidate"/> already ends with
@@ -46,7 +51,19 @@ internal static class HintNameSanitizer
     /// </returns>
     public static string Sanitize(string candidate, string suffix = ".g.cs")
     {
-        var basis = string.IsNullOrWhiteSpace(candidate) ? "Generated" : candidate;
+        var basis = candidate ?? string.Empty;
+
+        // Only the leading alias qualifier, and only once: "global::global::X" is not a name any
+        // display format produces, and a second pass would silently rewrite a legitimate segment.
+        if (basis.StartsWith(GlobalPrefix, StringComparison.Ordinal))
+        {
+            basis = basis.Substring(GlobalPrefix.Length);
+        }
+
+        if (string.IsNullOrWhiteSpace(basis))
+        {
+            basis = "Generated";
+        }
 
         var builder = new StringBuilder(basis.Length);
         foreach (var c in basis)

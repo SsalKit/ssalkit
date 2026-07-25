@@ -66,6 +66,48 @@ internal static class CSharpNaming
     }
 
     /// <summary>
+    /// Joins already-valid identifier fragments into a single identifier, e.g. the containing-type
+    /// chain <c>["Outer", "Inner"]</c> into <c>"Outer_Inner"</c>, which is how a generator flattens
+    /// a nested type's name into a top-level one.
+    /// </summary>
+    /// <param name="segments">
+    /// The fragments, in the order they should appear. Each one is assumed to already be a valid
+    /// C# identifier: this method joins, it never sanitizes. Use
+    /// <see cref="ToPascalCaseIdentifier"/> first if that assumption does not hold.
+    /// </param>
+    /// <param name="separator">The character written between two consecutive fragments.</param>
+    /// <returns>
+    /// The joined identifier. <see langword="null"/> and empty fragments are skipped rather than
+    /// joined, so the result never starts or ends with <paramref name="separator"/> and never
+    /// contains two of them in a row. An empty list (or one holding nothing but empty fragments)
+    /// yields <see cref="string.Empty"/>.
+    /// </returns>
+    public static string JoinIdentifierSegments(IReadOnlyList<string> segments, char separator = '_')
+    {
+        Debug.Assert(segments is not null, "segments must not be null.");
+
+        var builder = new StringBuilder();
+
+        for (var i = 0; i < segments!.Count; i++)
+        {
+            var segment = segments[i];
+            if (string.IsNullOrEmpty(segment))
+            {
+                continue;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(separator);
+            }
+
+            builder.Append(segment);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
     /// Prefixes <paramref name="identifier"/> with <c>@</c> if it is a reserved C# keyword (e.g.
     /// <c>"class"</c> becomes <c>"@class"</c>); otherwise returns it unchanged. Contextual
     /// keywords (such as <c>var</c> or <c>nameof</c>) are never escaped because they remain valid

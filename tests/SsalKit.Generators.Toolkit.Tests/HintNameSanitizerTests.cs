@@ -98,6 +98,38 @@ public class HintNameSanitizerTests
     }
 
     [Fact]
+    public void Sanitize_LeadingGlobalAlias_IsStrippedNotReplaced()
+    {
+        var result = HintNameSanitizer.Sanitize("global::MyNamespace.MyType");
+
+        Assert.Equal("MyNamespace.MyType.g.cs", result);
+    }
+
+    [Fact]
+    public void Sanitize_GlobalAliasNotAtTheStart_IsReplacedLikeAnyOtherColon()
+    {
+        var result = HintNameSanitizer.Sanitize("MyNamespace.global::MyType");
+
+        Assert.Equal("MyNamespace.global__MyType.g.cs", result);
+    }
+
+    [Fact]
+    public void Sanitize_RepeatedGlobalAlias_StripsOnlyTheFirst()
+    {
+        var result = HintNameSanitizer.Sanitize("global::global::MyType");
+
+        Assert.Equal("global__MyType.g.cs", result);
+    }
+
+    [Fact]
+    public void Sanitize_BareGlobalAlias_FallsBackToGenerated()
+    {
+        var result = HintNameSanitizer.Sanitize("global::");
+
+        Assert.Equal("Generated.g.cs", result);
+    }
+
+    [Fact]
     public void Sanitize_ResultExceedsMaxLength_IsTruncatedFromTheFrontPreservingTail()
     {
         var candidate = new string('A', 250);
