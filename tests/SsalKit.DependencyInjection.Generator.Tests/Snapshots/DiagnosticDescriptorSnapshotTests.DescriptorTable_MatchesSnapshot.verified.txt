@@ -1,0 +1,286 @@
+﻿AsTypeNotImplemented
+  Id: SSAL002
+  Title: The type specified by 'As' is not implemented or inherited by the decorated class
+  MessageFormat: '{0}' does not implement or inherit '{1}' specified via 'As' on [Service]
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The 'As' service type must be an interface implemented by the class, or a base class/itself.
+  HelpLinkUri: 
+  CustomTags: 
+
+ConflictingContractRegistrations
+  Id: SSAL026
+  Title: Overlapping [RegisterImplementationsOf] contracts register the same implementation differently
+  MessageFormat: '{1}' is registered as '{0}' by {2} overlapping [RegisterImplementationsOf] contracts that do not agree on lifetime and mode; both registrations are emitted
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: Two contracts can overlap -- typically an unbound generic one (typeof(IHandler<>)) alongside a closed instantiation of it (typeof(IHandler<int>)) -- and match the same class under the same service type. Identical registrations produced this way are collapsed into one and reported nothing; registrations that disagree on lifetime or mode cannot be collapsed, so both are emitted and which one wins is decided by Microsoft.Extensions.DependencyInjection's own rules rather than by anything in the declarations.
+  HelpLinkUri: 
+  CustomTags: CompilationEnd
+
+ConflictingImplementations
+  Id: SSAL015
+  Title: Multiple implementations registered for the same service type
+  MessageFormat: The service type '{0}'{1} is registered with {2} different implementation types ({3}); a single-instance resolution returns whichever of them is registered last, and the generator emits registrations ordered by implementation type name rather than by source order
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other.
+  HelpLinkUri: 
+  CustomTags: CompilationEnd
+
+ContractInaccessibleType
+  Id: SSAL025
+  Title: [RegisterImplementationsOf] contract must be accessible to generated code
+  MessageFormat: '{0}' cannot be used as a [RegisterImplementationsOf] contract because it is not accessible from the generated registration code; make the type (and its containing types) at least 'internal' and not file-local
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generated registration extension method lives in a separate file, in the Microsoft.Extensions.DependencyInjection namespace, in the same assembly; every service type it names -- including a convention scan's contract -- must be (along with its containing types and generic type arguments) at least internal and not file-local.
+  HelpLinkUri: 
+  CustomTags: 
+
+ContractMatchedNothing
+  Id: SSAL022
+  Title: [RegisterImplementationsOf] contract matched no class in this assembly
+  MessageFormat: No class in this assembly is registered for the [RegisterImplementationsOf] contract '{0}'; the convention scan only sees classes declared in the compilation it is applied to, never ones in referenced assemblies
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: A contract that matches nothing registers nothing, and would otherwise fail completely silently -- the usual causes being a misspelled or wrong-namespace interface, an expectation that classes in a referenced assembly would be discovered (they are not: declare the attribute in that assembly instead), or every candidate class having been skipped because it is abstract, static, inaccessible from the generated code, nested inside a generic type, or already decorated with [Service].
+  HelpLinkUri: 
+  CustomTags: CompilationEnd
+
+ContractNotInterface
+  Id: SSAL021
+  Title: [RegisterImplementationsOf] contract must be an interface
+  MessageFormat: '{0}' cannot be used as a [RegisterImplementationsOf] contract because it is {1}; only an interface can be scanned for implementations
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: A convention scan registers each matched class against the contract it implements, which is only a meaningful relationship for an interface. A base class, a struct, an enum, or a delegate type has no set of 'implementations' the generator can discover, so the declaration is rejected rather than silently matching nothing.
+  HelpLinkUri: 
+  CustomTags: 
+
+DuplicateContract
+  Id: SSAL023
+  Title: Duplicate [RegisterImplementationsOf] contract
+  MessageFormat: The contract '{0}' is already declared by another [assembly: RegisterImplementationsOf]; only the first declaration is used
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: Two declarations of the same contract have no combined meaning: with differing lifetimes or modes there is no rule for which should win, and with identical ones the second is pure duplication (silently discarded at runtime by TryAddEnumerable, but a doubled registration under any other mode). Keep one declaration, and use [Service] on the individual classes that need to deviate from it.
+  HelpLinkUri: 
+  CustomTags: 
+
+DuplicateRegistration
+  Id: SSAL004
+  Title: Duplicate service registration
+  MessageFormat: The service type '{0}' is registered more than once for implementation '{1}'{2}
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: The same (service type, implementation type, key) combination is registered by more than one [Service] attribute across the compilation.
+  HelpLinkUri: 
+  CustomTags: CompilationEnd
+
+FactoryMethodInaccessible
+  Id: SSAL014
+  Title: 'Factory' method is not accessible to generated code
+  MessageFormat: The factory method '{0}.{1}' is not accessible from the generated registration code; it must be at least 'internal'
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The chosen factory method is invoked from the generated registration extension method, which lives in a separate file in the same assembly; a private or protected factory method cannot be called from there.
+  HelpLinkUri: 
+  CustomTags: 
+
+FactoryMethodInvalid
+  Id: SSAL012
+  Title: 'Factory' method has an unusable signature
+  MessageFormat: One or more methods named '{0}' are declared on '{1}', but none has a usable signature: a factory method must be static, non-generic, have no parameters or a single 'System.IServiceProvider' parameter, and return exactly '{1}'
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: A method named by 'Factory' was found, but no overload of it is static, non-generic, parameterless-or-single-IServiceProvider-parameter, and returns exactly the decorated class.
+  HelpLinkUri: 
+  CustomTags: 
+
+FactoryMethodNotFound
+  Id: SSAL011
+  Title: 'Factory' method not found
+  MessageFormat: No ordinary method named '{0}' is declared on '{1}'
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The 'Factory' argument of [Service] must name an ordinary (non-property, non-operator) method declared directly on the decorated class. This also covers an empty-string 'Factory' value, which never matches any method.
+  HelpLinkUri: 
+  CustomTags: 
+
+FactoryOnOpenGenericNotSupported
+  Id: SSAL013
+  Title: 'Factory' cannot be used on an open generic class
+  MessageFormat: 'Factory' cannot be used on open generic class '{0}' because Microsoft.Extensions.DependencyInjection has no factory-based registration for open generics
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: Microsoft.Extensions.DependencyInjection's open generic registration overloads (Type-based, not <TService, TImplementation>) have no factory-delegate counterpart, so an open generic class cannot combine [Service] with a 'Factory'.
+  HelpLinkUri: 
+  CustomTags: 
+
+GenericClassNotSupported
+  Id: SSAL003
+  Title: [Service] cannot be applied to a class nested inside a generic type
+  MessageFormat: [Service] cannot be applied to '{0}' because it is nested inside a generic type; a generic class is only supported when all of its type parameters are its own
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: Open generic support only covers classes whose generic context is entirely their own type parameter list. A class nested inside a generic type carries its containing type's parameters and cannot be registered.
+  HelpLinkUri: 
+  CustomTags: 
+
+InaccessibleType
+  Id: SSAL007
+  Title: [Service] type must be accessible to generated code
+  MessageFormat: '{0}' cannot be registered because it is not accessible from the generated registration code; make the type (and its containing types) at least 'internal' and not file-local
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generated registration extension method lives in a separate file, in the Microsoft.Extensions.DependencyInjection namespace, in the same assembly; it can only reference types -- including a 'typeof(...)' Key value and any generic type arguments -- that are (along with their containing types) at least internal and not file-local.
+  HelpLinkUri: 
+  CustomTags: 
+
+InvalidTargetType
+  Id: SSAL001
+  Title: [Service] cannot be applied to an abstract or static class
+  MessageFormat: [Service] cannot be applied to '{0}' because it is {1}; only concrete, non-static classes can be registered
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The source generator can only register concrete, instantiable classes into the service collection.
+  HelpLinkUri: 
+  CustomTags: 
+
+KeyedTryAddEnumerableNotSupported
+  Id: SSAL005
+  Title: 'Key' cannot be combined with RegistrationMode.TryAddEnumerable
+  MessageFormat: 'Key' cannot be combined with RegistrationMode.TryAddEnumerable on '{0}' because Microsoft.Extensions.DependencyInjection has no corresponding keyed API
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: There is no TryAddEnumerable equivalent for keyed services in Microsoft.Extensions.DependencyInjection.
+  HelpLinkUri: 
+  CustomTags: 
+
+OpenGenericInstanceNotShared
+  Id: SSAL010
+  Title: Open generic registrations do not share an instance across service types
+  MessageFormat: '{0}' is registered as {1} service types as an open generic; each closed service type will resolve to a separate instance because open generic registrations cannot use forwarding factories
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: For a non-generic class, a Singleton/Scoped registration against multiple service types shares one instance via forwarding factories. Open generic registrations cannot use factories, so every service type gets an independent registration and instances are not shared. Suppress this warning if separate instances are intended.
+  HelpLinkUri: 
+  CustomTags: 
+
+OpenGenericServiceTypeNotExactMatch
+  Id: SSAL009
+  Title: Open generic service type must use the class's own type parameters
+  MessageFormat: '{0}' cannot be registered as '{1}' because an open generic class can only be registered as itself or as an implemented interface or base class whose type arguments are exactly the class's own type parameters in declaration order
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: Microsoft.Extensions.DependencyInjection resolves an open generic registration by substituting the requested service type's arguments positionally into the implementation type. Any other shape (a closed or non-generic service type, reordered, partially used, or nested type arguments) either cannot be constructed or produces a type that does not implement the requested service, so it is rejected at compile time.
+  HelpLinkUri: 
+  CustomTags: 
+
+SelfTryAddEnumerableNotSupported
+  Id: SSAL006
+  Title: RegistrationMode.TryAddEnumerable cannot register a type as itself
+  MessageFormat: '{0}' cannot be registered via RegistrationMode.TryAddEnumerable as its own service type because Microsoft.Extensions.DependencyInjection cannot distinguish duplicate entries; implement an interface or specify a different service type via 'As'
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: TryAddEnumerable(ServiceDescriptor.Singleton<T, T>()) throws ArgumentException at runtime because Microsoft.Extensions.DependencyInjection cannot tell distinct registrations of the same implementation type apart when the service type and implementation type are identical.
+  HelpLinkUri: 
+  CustomTags: 
+
+ServiceFactoryGenericNotSupported
+  Id: SSAL019
+  Title: [ServiceFactory] cannot be applied to a generic interface or one nested inside a generic type
+  MessageFormat: [ServiceFactory] cannot be applied to '{0}' because it is {1}; a service factory interface must be non-generic and not nested inside a generic type
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generated implementation is a non-generic class registered as a singleton against one closed service type. An open generic factory interface -- or a non-generic one that inherits type parameters from a containing generic type -- has no single closed form to register, so it is rejected at compile time.
+  HelpLinkUri: 
+  CustomTags: 
+
+ServiceFactoryInaccessibleType
+  Id: SSAL020
+  Title: [ServiceFactory] type must be accessible to generated code
+  MessageFormat: '{0}' cannot be used by the service factory generated for '{1}' because it is not accessible from the generated code; make the type (and its containing types) at least 'internal' and not file-local
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generated factory implementation lives in a separate file, in the SsalKit.DependencyInjection.Generated namespace, in the same assembly; it can only name the factory interface, its method's enum parameter type, and its return type when each of those (along with their containing types) is at least internal and not file-local.
+  HelpLinkUri: 
+  CustomTags: 
+
+ServiceFactoryMemberShapeInvalid
+  Id: SSAL017
+  Title: [ServiceFactory] interface must declare exactly one method
+  MessageFormat: [ServiceFactory] interface '{0}' must declare exactly one member and that member must be an ordinary, non-static method, but {1}
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generated implementation only knows how to implement a single enum-keyed lookup method. Any additional member -- another method, a property, an event, a field, or a nested type -- would be left unimplemented, so the whole interface is rejected rather than generating code that does not compile.
+  HelpLinkUri: 
+  CustomTags: 
+
+ServiceFactoryMethodSignatureInvalid
+  Id: SSAL018
+  Title: [ServiceFactory] method must take a single enum parameter and return a service type
+  MessageFormat: The method '{0}.{1}' cannot be used as a service factory because {2}; it must be non-generic, take exactly one by-value parameter of an enum type, and return a non-void service type
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generated implementation forwards its single parameter verbatim as the service key to GetRequiredKeyedService<TReturn>, which requires exactly one by-value enum parameter and a non-void, non-by-ref return type. A generic method has no single closed form to implement against.
+  HelpLinkUri: 
+  CustomTags: 
+
+ServiceFactoryTargetNotInterface
+  Id: SSAL016
+  Title: [ServiceFactory] can only be applied to an interface
+  MessageFormat: [ServiceFactory] cannot be applied to '{0}' because it is {1}; only an interface can declare a service factory
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The generator implements a [ServiceFactory] target by emitting a class that implements it, which is only possible for an interface. [AttributeUsage(AttributeTargets.Interface)] already makes any other target a CS0592 compiler error, so this rule only ever fires alongside that error, as a defence against the attribute's usage being widened without the generator following suit.
+  HelpLinkUri: 
+  CustomTags: 
+
+UndefinedContractEnumValue
+  Id: SSAL024
+  Title: Undefined enum value on [RegisterImplementationsOf]
+  MessageFormat: The value '{0}' is not a defined '{1}' value
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The Lifetime and Mode arguments of [RegisterImplementationsOf] must be one of the values defined by ServiceLifetime/RegistrationMode; an out-of-range value (e.g. from an explicit numeric cast) is silently mishandled otherwise.
+  HelpLinkUri: 
+  CustomTags: 
+
+UndefinedEnumValue
+  Id: SSAL008
+  Title: Undefined enum value on [Service]
+  MessageFormat: The value '{0}' is not a defined '{1}' value
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Error
+  IsEnabledByDefault: True
+  Description: The Lifetime and Mode arguments of [Service] must be one of the values defined by ServiceLifetime/RegistrationMode; an out-of-range value (e.g. from an explicit numeric cast) is silently mishandled otherwise.
+  HelpLinkUri: 
+  CustomTags: 
+

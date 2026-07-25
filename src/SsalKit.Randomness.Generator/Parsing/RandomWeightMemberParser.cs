@@ -45,7 +45,7 @@ internal static class RandomWeightMemberParser
         }
 
         var location = LocationInfo.CreateFrom(GetReportLocation(context));
-        var typeFqn = declaringType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var typeFqn = SymbolFacts.ToFqn(declaringType);
         var typeDisplayName = declaringType.ToDisplayString();
         var memberDisplayName = typeDisplayName + "." + member.Name;
 
@@ -75,7 +75,7 @@ internal static class RandomWeightMemberParser
         weightKind = WeightKind.Integral;
 
         // SSALR005: an open generic declaring type has no single closed receiver type to write.
-        if (IsGenericOrNestedInGeneric(declaringType))
+        if (SymbolFacts.IsGenericOrNestedInGeneric(declaringType))
         {
             return new DiagnosticInfo(DiagnosticDescriptors.GenericTypeNotSupported, location, memberDisplayName);
         }
@@ -87,7 +87,7 @@ internal static class RandomWeightMemberParser
         }
 
         // SSALR004: the declaring type has to be nameable from a sibling top-level class.
-        if (!GeneratedCodeAccessibility.IsTypeVisible(declaringType))
+        if (!SymbolFacts.IsAccessibleFromGeneratedCode(declaringType))
         {
             return new DiagnosticInfo(
                 DiagnosticDescriptors.InaccessibleWeightMember, location, memberDisplayName, "its declaring type '" + typeDisplayName + "'");
@@ -130,12 +130,9 @@ internal static class RandomWeightMemberParser
         string typeFqn,
         WeightKind weightKind)
     {
-        var containingNamespace = declaringType.ContainingNamespace;
-        var namespaceName = containingNamespace is null || containingNamespace.IsGlobalNamespace
-            ? string.Empty
-            : containingNamespace.ToDisplayString();
+        var namespaceName = SymbolFacts.GetContainingNamespaceName(declaringType);
 
-        var isPublic = GeneratedCodeAccessibility.IsEffectivelyPublic(declaringType)
+        var isPublic = SymbolFacts.IsEffectivelyPublic(declaringType)
             && !IsNamedArgumentTrue(context, InternalExtensionsArgumentName);
 
         return new WeightedTypeModel(
@@ -187,19 +184,6 @@ internal static class RandomWeightMemberParser
                 {
                     return true;
                 }
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsGenericOrNestedInGeneric(INamedTypeSymbol type)
-    {
-        for (var current = type; current is not null; current = current.ContainingType)
-        {
-            if (current.Arity > 0)
-            {
-                return true;
             }
         }
 

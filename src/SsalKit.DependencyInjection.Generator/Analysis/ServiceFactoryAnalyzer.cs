@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 using SsalKit.DependencyInjection.Generator.Diagnostics;
 using SsalKit.DependencyInjection.Generator.Parsing;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Analysis;
 
@@ -71,8 +72,8 @@ public sealed class ServiceFactoryAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var location = GetLocation(attributeData, typeSymbol);
-        var typeFqn = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var location = AttributeLocations.GetLocation(attributeData, typeSymbol);
+        var typeFqn = SymbolFacts.ToFqn(typeSymbol);
 
         switch (validation.Kind)
         {
@@ -119,16 +120,5 @@ public sealed class ServiceFactoryAnalyzer : DiagnosticAnalyzer
         }
 
         return null;
-    }
-
-    private static Location GetLocation(AttributeData attributeData, INamedTypeSymbol fallbackSymbol)
-    {
-        var syntaxReference = attributeData.ApplicationSyntaxReference;
-        if (syntaxReference is not null)
-        {
-            return syntaxReference.GetSyntax().GetLocation();
-        }
-
-        return fallbackSymbol.Locations.Length > 0 ? fallbackSymbol.Locations[0] : Location.None;
     }
 }

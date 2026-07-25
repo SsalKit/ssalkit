@@ -45,6 +45,7 @@ public class EmbeddedSourceConventionTests
         Assert.Equal(
             new[]
             {
+                "AttributeLocations.cs",
                 "CSharpNaming.cs",
                 "DiagnosticDescriptorFactory.cs",
                 "DiagnosticInfo.cs",
@@ -52,6 +53,7 @@ public class EmbeddedSourceConventionTests
                 "HintNameSanitizer.cs",
                 "IndentedCodeWriter.cs",
                 "IsExternalInit.cs",
+                "SymbolFacts.cs",
             },
             names.OrderBy(name => name, StringComparer.Ordinal).ToArray());
     }

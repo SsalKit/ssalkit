@@ -1,38 +1,23 @@
 using Microsoft.CodeAnalysis;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.Randomness.Generator.Parsing;
 
 /// <summary>
-/// Decides what the generated extension class -- a top-level static class emitted into a separate
-/// file, in the declaring type's namespace, in the same assembly -- can see, and how visible it may
-/// itself be declared.
+/// The one accessibility question the generated extension class asks that is not about a type:
+/// whether it can read the decorated <i>member</i> off an instance.
 /// </summary>
 /// <remarks>
-/// Unlike SsalKit.DependencyInjection's <c>TypeAccessibilityChecker</c>, every type inspected here
-/// is declared in the compilation being generated for (it carries a <c>[RandomWeight]</c> member in
-/// source), so cross-assembly concerns -- <c>[InternalsVisibleTo]</c> grants and
+/// The type-level half -- "can the generated class name this type at all", "may it be declared
+/// public" -- is <see cref="SymbolFacts.IsAccessibleFromGeneratedCode"/> and
+/// <see cref="SymbolFacts.IsEffectivelyPublic"/> in SsalKit.Generators.Toolkit. Unlike
+/// SsalKit.DependencyInjection's <c>TypeAccessibilityChecker</c>, every type inspected for
+/// <c>[RandomWeight]</c> is declared in the compilation being generated for (it carries the
+/// attribute in source), so cross-assembly concerns -- <c>[InternalsVisibleTo]</c> grants and
 /// <c>extern alias</c> reachability -- cannot arise and are not checked.
 /// </remarks>
 internal static class GeneratedCodeAccessibility
 {
-    /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="type"/> and every type containing it are
-    /// at least <see langword="internal"/> and not file-local, i.e. nameable from the generated
-    /// class.
-    /// </summary>
-    public static bool IsTypeVisible(INamedTypeSymbol type)
-    {
-        for (var current = type; current is not null; current = current.ContainingType)
-        {
-            if (current.IsFileLocal || !IsAtLeastInternal(current.DeclaredAccessibility))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     /// <summary>
     /// Returns <see langword="true"/> when the generated selector can read <paramref name="member"/>
     /// off an instance: the member itself, and -- for a property -- its <c>get</c> accessor, must be
@@ -46,38 +31,13 @@ internal static class GeneratedCodeAccessibility
     /// </remarks>
     public static bool IsMemberReadable(ISymbol member)
     {
-        if (!IsAtLeastInternal(member.DeclaredAccessibility))
+        if (!SymbolFacts.IsAtLeastInternal(member.DeclaredAccessibility))
         {
             return false;
         }
 
         return member is not IPropertySymbol property
             || property.GetMethod is null
-            || IsAtLeastInternal(property.GetMethod.DeclaredAccessibility);
+            || SymbolFacts.IsAtLeastInternal(property.GetMethod.DeclaredAccessibility);
     }
-
-    /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="type"/> and every type containing it are
-    /// <see langword="public"/>, which is the only case where the generated class may itself be
-    /// declared <see langword="public"/> without an inconsistent-accessibility error.
-    /// </summary>
-    public static bool IsEffectivelyPublic(INamedTypeSymbol type)
-    {
-        for (var current = type; current is not null; current = current.ContainingType)
-        {
-            if (current.DeclaredAccessibility != Accessibility.Public)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <remarks>
-    /// <c>protected internal</c> counts (the generated class benefits from the <c>internal</c>
-    /// half), but <c>private protected</c> does not: the generated class derives from nothing.
-    /// </remarks>
-    private static bool IsAtLeastInternal(Accessibility accessibility) =>
-        accessibility is Accessibility.Public or Accessibility.Internal or Accessibility.ProtectedOrInternal;
 }

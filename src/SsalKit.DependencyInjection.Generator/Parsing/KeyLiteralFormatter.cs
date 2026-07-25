@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Parsing;
 
@@ -36,7 +37,7 @@ internal static class KeyLiteralFormatter
         // Key = typeof(SomeType), including open/unbound generic type definitions such as
         // typeof(List<>); FullyQualifiedFormat renders both correctly and unambiguously.
         return constant.Value is ITypeSymbol typeSymbol
-            ? $"typeof({typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})"
+            ? $"typeof({SymbolFacts.ToFqn(typeSymbol)})"
             : null;
     }
 
@@ -48,7 +49,7 @@ internal static class KeyLiteralFormatter
             return null;
         }
 
-        var enumTypeFqn = enumType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var enumTypeFqn = SymbolFacts.ToFqn(enumType);
 
         foreach (var member in enumType.GetMembers())
         {

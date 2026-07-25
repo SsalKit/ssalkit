@@ -18,7 +18,7 @@ SsalKit.Generators.Toolkit은 접근 방식 자체가 다릅니다.
 - **런타임 어셈블리가 아닌 source-only.** 패키지는 평범한 `.cs` 파일을 [`contentFiles`](https://learn.microsoft.com/nuget/reference/nuspec#including-content-files) 형태로 배포하며, 이 파일들은 *여러분의* 생성기 프로젝트에 직접 컴파일됩니다. analyzer 옆에 함께 패키징해야 할 DLL이 아예 없습니다.
 - **패키지 의존성 0.** 임베드된 소스는 여러분의 생성기 프로젝트가 이미 참조하고 있는 Roslyn API만 필요로 합니다 — 새로 해석해야 할 것도, 여러분의 `Microsoft.CodeAnalysis.*` 버전 고정과 충돌할 것도 없습니다.
 - **소비자에게 보이지 않음.** 헬퍼들은 여러분의 생성기 어셈블리에 `internal` 타입으로 직접 컴파일되므로, 이 패키지의 존재는 여러분이 배포하는 생성기의 공개 표면에 전혀 드러나지 않습니다.
-- **프레임워크가 아니라 작고 독립적인 컴포넌트 6종**: `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticInfo`/`LocationInfo`, `DiagnosticDescriptorFactory`. 여기에 `netstandard2.0` 생성기가 `record` 모델을 쓰려면 반드시 필요한 `IsExternalInit` 폴리필이 함께 들어 있습니다. 필요한 것만 쓰면 되고, 쓰지 않는 `internal` 타입은 참조되지 않은 채 그냥 남아 있을 뿐입니다.
+- **프레임워크가 아니라 작고 독립적인 컴포넌트 8종**: `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticInfo`/`LocationInfo`, `DiagnosticDescriptorFactory`, `SymbolFacts`, `AttributeLocations`. 여기에 `netstandard2.0` 생성기가 `record` 모델을 쓰려면 반드시 필요한 `IsExternalInit` 폴리필이 함께 들어 있습니다. 필요한 것만 쓰면 되고, 쓰지 않는 `internal` 타입은 참조되지 않은 채 그냥 남아 있을 뿐입니다.
 
 ## 설치
 
@@ -229,6 +229,58 @@ internal static class DiagnosticDescriptors
 
 같은 팩터리 인스턴스가 만드는 모든 서술자는 동일한 id 접두사/category를 공유하고, `{idPrefix}{id:D3}` 형식(예: `"SSAL001"`)으로 포맷되며, `isEnabledByDefault: true`를 가집니다. `Error(...)`와 `Warning(...)` 모두 추가 서술자 태그를 위한 `params string[] customTags`를 선택적으로 받습니다.
 
+**알아둬야 할 트레이드오프 하나.** id가 `DiagnosticDescriptor` 생성자 호출 지점에 리터럴로 적히지 않고 런타임에 조립되기 때문에, Microsoft.CodeAnalysis.Analyzers의 [릴리스 추적 규칙](https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.Analyzers/ReleaseTrackingAnalyzers.Help.md)(RS2000-RS2003)이 여러분의 id를 하나도 해석하지 못하며, `AnalyzerReleases.Shipped.md`/`AnalyzerReleases.Unshipped.md`의 모든 항목을 짝이 없는 것으로 보고합니다. 이 파일들을 유지한다면 `RS2002`/`RS2003`을 억제하고 같은 검사를 테스트로 대신하세요 — 두 릴리스 파일을 읽어 `(id, category, severity)` 행을 서술자 테이블과 대조하고, 모든 서술자가 어느 분석기의 `SupportedDiagnostics`에든 들어 있는지 단언하면 됩니다. 작성하기 쉬운 데다, 분석기가 하던 것보다 더 많이 검증합니다.
+
+### `SymbolFacts`
+
+거의 모든 생성기가 결국 묻게 되는 심볼 수준의 질문들이며, 어느 것도 `Compilation`을 필요로 하지 않습니다: 타입을 생성 코드에 어떻게 쓰는지, 생성된 파일이 그 타입을 명명할 수 있는지, 제네릭인지, 그리고 한 번의 실행이 내놓는 진단을 어떤 순서로 정렬하는지.
+
+```csharp
+using SsalKit.Generators.Toolkit;
+
+// global:: 한정 이름 -- 생성 코드의 타입 참조는 이 형태로 써야 합니다.
+string fqn = SymbolFacts.ToFqn(typeSymbol);          // "global::Game.Loot.LootEntry"
+
+// 네임스페이스 이름, 전역 네임스페이스면 "" -- 네임스페이스 선언을 낼지 말지 판단하는 데 필요한 값입니다.
+string ns = SymbolFacts.GetContainingNamespaceName(typeSymbol);
+
+// 생성된 멤버를 inconsistent-accessibility 오류 없이 public으로 선언할 수 있는가?
+bool canBePublic = SymbolFacts.IsEffectivelyPublic(typeSymbol);
+
+// 자신의 타입 파라미터가 있거나, 컨테이너 타입에서 물려받았는가.
+bool isGeneric = SymbolFacts.IsGenericOrNestedInGeneric(typeSymbol);
+
+// 같은 어셈블리의 별도 생성 파일이 이 타입을 명명할 수 있는가?
+bool nameable = SymbolFacts.IsAccessibleFromGeneratedCode(typeSymbol);
+```
+
+`IsAccessibleFromGeneratedCode`는 중첩 체인 전체를 따라갑니다. `private` 타입 안에 중첩된 `public` 타입은 private 타입만큼이나 도달 불가능하며, `file`-local 타입은 `Accessibility.Internal`로 보고되므로 따로 물어봐야 합니다. `protected internal`은 통과하고(생성 파일이 `internal` 쪽 절반을 받습니다), `private protected`는 통과하지 못합니다(생성 코드는 무엇도 상속하지 않으므로 `protected` 쪽 절반은 결코 받지 못합니다). `IErrorTypeSymbol`(해석되지 않은 이름)은 거부됩니다 -- 명명할 타입 자체가 없으며, 그것을 참조하는 코드를 내보내면 컴파일 오류 하나가 둘이 됩니다.
+
+접근 불가 타입을 그냥 건너뛰는 대신 *진단으로 보고*하고 싶다면, `FindGeneratedCodeAccessBlocker`가 단순한 `bool` 대신 체인에서 문제가 된 고리를 돌려줍니다. 그래서 메시지가 그 이름을 직접 지목하고, 그것이 타입 자신인지 컨테이너인지까지 말해줄 수 있습니다.
+
+```csharp
+var blocker = SymbolFacts.FindGeneratedCodeAccessBlocker(typeSymbol);
+if (blocker is not null)
+{
+    string reason = ReferenceEquals(blocker, typeSymbol)
+        ? "it is declared '" + blocker.DeclaredAccessibility + "'"
+        : "it is nested inside '" + blocker.ToDisplayString() + "'";
+    // ... 보고
+}
+```
+
+마지막으로 `SortForDiagnosticDeterminism`은 `ImmutableArray<DiagnosticInfo>`를 소스 파일 -> 위치 -> id 순으로 정렬하며, 위치가 없는 진단은 맨 뒤로 보냅니다. 파이프라인 노드는 호스트가 정하는 순서대로 실행되므로, 마지막에 정렬하지 않으면 동일한 빌드 두 번의 진단 순서가 달라질 수 있습니다 -- 스냅샷 테스트가 간헐적으로 깨지고 빌드 로그가 불안정해지는 형태로 드러납니다.
+
+### `AttributeLocations`
+
+메서드 하나. 생성기가 거의 항상 조금씩 틀리게 잡는 그 위치 하나를 위한 것입니다.
+
+```csharp
+Location location = AttributeLocations.GetLocation(attributeData, decoratedSymbol);
+```
+
+attribute 적용에 대한 규칙을 보고하기 가장 좋은 자리는 데코레이트된 선언 전체가 아니라 attribute 적용 그 자체 -- 사용자가 직접 쓴, 지울 수 있는 토큰 -- 입니다. 그런데 `AttributeData.ApplicationSyntaxReference`는 attribute가 소스에서 오지 않았을 때 항상 `null`이고, 합성된 심볼은 위치를 아예 갖지 않으므로 순진한 한 줄짜리 코드에는 구멍이 둘 있습니다. 이 메서드는 그 둘을 모두 폴백으로 덮습니다: attribute 구문 -> 데코레이트된 심볼의 첫 위치 -> `Location.None`(`Diagnostic.Create`가 받아들이는 값으로, 진단을 버리는 대신 파일 위치 없이 보고합니다).
+
 ### `IsExternalInit` (컴파일러 폴리필)
 
 `netstandard2.0` 참조 어셈블리에는 `System.Runtime.CompilerServices.IsExternalInit`이 없습니다. C# 컴파일러는 `init` 접근자를 내보내기 전에 이 타입을 요구하며, 따라서 이 타입 없이는 `record` 선언 자체가 불가능합니다. 파이프라인 모델은 `record`를 쓰기 딱 좋은 자리이므로, 결국 모든 생성기 프로젝트가 똑같은 빈 타입을 손수 만들게 됩니다. 그 수고를 덜기 위해 패키지가 함께 배포합니다.
@@ -259,7 +311,7 @@ internal static class DiagnosticDescriptors
 - `#pragma warning disable`은 파일 내 모든 경고를 무조건 해제하여, `TreatWarningsAsErrors`를 포함한 여러분 프로젝트의 정확한 경고 설정 아래에서도 깨끗하게 컴파일되도록 합니다.
 - `#nullable enable`은 여러분 프로젝트의 nullable 설정과 무관하게 파일 자체의 nullable 계약을 고정합니다.
 
-이 헤더 외에도, 6개 컴포넌트 전체에서 모든 타입은 `internal`이며, 모든 파일은 고정된 `SsalKit.Generators.Toolkit` 네임스페이스에 있습니다 — 타입이 `internal`이므로, 이 패키지를 각자 임베드하는 서로 다른 두 생성기 어셈블리가 충돌할 일은 없습니다. (`IsExternalInit` 폴리필만은 위에서 설명한 이유로 이 네임스페이스 규칙에서 의도적으로 제외됩니다.)
+이 헤더 외에도, 8개 컴포넌트 전체에서 모든 타입은 `internal`이며, 모든 파일은 고정된 `SsalKit.Generators.Toolkit` 네임스페이스에 있습니다 — 타입이 `internal`이므로, 이 패키지를 각자 임베드하는 서로 다른 두 생성기 어셈블리가 충돌할 일은 없습니다. (`IsExternalInit` 폴리필만은 위에서 설명한 이유로 이 네임스페이스 규칙에서 의도적으로 제외됩니다.)
 
 폴리필을 함께 배포하게 된 지금도, 소스 자신은 의도적으로 `record` 타입과 `init` 전용 속성을 쓰지 않습니다. 그래야 폴리필 옵트아웃이 대가 없는 선택으로 남기 때문입니다 — 툴킷 자신의 코드가 `init`을 필요로 한다면, 폴리필을 빼는 순간 패키지의 나머지까지 함께 깨집니다. 그래서 `DiagnosticInfo`와 `LocationInfo`도 `record`가 아니라 `IEquatable<T>`를 직접 구현한 평범한 클래스입니다. 조건부 컴파일이 허용되는 파일도 `IsExternalInit.cs` 하나뿐이며, 나머지는 소비자의 `DefineConstants`가 무엇이든 동일하게 컴파일됩니다.
 

@@ -47,7 +47,7 @@ internal static class ServiceFactoryParser
         }
 
         var method = validation.Method!;
-        var interfaceTypeFqn = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var interfaceTypeFqn = SymbolFacts.ToFqn(typeSymbol);
         var implementationNamespace = GetImplementationNamespace(typeSymbol);
         var implementationTypeName = GetImplementationTypeName(typeSymbol);
 
@@ -58,8 +58,8 @@ internal static class ServiceFactoryParser
             ImplementationTypeFqn: $"global::{implementationNamespace}.{implementationTypeName}",
             MethodName: CSharpNaming.EscapeKeyword(method.Name),
             ParameterName: CSharpNaming.EscapeKeyword(method.Parameters[0].Name),
-            ParameterTypeFqn: validation.KeyType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
-            ReturnTypeFqn: validation.ReturnType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            ParameterTypeFqn: SymbolFacts.ToFqn(validation.KeyType!),
+            ReturnTypeFqn: SymbolFacts.ToFqn(validation.ReturnType!),
             HintName: HintNameSanitizer.Sanitize($"{interfaceTypeFqn}.ServiceFactory"));
     }
 
@@ -87,7 +87,7 @@ internal static class ServiceFactoryParser
             // FullyQualifiedFormat escapes any namespace segment that is a reserved keyword; only
             // its "global::" prefix has to be removed, since the result is being nested under
             // another namespace rather than used as a qualified name on its own.
-            var declared = containingNamespace.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var declared = SymbolFacts.ToFqn(containingNamespace);
             const string globalPrefix = "global::";
             if (declared.StartsWith(globalPrefix, StringComparison.Ordinal))
             {

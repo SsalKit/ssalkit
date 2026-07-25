@@ -9,11 +9,19 @@ using SsalKit.Generators.Toolkit;
 namespace SsalKit.Guard.Generator.Parsing;
 
 /// <summary>
-/// The symbol-level questions both parsers ask, in one place: how deep an exception sits, how a
-/// type has to be re-declared in a generated partial, and how an enum value has to be written back
-/// out as C#.
+/// The Guard-specific symbol-level questions both parsers ask, in one place: how deep an exception
+/// sits, how a type has to be re-declared in a generated partial, and how an enum value has to be
+/// written back out as C#.
 /// </summary>
-internal static class SymbolFacts
+/// <remarks>
+/// The generator-agnostic half of this -- fully qualified names, the effective-public test, the
+/// generic test, and the generated-code accessibility walk -- lives in
+/// <see cref="SymbolFacts"/> in SsalKit.Generators.Toolkit; only the parts that encode a Guard
+/// rule or a Guard message are here. The type is named <c>GuardSymbolFacts</c> rather than
+/// <c>SymbolFacts</c> precisely so that the toolkit's type stays reachable by its own unqualified
+/// name from this namespace.
+/// </remarks>
+internal static class GuardSymbolFacts
 {
     /// <summary>
     /// The metadata name of the base class every <c>[ErrorCode]</c> exception must derive from.
@@ -77,106 +85,38 @@ internal static class SymbolFacts
     }
 
     /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="type"/> has type parameters of its own or
-    /// is nested inside a type that does.
-    /// </summary>
-    public static bool IsGenericOrNestedInGeneric(INamedTypeSymbol type)
-    {
-        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
-        {
-            if (current.Arity > 0)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="type"/> and every type containing it are
-    /// public, which is the only case where a generated member may expose it and still be declared
-    /// <see langword="public"/> itself.
-    /// </summary>
-    public static bool IsEffectivelyPublic(INamedTypeSymbol type)
-    {
-        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
-        {
-            if (current.DeclaredAccessibility != Accessibility.Public)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>
     /// Returns the clause naming why <paramref name="type"/> cannot be named from a generated file
     /// in the same assembly, or <see langword="null"/> when it can.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// The whole nesting chain is walked, because a public type nested in a private one is no more
-    /// reachable than a private one. "Reachable" here means <c>internal</c> or wider at every step:
-    /// the generated file is a separate file of the same assembly, so it sees everything the
-    /// assembly sees, but nothing that a type's own declaration keeps to itself
-    /// (<c>private</c>/<c>protected</c>/<c>private protected</c>) and nothing that another file
-    /// keeps to itself (a <c>file</c>-local type, which is <c>internal</c> as far as
-    /// <see cref="ISymbol.DeclaredAccessibility"/> is concerned and therefore has to be asked about
-    /// separately).
-    /// </para>
-    /// <para>
-    /// This is deliberately a property of the type alone rather than of the type and the container
-    /// that would name it: an exception nested privately inside its own container would in fact be
-    /// reachable from that one container's generated part, but making the rule depend on where the
-    /// exception happens to be registered would mean the same declaration is legal or illegal
-    /// depending on a second file.
-    /// </para>
+    /// The walk itself is <see cref="SymbolFacts.FindGeneratedCodeAccessBlocker"/>; what is Guard's
+    /// own is only the wording, which names the offending declaration and says whether it is the
+    /// registered type itself or one of its containers -- the difference between a message a user
+    /// can act on and one that just says "no".
     /// </remarks>
     public static string? GetInaccessibleReason(INamedTypeSymbol type)
     {
-        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
+        var blocker = SymbolFacts.FindGeneratedCodeAccessBlocker(type);
+        if (blocker is null)
         {
-            var isSelf = ReferenceEquals(current, type);
-
-            if (current.IsFileLocal)
-            {
-                return isSelf
-                    ? "it is a file-local type"
-                    : "it is nested inside the file-local type '" + current.ToDisplayString() + "'";
-            }
-
-            if (!IsAtLeastInternal(current.DeclaredAccessibility))
-            {
-                var keyword = ToAccessibilityKeyword(current.DeclaredAccessibility);
-
-                return isSelf
-                    ? "it is declared '" + keyword + "'"
-                    : "it is nested inside '" + current.ToDisplayString() + "', which is declared '" + keyword + "'";
-            }
+            return null;
         }
 
-        return null;
+        var isSelf = ReferenceEquals(blocker, type);
+
+        if (blocker.IsFileLocal)
+        {
+            return isSelf
+                ? "it is a file-local type"
+                : "it is nested inside the file-local type '" + blocker.ToDisplayString() + "'";
+        }
+
+        var keyword = ToAccessibilityKeyword(blocker.DeclaredAccessibility);
+
+        return isSelf
+            ? "it is declared '" + keyword + "'"
+            : "it is nested inside '" + blocker.ToDisplayString() + "', which is declared '" + keyword + "'";
     }
-
-    /// <summary>
-    /// Whether the accessibility lets any other file of the same assembly name the type.
-    /// <c>protected internal</c> qualifies (it is <i>internal or</i> protected), <c>private
-    /// protected</c> does not (it is <i>internal and</i> protected).
-    /// </summary>
-    private static bool IsAtLeastInternal(Accessibility accessibility) =>
-        accessibility is Accessibility.Public
-            or Accessibility.Internal
-            or Accessibility.ProtectedOrInternal
-            or Accessibility.NotApplicable;
-
-    /// <summary>
-    /// The <c>global::</c>-prefixed fully qualified name, which is how every type reference in the
-    /// generated code is written.
-    /// </summary>
-    public static string ToFqn(ISymbol symbol) =>
-        symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
     /// <summary>
     /// The type's fully qualified name flattened into a single identifier
@@ -191,10 +131,10 @@ internal static class SymbolFacts
             segments.Add(current.Name);
         }
 
-        var containingNamespace = type.ContainingNamespace;
-        if (containingNamespace is not null && !containingNamespace.IsGlobalNamespace)
+        var containingNamespace = SymbolFacts.GetContainingNamespaceName(type);
+        if (containingNamespace.Length > 0)
         {
-            segments.AddRange(Enumerable.Reverse(containingNamespace.ToDisplayString().Split('.')));
+            segments.AddRange(Enumerable.Reverse(containingNamespace.Split('.')));
         }
 
         segments.Reverse();
@@ -241,7 +181,7 @@ internal static class SymbolFacts
     /// </summary>
     public static string ToCodeExpression(TypedConstant code, INamedTypeSymbol codeEnum)
     {
-        var enumFqn = ToFqn(codeEnum);
+        var enumFqn = SymbolFacts.ToFqn(codeEnum);
 
         if (code.Value is null)
         {
@@ -266,7 +206,7 @@ internal static class SymbolFacts
     /// </summary>
     public static string ToCodeDisplayName(string codeExpression, INamedTypeSymbol codeEnum)
     {
-        var enumFqn = ToFqn(codeEnum);
+        var enumFqn = SymbolFacts.ToFqn(codeEnum);
 
         return codeExpression.StartsWith(enumFqn + ".", System.StringComparison.Ordinal)
             ? codeEnum.Name + codeExpression.Substring(enumFqn.Length)

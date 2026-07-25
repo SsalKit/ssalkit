@@ -5,6 +5,17 @@
     <IsPackable>false</IsPackable>
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- The release-tracking rules RS2002 ("rule is in an unshipped release but is not a supported
+         diagnostic") and RS2003 ("rule was shipped but is no longer a supported diagnostic") can
+         only match a release-file entry against a diagnostic whose id is a compile-time constant at
+         the DiagnosticDescriptor construction site. The SSAL table is now built by
+         SsalKit.Generators.Toolkit's DiagnosticDescriptorFactory, which composes "SSAL" + the
+         numeric id at run time, so the analyzer can no longer resolve a single one of them and
+         reports every entry in both release files as unmatched. The files are still maintained and
+         still passed as AdditionalFiles; AnalyzerReleaseTrackingTests re-establishes exactly what
+         these two rules checked (and adds category/severity agreement and SupportedDiagnostics
+         coverage on top) as an ordinary test that reads the same two files. -->
+    <NoWarn>$(NoWarn);RS2002;RS2003</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

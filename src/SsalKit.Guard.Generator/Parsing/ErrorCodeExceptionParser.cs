@@ -28,7 +28,7 @@ internal static class ErrorCodeExceptionParser
 
         var compilation = context.SemanticModel.Compilation;
         var exceptionBase = compilation.GetTypeByMetadataName("System.Exception");
-        var errorCodedException = compilation.GetTypeByMetadataName(SymbolFacts.ErrorCodedExceptionMetadataName);
+        var errorCodedException = compilation.GetTypeByMetadataName(GuardSymbolFacts.ErrorCodedExceptionMetadataName);
 
         var candidates = ImmutableArray.CreateBuilder<ErrorCodeExceptionCandidate>();
 
@@ -66,7 +66,7 @@ internal static class ErrorCodeExceptionParser
         // SSALG001 first: "is this even an error-coded exception" is the more fundamental question,
         // and reporting both rules at once would only ask the user to fix a type they may have to
         // rewrite anyway.
-        if (!SymbolFacts.DerivesFrom(exception, errorCodedException))
+        if (!GuardSymbolFacts.DerivesFrom(exception, errorCodedException))
         {
             return ErrorCodeExceptionCandidate.Invalid(
                 location,
@@ -77,7 +77,7 @@ internal static class ErrorCodeExceptionParser
         // SSALG009 next: whether the generated file may name the type at all comes before what it
         // would do with the name. Reporting "abstract" for a type the container could never mention
         // would send the user to fix the wrong half of the declaration.
-        var inaccessibleReason = SymbolFacts.GetInaccessibleReason(exception);
+        var inaccessibleReason = GuardSymbolFacts.GetInaccessibleReason(exception);
         if (inaccessibleReason is not null)
         {
             return ErrorCodeExceptionCandidate.Invalid(
@@ -101,7 +101,7 @@ internal static class ErrorCodeExceptionParser
                     unusableReason));
         }
 
-        var codeExpression = SymbolFacts.ToCodeExpression(attribute.ConstructorArguments[0], codeEnum);
+        var codeExpression = GuardSymbolFacts.ToCodeExpression(attribute.ConstructorArguments[0], codeEnum);
         var constructor = FindWidestConstructor(exception, exceptionBase);
 
         return new ErrorCodeExceptionCandidate(
@@ -111,12 +111,12 @@ internal static class ErrorCodeExceptionParser
             ExceptionFqn: SymbolFacts.ToFqn(exception),
             ExceptionDisplayName: exceptionDisplayName,
             ExceptionName: exception.Name,
-            ExceptionFlattenedName: SymbolFacts.ToFlattenedIdentifier(exception),
+            ExceptionFlattenedName: GuardSymbolFacts.ToFlattenedIdentifier(exception),
             CodeExpression: codeExpression,
-            CodeDisplayName: SymbolFacts.ToCodeDisplayName(codeExpression, codeEnum),
+            CodeDisplayName: GuardSymbolFacts.ToCodeDisplayName(codeExpression, codeEnum),
             // A type that derives from ErrorCodedException necessarily derives from Exception, so
             // the depth is always known here.
-            InheritanceDepth: SymbolFacts.GetExceptionDepth(exception, exceptionBase) ?? 0,
+            InheritanceDepth: GuardSymbolFacts.GetExceptionDepth(exception, exceptionBase) ?? 0,
             Constructor: constructor.Shape,
             MessageIsNullable: constructor.MessageIsNullable,
             InnerIsNullable: constructor.InnerIsNullable,

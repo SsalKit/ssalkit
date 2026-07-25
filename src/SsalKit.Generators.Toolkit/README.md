@@ -18,7 +18,7 @@ SsalKit.Generators.Toolkit takes a different approach:
 - **Source-only, not a runtime assembly.** The package ships plain `.cs` files as [`contentFiles`](https://learn.microsoft.com/nuget/reference/nuspec#including-content-files), and those files are compiled directly into *your* generator project. There's no DLL to package alongside your analyzer, because there's no DLL at all.
 - **Zero package dependencies.** The embedded sources only need the Roslyn APIs your generator project already references — nothing new to resolve, nothing to conflict with your own `Microsoft.CodeAnalysis.*` version pin.
 - **Invisible to your consumers.** Because the helpers are compiled as `internal` types directly into your generator assembly, nothing about this package leaks into the public surface of the generator you ship.
-- **Six small, focused components**, not a framework: `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticInfo`/`LocationInfo`, and `DiagnosticDescriptorFactory` — plus the `IsExternalInit` polyfill every `netstandard2.0` generator needs to write `record` models at all. Take what you need; unused `internal` types simply sit there unreferenced.
+- **Eight small, focused components**, not a framework: `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticInfo`/`LocationInfo`, `DiagnosticDescriptorFactory`, `SymbolFacts`, and `AttributeLocations` — plus the `IsExternalInit` polyfill every `netstandard2.0` generator needs to write `record` models at all. Take what you need; unused `internal` types simply sit there unreferenced.
 
 ## Installation
 
@@ -229,6 +229,59 @@ internal static class DiagnosticDescriptors
 
 Every descriptor produced by a given factory instance shares the same id prefix/category, is formatted as `{idPrefix}{id:D3}` (e.g. `"SSAL001"`), and has `isEnabledByDefault: true`. Both `Error(...)` and `Warning(...)` accept an optional `params string[] customTags` for additional descriptor tags.
 
+**One trade-off to know about.** Because the id is composed at run time rather than written as a literal at the `DiagnosticDescriptor` constructor call, Microsoft.CodeAnalysis.Analyzers' [release-tracking rules](https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.Analyzers/ReleaseTrackingAnalyzers.Help.md) (RS2000-RS2003) can no longer resolve any of your ids, and will report every entry in `AnalyzerReleases.Shipped.md`/`AnalyzerReleases.Unshipped.md` as unmatched. If you maintain those files, suppress `RS2002`/`RS2003` and check the same thing from a test instead: read the two release files, compare their `(id, category, severity)` rows against your descriptor table, and assert that every descriptor is in some analyzer's `SupportedDiagnostics`. That test is easy to write, and it verifies more than the analyzer did.
+
+### `SymbolFacts`
+
+The symbol-level questions almost every generator ends up asking, none of which need a `Compilation`: how a type is written in generated code, whether the generated file may name it at all, whether it is generic, and how a run's diagnostics are ordered.
+
+```csharp
+using SsalKit.Generators.Toolkit;
+
+// global::-qualified name, which is how a type reference in generated code should be written.
+string fqn = SymbolFacts.ToFqn(typeSymbol);          // "global::Game.Loot.LootEntry"
+
+// Namespace name, or "" for the global namespace -- what you need to decide whether to emit a
+// namespace declaration at all.
+string ns = SymbolFacts.GetContainingNamespaceName(typeSymbol);
+
+// May the generated member be declared public without an inconsistent-accessibility error?
+bool canBePublic = SymbolFacts.IsEffectivelyPublic(typeSymbol);
+
+// Type parameters of its own, or inherited from a containing type.
+bool isGeneric = SymbolFacts.IsGenericOrNestedInGeneric(typeSymbol);
+
+// Can a separate generated file in the same assembly name this type?
+bool nameable = SymbolFacts.IsAccessibleFromGeneratedCode(typeSymbol);
+```
+
+`IsAccessibleFromGeneratedCode` walks the whole nesting chain: a `public` type nested in a `private` one is no more reachable than a private one, and a `file`-local type reports `Accessibility.Internal` so it has to be asked about separately. `protected internal` passes (the generated file gets the `internal` half); `private protected` does not (generated code derives from nothing, so it never gets the `protected` half). An `IErrorTypeSymbol` -- an unresolved name -- is rejected: there is no type to name, and emitting a reference to it would turn one compiler error into two.
+
+When you want to *report* on an inaccessible type rather than just skip it, `FindGeneratedCodeAccessBlocker` returns the offending link of the chain instead of a bare `bool`, so your message can name it and say whether it is the type itself or a container:
+
+```csharp
+var blocker = SymbolFacts.FindGeneratedCodeAccessBlocker(typeSymbol);
+if (blocker is not null)
+{
+    string reason = ReferenceEquals(blocker, typeSymbol)
+        ? "it is declared '" + blocker.DeclaredAccessibility + "'"
+        : "it is nested inside '" + blocker.ToDisplayString() + "'";
+    // ... report
+}
+```
+
+Finally, `SortForDiagnosticDeterminism` orders an `ImmutableArray<DiagnosticInfo>` by source file, then position, then id, with location-less diagnostics last. Pipeline nodes run in whatever order the host chooses, so without a final sort the diagnostic sequence of two identical builds can differ -- which shows up as flaky snapshot tests and unstable build logs.
+
+### `AttributeLocations`
+
+One method, for the one place a generator almost always gets a location slightly wrong.
+
+```csharp
+Location location = AttributeLocations.GetLocation(attributeData, decoratedSymbol);
+```
+
+The best place to report a rule about an attribute application is the attribute application itself -- the token the user wrote and can delete -- not the whole decorated declaration. But `AttributeData.ApplicationSyntaxReference` is `null` whenever the attribute did not come from source, and a synthesized symbol has no locations at all, so the naive one-liner has two holes in it. This falls back through both: attribute syntax, then the decorated symbol's first location, then `Location.None` (which `Diagnostic.Create` accepts, reporting without a file position rather than dropping the diagnostic).
+
 ### `IsExternalInit` (compiler polyfill)
 
 `netstandard2.0` reference assemblies don't ship `System.Runtime.CompilerServices.IsExternalInit`, which the C# compiler requires before it will emit an `init` accessor — and therefore before it will accept a `record` declaration at all. Since pipeline models are the natural place for `record`s, every generator project ends up hand-rolling the same empty type. The package ships it so you don't have to.
@@ -259,7 +312,7 @@ Every `.cs` file this package ships starts with the same three lines:
 - `#pragma warning disable` unconditionally clears every warning in the file, so it compiles clean under your project's exact warning configuration — including `TreatWarningsAsErrors`.
 - `#nullable enable` fixes the file's own nullable contract regardless of your project's nullable setting.
 
-On top of the header, every type across the six components is `internal`, and every file lives in the fixed `SsalKit.Generators.Toolkit` namespace — since the types are `internal`, two different generator assemblies that each embed this package never collide with each other. (The `IsExternalInit` polyfill is the single, deliberate exception to the namespace rule, for the reason given above.)
+On top of the header, every type across the eight components is `internal`, and every file lives in the fixed `SsalKit.Generators.Toolkit` namespace — since the types are `internal`, two different generator assemblies that each embed this package never collide with each other. (The `IsExternalInit` polyfill is the single, deliberate exception to the namespace rule, for the reason given above.)
 
 The sources themselves deliberately avoid `record` types and `init`-only properties, even though the package now ships the polyfill that would enable them. That keeps opting out of the polyfill a free choice: if the toolkit's own code needed `init`, excluding the polyfill would break the rest of the package along with it. `DiagnosticInfo` and `LocationInfo` are therefore ordinary classes with hand-written `IEquatable<T>` implementations rather than `record`s. `IsExternalInit.cs` is also the only file allowed to carry conditional compilation; everything else compiles identically in every consumer, whatever their `DefineConstants` are.
 
