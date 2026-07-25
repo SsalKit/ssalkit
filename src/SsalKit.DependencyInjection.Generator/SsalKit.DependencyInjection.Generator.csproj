@@ -20,6 +20,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Full-file link (not a selective subset): this compiles the exact same source set a
+         package consumer receives via contentFiles, so an internal build continuously verifies
+         consumer-side build integrity; unused internal types do not emit warnings. -->
+    <Compile Include="..\SsalKit.Generators.Toolkit\*.cs" Link="Toolkit\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="SsalKit.DependencyInjection.Generator.Tests" />
   </ItemGroup>
 
