@@ -41,11 +41,18 @@ jobs:
         run: dotnet test SsalKit.sln --configuration Release --no-build
 
       - name: Pack
-        run: >
-          dotnet pack src/SsalKit.DependencyInjection
-          --configuration Release
-          -p:Version=${{ steps.version.outputs.version }}
-          -o artifacts
+        run: |
+          for project in \
+            src/SsalKit.DependencyInjection \
+            src/SsalKit.Randomness \
+            src/SsalKit.Generators.Toolkit \
+            src/SsalKit.Guard
+          do
+            dotnet pack "$project" \
+              --configuration Release \
+              -p:Version=${{ steps.version.outputs.version }} \
+              -o artifacts
+          done
 
       - name: NuGet login (Trusted Publishing)
         id: nuget-login
