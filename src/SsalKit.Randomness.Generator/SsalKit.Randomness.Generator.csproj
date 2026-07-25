@@ -5,6 +5,14 @@
     <IsPackable>false</IsPackable>
     <IsRoslynComponent>true</IsRoslynComponent>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- RS2002 ("rule is part of the next unshipped analyzer release, but is not a supported
+         diagnostic for any analyzer") only recognises diagnostics declared through a
+         DiagnosticAnalyzer's SupportedDiagnostics. This assembly ships a source generator that
+         reports its SSALR rules directly from its source-output stage and deliberately has no
+         companion analyzer, so the rule can never be satisfied here. The release-tracking files
+         are still maintained (and still passed as AdditionalFiles) as the rules' changelog, and
+         the remaining RS20xx checks stay on. -->
+    <NoWarn>$(NoWarn);RS2002</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
