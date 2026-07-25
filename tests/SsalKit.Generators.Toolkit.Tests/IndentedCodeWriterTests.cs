@@ -177,4 +177,64 @@ public class IndentedCodeWriterTests
         Assert.Equal("a\nb\n", writer.ToString());
         Assert.Equal("a\nb\n", writer.ToString());
     }
+
+    [Fact]
+    public void WriteDocLine_PrefixesContentWithTripleSlashAndSpace()
+    {
+        var writer = new IndentedCodeWriter();
+
+        writer.WriteDocLine("<summary>");
+
+        Assert.Equal("/// <summary>\n", writer.ToString());
+    }
+
+    [Fact]
+    public void WriteDocLine_EmptyContent_WritesBareTripleSlashWithoutTrailingSpace()
+    {
+        var writer = new IndentedCodeWriter();
+
+        writer.WriteDocLine(string.Empty);
+
+        Assert.Equal("///\n", writer.ToString());
+    }
+
+    [Fact]
+    public void WriteDocLine_InsideBlock_IsIndented()
+    {
+        var writer = new IndentedCodeWriter();
+
+        using (writer.Block("internal static class C"))
+        {
+            writer.WriteDocLine("<summary>Docs.</summary>");
+        }
+
+        Assert.Equal("internal static class C\n{\n    /// <summary>Docs.</summary>\n}\n", writer.ToString());
+    }
+
+    [Fact]
+    public void WriteDocLines_WritesOneLinePerElementInOrder()
+    {
+        var writer = new IndentedCodeWriter();
+
+        writer.WriteDocLines(
+            "<summary>",
+            "Picks an item.",
+            "</summary>",
+            string.Empty,
+            "<returns>The item.</returns>");
+
+        Assert.Equal(
+            "/// <summary>\n/// Picks an item.\n/// </summary>\n///\n/// <returns>The item.</returns>\n",
+            writer.ToString());
+    }
+
+    [Fact]
+    public void WriteDocLines_WithNoArguments_WritesNothing()
+    {
+        var writer = new IndentedCodeWriter();
+
+        writer.WriteDocLines();
+
+        Assert.Equal(string.Empty, writer.ToString());
+    }
 }

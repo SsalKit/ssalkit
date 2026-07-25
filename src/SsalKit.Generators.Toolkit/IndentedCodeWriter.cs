@@ -91,6 +91,32 @@ internal sealed class IndentedCodeWriter
     }
 
     /// <summary>
+    /// Writes one XML documentation comment line: <paramref name="content"/> prefixed with
+    /// <c>"/// "</c>, at the current indentation level.
+    /// </summary>
+    /// <param name="content">
+    /// The comment content, without the leading slashes. An empty string writes a bare <c>///</c>
+    /// with no trailing space, so generated documentation blocks carry no trailing whitespace.
+    /// </param>
+    public void WriteDocLine(string content)
+    {
+        WriteLine(content.Length == 0 ? "///" : "/// " + content);
+    }
+
+    /// <summary>
+    /// Writes a run of XML documentation comment lines, one per element, each through
+    /// <see cref="WriteDocLine"/>.
+    /// </summary>
+    /// <param name="contents">The comment contents, without the leading slashes.</param>
+    public void WriteDocLines(params string[] contents)
+    {
+        foreach (var content in contents)
+        {
+            WriteDocLine(content);
+        }
+    }
+
+    /// <summary>
     /// Increases the indentation level until the returned scope is disposed.
     /// </summary>
     /// <returns>A scope that restores the previous indentation level when disposed.</returns>

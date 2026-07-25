@@ -12,7 +12,7 @@
 
   <PropertyGroup>
     <PackageId>SsalKit.Generators.Toolkit</PackageId>
-    <Description>Source-only toolkit for authoring Roslyn source generators: equatable arrays, an indented code writer, C# naming/casing helpers, hint-name sanitization, and a diagnostic descriptor factory, embedded directly into the consumer's compilation with no runtime assembly.</Description>
+    <Description>Source-only toolkit for authoring Roslyn source generators: equatable arrays, an indented code writer, C# naming/casing helpers, hint-name sanitization, cache-safe diagnostic descriptions, and a diagnostic descriptor factory, embedded directly into the consumer's compilation with no runtime assembly.</Description>
     <PackageDescription>$(Description)</PackageDescription>
     <PackageTags>source-generator;roslyn;analyzer;source-only;contentfiles;codegen</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

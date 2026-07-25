@@ -235,4 +235,78 @@ public class CSharpNamingTests
 
         Assert.Equal("Class", result);
     }
+
+    [Fact]
+    public void JoinIdentifierSegments_MultipleSegments_JoinsWithUnderscore()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(new[] { "Outer", "Middle", "Inner" });
+
+        Assert.Equal("Outer_Middle_Inner", result);
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_SingleSegment_IsReturnedUnchanged()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(new[] { "LootEntry" });
+
+        Assert.Equal("LootEntry", result);
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_EmptyList_ReturnsEmptyString()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(Array.Empty<string>());
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_OnlyEmptySegments_ReturnsEmptyString()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(new[] { string.Empty, null!, string.Empty });
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_LeadingEmptySegment_IsSkippedNotJoined()
+    {
+        Assert.Equal("Outer_Inner", CSharpNaming.JoinIdentifierSegments(new[] { string.Empty, "Outer", "Inner" }));
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_InnerEmptySegment_IsSkippedNotJoined()
+    {
+        Assert.Equal("Outer_Inner", CSharpNaming.JoinIdentifierSegments(new[] { "Outer", string.Empty, "Inner" }));
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_TrailingEmptySegment_IsSkippedNotJoined()
+    {
+        Assert.Equal("Outer_Inner", CSharpNaming.JoinIdentifierSegments(new[] { "Outer", "Inner", string.Empty }));
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_NullSegment_IsSkipped()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(new[] { "Outer", null!, "Inner" });
+
+        Assert.Equal("Outer_Inner", result);
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_CustomSeparator_IsUsedBetweenSegments()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(new[] { "Outer", "Inner" }, separator: '.');
+
+        Assert.Equal("Outer.Inner", result);
+    }
+
+    [Fact]
+    public void JoinIdentifierSegments_ReadsAnyReadOnlyList()
+    {
+        var result = CSharpNaming.JoinIdentifierSegments(new List<string> { "A", "B" });
+
+        Assert.Equal("A_B", result);
+    }
 }

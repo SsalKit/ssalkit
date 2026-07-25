@@ -1,4 +1,4 @@
-using SsalKit.Randomness.Generator.Diagnostics;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.Randomness.Generator.Models;
 

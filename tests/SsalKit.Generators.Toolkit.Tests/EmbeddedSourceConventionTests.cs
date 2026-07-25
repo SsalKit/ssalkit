@@ -1,23 +1,59 @@
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace SsalKit.Generators.Toolkit.Tests;
 
 /// <summary>
 /// Regression guard for the packaging contract in the design doc: every embedded source file
 /// under <c>src/SsalKit.Generators.Toolkit</c> must start with the fixed 3-line header, avoid
-/// <c>record</c>/init-only syntax (no <c>IsExternalInit</c> polyfill is shipped), declare only
-/// <c>internal</c> types, and never rely on <see cref="System.Environment.NewLine"/> (output must
-/// be deterministic across host operating systems).
+/// <c>record</c>/init-only syntax, stay inside C# 10, declare only <c>internal</c> types, live in
+/// the fixed toolkit namespace, and never rely on <see cref="System.Environment.NewLine"/> (output
+/// must be deterministic across host operating systems).
 /// </summary>
+/// <remarks>
+/// The syntax-shaped rules are checked by parsing each file with Roslyn rather than by scanning its
+/// text: a text scan cannot tell a <c>record</c> declaration from the word "record" inside a
+/// documentation comment, which matters now that the package documents the very syntax it forbids
+/// itself.
+/// </remarks>
 public class EmbeddedSourceConventionTests
 {
+    /// <summary>
+    /// The one embedded file that is deliberately exempt from the namespace rule: the compiler
+    /// looks the polyfill type up by its fixed fully qualified name, so it cannot be moved.
+    /// </summary>
+    private const string PolyfillFileName = "IsExternalInit.cs";
+
+    private const string PolyfillNamespace = "System.Runtime.CompilerServices";
+
+    private const string ToolkitNamespace = "SsalKit.Generators.Toolkit";
+
+    /// <summary>
+    /// The preprocessor symbol a consumer defines to drop the polyfill from its compilation.
+    /// </summary>
+    private const string PolyfillOptOutSymbol = "SSALKIT_GENERATORS_TOOLKIT_EXCLUDE_ISEXTERNALINIT";
+
     private static readonly string[] SourceFiles = GetSourceFiles();
 
     [Fact]
-    public void SourceFiles_AtLeastFiveFilesFound()
+    public void SourceFiles_AllShippedComponentsFound()
     {
-        Assert.True(SourceFiles.Length >= 5, $"Expected at least 5 embedded source files, found {SourceFiles.Length}.");
+        var names = SourceFiles.Select(Path.GetFileName).ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                "CSharpNaming.cs",
+                "DiagnosticDescriptorFactory.cs",
+                "DiagnosticInfo.cs",
+                "EquatableArray.cs",
+                "HintNameSanitizer.cs",
+                "IndentedCodeWriter.cs",
+                "IsExternalInit.cs",
+            },
+            names.OrderBy(name => name, StringComparer.Ordinal).ToArray());
     }
 
     [Theory]
@@ -36,24 +72,58 @@ public class EmbeddedSourceConventionTests
     [MemberData(nameof(SourceFileCases))]
     public void SourceFile_DoesNotUseRecordOrInitOnlySyntax(string path)
     {
-        var text = File.ReadAllText(path);
+        var root = Parse(path).GetRoot();
 
-        Assert.DoesNotContain("record ", text);
-        Assert.DoesNotContain(" init", text);
-        Assert.DoesNotContain("init;", text);
+        var recordDeclarations = root.DescendantNodes().OfType<RecordDeclarationSyntax>().ToArray();
+        var initAccessors = root.DescendantNodes()
+            .OfType<AccessorDeclarationSyntax>()
+            .Where(accessor => accessor.IsKind(SyntaxKind.InitAccessorDeclaration))
+            .ToArray();
+
+        Assert.Empty(recordDeclarations);
+        Assert.Empty(initAccessors);
+    }
+
+    [Theory]
+    [MemberData(nameof(SourceFileCases))]
+    public void SourceFile_ParsesAsCSharp10(string path)
+    {
+        var errors = Parse(path)
+            .GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .ToArray();
+
+        Assert.Empty(errors);
     }
 
     [Theory]
     [MemberData(nameof(SourceFileCases))]
     public void SourceFile_DeclaresOnlyInternalTypes(string path)
     {
-        var text = File.ReadAllText(path);
+        var root = Parse(path).GetRoot();
 
-        var publicTypeDeclaration = new Regex(
-            @"^\s*public\s+(?:sealed\s+|abstract\s+|static\s+|readonly\s+|partial\s+|unsafe\s+)*(class|struct|interface|enum|delegate|record)\s",
-            RegexOptions.Multiline);
+        var publicTypes = root.DescendantNodes()
+            .OfType<MemberDeclarationSyntax>()
+            .Where(member => member is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax)
+            .Where(member => member.Modifiers.Any(SyntaxKind.PublicKeyword))
+            .ToArray();
 
-        Assert.False(publicTypeDeclaration.IsMatch(text), $"{Path.GetFileName(path)} declares a public type.");
+        Assert.Empty(publicTypes);
+    }
+
+    [Theory]
+    [MemberData(nameof(SourceFileCases))]
+    public void SourceFile_DeclaresTheFixedNamespace(string path)
+    {
+        var expected = Path.GetFileName(path) == PolyfillFileName ? PolyfillNamespace : ToolkitNamespace;
+
+        var declared = Parse(path).GetRoot()
+            .DescendantNodes()
+            .OfType<BaseNamespaceDeclarationSyntax>()
+            .Select(declaration => declaration.Name.ToString())
+            .ToArray();
+
+        Assert.Equal(new[] { expected }, declared);
     }
 
     [Theory]
@@ -65,8 +135,63 @@ public class EmbeddedSourceConventionTests
         Assert.DoesNotContain("Environment.NewLine", text);
     }
 
+    [Fact]
+    public void Polyfill_WithoutOptOutSymbol_DeclaresIsExternalInit()
+    {
+        var root = Parse(PolyfillPath()).GetRoot();
+
+        var declared = root.DescendantNodes()
+            .OfType<BaseTypeDeclarationSyntax>()
+            .Select(type => type.Identifier.ValueText)
+            .ToArray();
+
+        Assert.Equal(new[] { "IsExternalInit" }, declared);
+    }
+
+    [Fact]
+    public void Polyfill_WithOptOutSymbol_DeclaresNothing()
+    {
+        var root = Parse(PolyfillPath(), PolyfillOptOutSymbol).GetRoot();
+
+        Assert.Empty(root.DescendantNodes().OfType<MemberDeclarationSyntax>());
+        Assert.Empty(root.DescendantNodes().OfType<BaseNamespaceDeclarationSyntax>());
+    }
+
+    [Fact]
+    public void Polyfill_DocumentsTheOptOutSymbol()
+    {
+        var text = File.ReadAllText(PolyfillPath());
+
+        Assert.Contains("#if !" + PolyfillOptOutSymbol, text);
+    }
+
+    /// <summary>
+    /// The polyfill is the only file allowed to carry conditional compilation: everything else must
+    /// compile identically in every consumer, whatever their <c>DefineConstants</c> happen to be.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SourceFileCases))]
+    public void SourceFile_OtherThanThePolyfill_HasNoConditionalCompilation(string path)
+    {
+        if (Path.GetFileName(path) == PolyfillFileName)
+        {
+            return;
+        }
+
+        Assert.DoesNotContain("#if", File.ReadAllText(path));
+    }
+
     public static IEnumerable<object[]> SourceFileCases() =>
         SourceFiles.Select(path => new object[] { path });
+
+    private static SyntaxTree Parse(string path, params string[] preprocessorSymbols) =>
+        CSharpSyntaxTree.ParseText(
+            File.ReadAllText(path),
+            new CSharpParseOptions(LanguageVersion.CSharp10, preprocessorSymbols: preprocessorSymbols),
+            path);
+
+    private static string PolyfillPath() =>
+        SourceFiles.Single(path => Path.GetFileName(path) == PolyfillFileName);
 
     private static string[] GetSourceFiles([CallerFilePath] string testFilePath = "")
     {

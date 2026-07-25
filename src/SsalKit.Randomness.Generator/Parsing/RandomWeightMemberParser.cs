@@ -23,7 +23,6 @@ internal static class RandomWeightMemberParser
     private const string SharedSourceOverloadsArgumentName = "SharedSourceOverloads";
     private const string ExtensionClassSuffix = "RandomWeightExtensions";
     private const string HintNameSuffix = ".RandomWeight";
-    private const string GlobalPrefix = "global::";
 
     public static WeightedMemberModel? GetModel(GeneratorAttributeSyntaxContext context, CancellationToken cancellationToken)
     {
@@ -165,19 +164,13 @@ internal static class RandomWeightMemberParser
         }
 
         names.Reverse();
-        return string.Join("_", names) + ExtensionClassSuffix;
+        return CSharpNaming.JoinIdentifierSegments(names) + ExtensionClassSuffix;
     }
 
-    private static string BuildHintName(string typeFqn)
-    {
-        // HintNameSanitizer would turn the "global::" prefix's colons into underscores, which is
-        // safe but noisy in every generated file name; the prefix carries no information here.
-        var trimmed = typeFqn.StartsWith(GlobalPrefix, System.StringComparison.Ordinal)
-            ? typeFqn.Substring(GlobalPrefix.Length)
-            : typeFqn;
-
-        return HintNameSanitizer.Sanitize(trimmed + HintNameSuffix);
-    }
+    // HintNameSanitizer strips the leading "global::" itself, which is what keeps it out of every
+    // generated file name; the prefix carries no information here.
+    private static string BuildHintName(string typeFqn) =>
+        HintNameSanitizer.Sanitize(typeFqn + HintNameSuffix);
 
     /// <summary>
     /// Reads one of the attribute's <see langword="bool"/> named arguments. An argument that was not
