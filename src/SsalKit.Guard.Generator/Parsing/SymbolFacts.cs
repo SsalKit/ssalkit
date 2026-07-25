@@ -114,6 +114,66 @@ internal static class SymbolFacts
     }
 
     /// <summary>
+    /// Returns the clause naming why <paramref name="type"/> cannot be named from a generated file
+    /// in the same assembly, or <see langword="null"/> when it can.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The whole nesting chain is walked, because a public type nested in a private one is no more
+    /// reachable than a private one. "Reachable" here means <c>internal</c> or wider at every step:
+    /// the generated file is a separate file of the same assembly, so it sees everything the
+    /// assembly sees, but nothing that a type's own declaration keeps to itself
+    /// (<c>private</c>/<c>protected</c>/<c>private protected</c>) and nothing that another file
+    /// keeps to itself (a <c>file</c>-local type, which is <c>internal</c> as far as
+    /// <see cref="ISymbol.DeclaredAccessibility"/> is concerned and therefore has to be asked about
+    /// separately).
+    /// </para>
+    /// <para>
+    /// This is deliberately a property of the type alone rather than of the type and the container
+    /// that would name it: an exception nested privately inside its own container would in fact be
+    /// reachable from that one container's generated part, but making the rule depend on where the
+    /// exception happens to be registered would mean the same declaration is legal or illegal
+    /// depending on a second file.
+    /// </para>
+    /// </remarks>
+    public static string? GetInaccessibleReason(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
+        {
+            var isSelf = ReferenceEquals(current, type);
+
+            if (current.IsFileLocal)
+            {
+                return isSelf
+                    ? "it is a file-local type"
+                    : "it is nested inside the file-local type '" + current.ToDisplayString() + "'";
+            }
+
+            if (!IsAtLeastInternal(current.DeclaredAccessibility))
+            {
+                var keyword = ToAccessibilityKeyword(current.DeclaredAccessibility);
+
+                return isSelf
+                    ? "it is declared '" + keyword + "'"
+                    : "it is nested inside '" + current.ToDisplayString() + "', which is declared '" + keyword + "'";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether the accessibility lets any other file of the same assembly name the type.
+    /// <c>protected internal</c> qualifies (it is <i>internal or</i> protected), <c>private
+    /// protected</c> does not (it is <i>internal and</i> protected).
+    /// </summary>
+    private static bool IsAtLeastInternal(Accessibility accessibility) =>
+        accessibility is Accessibility.Public
+            or Accessibility.Internal
+            or Accessibility.ProtectedOrInternal
+            or Accessibility.NotApplicable;
+
+    /// <summary>
     /// The <c>global::</c>-prefixed fully qualified name, which is how every type reference in the
     /// generated code is written.
     /// </summary>

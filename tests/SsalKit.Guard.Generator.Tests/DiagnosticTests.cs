@@ -377,6 +377,138 @@ public class DiagnosticTests
         Assert.Equal("SSALG002", diagnostic.Id);
     }
 
+    [Theory]
+    [InlineData("private", "it is declared 'private'")]
+    [InlineData("protected", "it is declared 'protected'")]
+    [InlineData("private protected", "it is declared 'private protected'")]
+    public void SSALG009_ExceptionThatTheGeneratedFileCannotName(string accessibility, string expectedReason)
+    {
+        var source = Wrap($$"""
+            public class Holder
+            {
+                [ErrorCode<GameStatusCode>(GameStatusCode.UserNotFound)]
+                {{accessibility}} sealed class UserNotFoundException : ErrorCodedException
+                {
+                    public UserNotFoundException(string? message = null) : base(message) { }
+                }
+            }
+
+            [ErrorCodes<GameStatusCode>]
+            public static partial class GameErrors
+            {
+            }
+            """);
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        var diagnostic = Assert.Single(result.SsalgDiagnostics);
+        Assert.Equal("SSALG009", diagnostic.Id);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains(expectedReason, diagnostic.GetMessage(), StringComparison.Ordinal);
+        AssertReportedOnAttribute(diagnostic, source, "ErrorCode<");
+
+        // Dropping the registration is the point: leaving it in would emit a file naming a type the
+        // file cannot see, turning a mistake in the user's code into an error in generated code.
+        var generated = result.AssertCompilesCleanly();
+        Assert.DoesNotContain("UserNotFoundException", generated, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The nesting chain is walked, not just the type's own modifier: a public type nested inside a
+    /// private one is exactly as unreachable as a private one.
+    /// </summary>
+    [Fact]
+    public void SSALG009_PublicExceptionNestedInsideAPrivateType()
+    {
+        var source = Wrap("""
+            public class Holder
+            {
+                private static class Inner
+                {
+                    [ErrorCode<GameStatusCode>(GameStatusCode.UserNotFound)]
+                    public sealed class UserNotFoundException : ErrorCodedException
+                    {
+                        public UserNotFoundException(string? message = null) : base(message) { }
+                    }
+                }
+            }
+
+            [ErrorCodes<GameStatusCode>]
+            public static partial class GameErrors
+            {
+            }
+            """);
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        var diagnostic = Assert.Single(result.SsalgDiagnostics);
+        Assert.Equal("SSALG009", diagnostic.Id);
+        Assert.Contains("nested inside 'Game.Holder.Inner'", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains("which is declared 'private'", diagnostic.GetMessage(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A <c>file</c>-local type reports as <see cref="Accessibility.Internal"/>, so it has to be
+    /// asked about separately -- it is scoped to one source file, and the generated part is another.
+    /// </summary>
+    [Fact]
+    public void SSALG009_FileLocalException()
+    {
+        var source = Wrap("""
+            [ErrorCode<GameStatusCode>(GameStatusCode.UserNotFound)]
+            file sealed class UserNotFoundException : ErrorCodedException
+            {
+                public UserNotFoundException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCodes<GameStatusCode>]
+            public static partial class GameErrors
+            {
+            }
+            """);
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        var diagnostic = Assert.Single(result.SsalgDiagnostics);
+        Assert.Equal("SSALG009", diagnostic.Id);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("it is a file-local type", diagnostic.GetMessage(), StringComparison.Ordinal);
+
+        var generated = result.AssertCompilesCleanly();
+        Assert.DoesNotContain("UserNotFoundException", generated, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The rule stops at <c>internal</c>: the generated part is another file of the same assembly,
+    /// so an internal exception nested in an internal type is perfectly nameable there.
+    /// </summary>
+    [Fact]
+    public void SSALG009_IsNotReportedForAnInternalExceptionNestedInAnInternalType()
+    {
+        var source = Wrap("""
+            internal class Holder
+            {
+                [ErrorCode<GameStatusCode>(GameStatusCode.UserNotFound)]
+                internal sealed class UserNotFoundException : ErrorCodedException
+                {
+                    public UserNotFoundException(string? message = null) : base(message) { }
+                }
+            }
+
+            [ErrorCodes<GameStatusCode>]
+            public static partial class GameErrors
+            {
+            }
+            """);
+
+        var result = GeneratorTestHelper.RunGenerator(source);
+
+        Assert.Empty(result.SsalgDiagnostics);
+
+        var generated = result.AssertCompilesCleanly();
+        Assert.Contains("internal static global::Game.Holder.UserNotFoundException UserNotFound", generated, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ValidDeclarations_ReportNothing()
     {

@@ -13,3 +13,4 @@ SSALG005 | SsalKit.Guard | Error    | [ErrorCode] exception must be concrete and
 SSALG006 | SsalKit.Guard | Warning  | No factory or throw helper is generated for the exception
 SSALG007 | SsalKit.Guard | Error    | [ErrorCodes] container cannot be generic
 SSALG008 | SsalKit.Guard | Warning  | No mapping container for the declared code enum
+SSALG009 | SsalKit.Guard | Error    | [ErrorCode] exception type is not accessible to the generated code

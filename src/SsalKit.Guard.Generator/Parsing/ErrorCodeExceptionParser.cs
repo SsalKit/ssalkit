@@ -74,6 +74,21 @@ internal static class ErrorCodeExceptionParser
                     DiagnosticDescriptors.ExceptionMustDeriveFromErrorCodedException, location, exceptionDisplayName));
         }
 
+        // SSALG009 next: whether the generated file may name the type at all comes before what it
+        // would do with the name. Reporting "abstract" for a type the container could never mention
+        // would send the user to fix the wrong half of the declaration.
+        var inaccessibleReason = SymbolFacts.GetInaccessibleReason(exception);
+        if (inaccessibleReason is not null)
+        {
+            return ErrorCodeExceptionCandidate.Invalid(
+                location,
+                new DiagnosticInfo(
+                    DiagnosticDescriptors.ExceptionMustBeAccessible,
+                    location,
+                    exceptionDisplayName,
+                    inaccessibleReason));
+        }
+
         var unusableReason = GetUnusableReason(exception);
         if (unusableReason is not null)
         {

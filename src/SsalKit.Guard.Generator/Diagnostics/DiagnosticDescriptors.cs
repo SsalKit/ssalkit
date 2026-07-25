@@ -9,10 +9,10 @@ namespace SsalKit.Guard.Generator.Diagnostics;
 /// <remarks>
 /// <para>
 /// The rules split into three groups by what the generator does after reporting them. A rule about
-/// a single <i>registration</i> (SSALG001, SSALG004, SSALG005) drops that registration and leaves
-/// the rest of the container intact, because one mis-declared exception should not take the whole
-/// mapping table down with it. A rule about the <i>container</i> (SSALG002, SSALG007) or about an
-/// ambiguity the generator refuses to resolve on the user's behalf (SSALG003) suppresses that
+/// a single <i>registration</i> (SSALG001, SSALG004, SSALG005, SSALG009) drops that registration and
+/// leaves the rest of the container intact, because one mis-declared exception should not take the
+/// whole mapping table down with it. A rule about the <i>container</i> (SSALG002, SSALG007) or about
+/// an ambiguity the generator refuses to resolve on the user's behalf (SSALG003) suppresses that
 /// container's generated file entirely.
 /// </para>
 /// <para>
@@ -104,4 +104,14 @@ internal static class DiagnosticDescriptors
         "No mapping container for the declared code enum",
         "'{0}' declares an error code of type '{1}', but this compilation has no [ErrorCodes<{1}>] container for that enum, so no mapping, factory or throw helper is generated for it",
         "A code declared with [ErrorCode] only becomes something you can call or map through a container. Without one, every declaration still compiles and nothing is generated anywhere, which is indistinguishable from the generator not running at all. Add a 'static partial class' marked [ErrorCodes<TCode>] for the enum, or remove the attribute.");
+
+    /// <summary>
+    /// SSALG009: the decorated exception is not visible from the file the container is generated
+    /// into, so naming it there would not compile. Message argument 1 carries the reason.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ExceptionMustBeAccessible = Factory.Error(
+        9,
+        "[ErrorCode] exception type is not accessible to the generated code",
+        "[ErrorCode] cannot be applied to '{0}' because {1}, so the generated mapping container cannot name it; the registration is ignored",
+        "The container's generated part is a separate file, and every registration becomes a type test -- and, for a decorated exception, a 'new' expression -- written out in it. A type that is private, protected, private protected, or 'file'-local is not nameable from there, so including it would produce a generated file that does not compile: an error pointing at code the user never wrote. Declare the exception 'internal' or 'public', or drop the attribute.");
 }
