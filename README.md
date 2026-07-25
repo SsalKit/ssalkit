@@ -13,6 +13,7 @@ Source-generator-first utility libraries for modern .NET.
 |---------|-------|-------------|------|
 | `SsalKit.DependencyInjection` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.DependencyInjection.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.DependencyInjection) | Compile-time DI auto-registration via a Roslyn source generator. | [README](src/SsalKit.DependencyInjection/README.md) |
 | `SsalKit.Randomness` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness) | Deterministic, state-serializable PRNG (`xoshiro256**` + SplitMix64) with weighted-random sampling. | [README](src/SsalKit.Randomness/README.md) |
+| `SsalKit.Generators.Toolkit` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit) | Source-only toolkit for authoring Roslyn source generators, embedded into the consumer's compilation with no runtime assembly. | [README](src/SsalKit.Generators.Toolkit/README.md) |
 
 ## Why "SsalKit"?
 

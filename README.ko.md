@@ -13,6 +13,7 @@
 |---------|-------|-------------|------|
 | `SsalKit.DependencyInjection` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.DependencyInjection.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.DependencyInjection) | Roslyn 소스 생성기 기반의 컴파일 타임 DI 자동 등록 라이브러리. | [README](src/SsalKit.DependencyInjection/README.ko.md) |
 | `SsalKit.Randomness` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness) | 결정적·상태 직렬화 가능 PRNG(`xoshiro256**` + SplitMix64)와 가중치 랜덤 추첨 라이브러리. | [README](src/SsalKit.Randomness/README.ko.md) |
+| `SsalKit.Generators.Toolkit` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit) | Roslyn 소스 생성기 저작용 source-only 툴킷. 런타임 어셈블리 없이 소비자 컴파일에 임베드됩니다. | [README](src/SsalKit.Generators.Toolkit/README.ko.md) |
 
 ## 이름의 유래
 
