@@ -245,6 +245,76 @@ services.AddSingleton<IPaymentProcessorFactory, SsalKit.DependencyInjection.Gene
 
 팩토리 인터페이스를 선언한 컴파일 단위에 해당 enum 값에 대한 `[Service(Key = SomeEnum.X)]` 등록이 없어도 **진단을 보고하지 않습니다**. 팩토리 인터페이스는 한 어셈블리에 두고 keyed 구현은 다른 어셈블리에(또는 `Program.cs`에서 수동으로) 등록하는 구성은 정상적인 사용 방식이며, 생성기는 다른 어셈블리의 등록을 볼 수 없으므로 추측하지 않습니다. 대신 정말로 등록이 누락된 경우는 컴파일 타임이 아니라 resolve 시점에 드러납니다.
 
+## 계약의 모든 구현체 등록하기
+
+어떤 등록은 클래스마다 attribute를 반복해서 붙이기보다 규칙 하나로 표현하는 편이 자연스럽습니다. *모든* `IRequestHandler<,>`는 `Scoped`, *모든* `IStartupTask`는 `Singleton` 같은 경우입니다. `[assembly: RegisterImplementationsOf]`는 그 규칙을 한 번만 선언하고, 생성기가 컴파일 타임에 해석합니다 — 여전히 리플렉션도, 시작 시점 스캔도 없습니다.
+
+```csharp
+using Microsoft.Extensions.DependencyInjection;
+using SsalKit.DependencyInjection;
+
+[assembly: RegisterImplementationsOf(typeof(IRequestHandler<,>), ServiceLifetime.Scoped)]
+[assembly: RegisterImplementationsOf(typeof(IStartupTask))]
+
+// 어느 클래스에도 attribute가 붙어 있지 않습니다 — 위 두 줄이 셋 모두를 등록합니다.
+public sealed class PingHandler : IRequestHandler<Ping, Pong> { }
+public sealed class MigrateDatabase : IStartupTask { }
+public sealed class WarmCaches : IStartupTask { }
+```
+
+는 다음을 생성합니다.
+
+```csharp
+services.TryAddEnumerable(ServiceDescriptor.Scoped<IRequestHandler<Ping, Pong>, PingHandler>());
+services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupTask, MigrateDatabase>());
+services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupTask, WarmCaches>());
+```
+
+따라서 `IEnumerable<IStartupTask>`를 그대로 생성자 주입으로 받을 수 있습니다.
+
+### 스캔 범위는 현재 컴파일 단위뿐입니다
+
+스캔은 **attribute가 적용된 어셈블리**에 선언된 타입만 대상으로 합니다. 참조 어셈블리의 클래스는 프로젝트 참조라 하더라도 절대 발견되지 않습니다 — 생성기는 한 번에 하나의 어셈블리를 컴파일하며 다른 어셈블리의 소스에 접근할 수 없기 때문입니다. 참조 어셈블리의 구현체를 등록하려면 그 어셈블리에도 attribute를 선언하고, 거기서 생성된 `Add{Assembly}Services()`를 호출하세요.
+
+### 매칭 규칙
+
+계약은 반드시 **인터페이스**여야 합니다 (`SSAL021`).
+
+- 비제네릭이거나 closed 제네릭 계약(`typeof(IStartupTask)`, `typeof(IRequestHandler<Ping, Pong>)`)은 그것을 구현한 모든 클래스에 매칭됩니다.
+- **Unbound 제네릭** 계약(`typeof(IRequestHandler<,>)`)은 그 계약의 *어떤* 인스턴스화든 구현한 모든 클래스에 매칭되며, 구현한 인스턴스화마다 `(인스턴스화, 클래스)` 쌍을 하나씩 등록합니다 — `IRequestHandler<A, B>`와 `IRequestHandler<C, D>`를 모두 구현한 클래스는 각각 한 번씩, 총 두 번 등록됩니다.
+- **Open generic 클래스**(`Validator<T> : IValidator<T>`)는 `typeof` 기반 `(IValidator<>, Validator<>)` 쌍으로 등록됩니다. 단, open generic `[Service]`에 적용되는 [정확히 일치해야 하는 규칙](#정확히-일치해야-하는-규칙-exact-match-rule)을 동일하게 만족해야 합니다. `Handler<T> : IHandler<T, Unit>`처럼 일부만 적용된 형태는 open generic 등록으로 표현할 수 없으므로 건너뜁니다.
+
+상속으로 얻은 구현도 인정됩니다. 기반 클래스를 통해서든, 계약이 클래스의 인터페이스 집합 어딘가에 있으면 매칭됩니다.
+
+### 조용히 건너뛰는 것들
+
+규약 스캔은 특정 타입이 아니라 *형태*를 기술하므로, 단순히 조건에 맞지 않는 클래스는 보고하지 않고 지나갑니다. `abstract`·`static` 클래스, 클래스가 아닌 타입, 생성된 코드에서 접근할 수 없는 클래스(`private` 중첩 클래스나 `file`-local 클래스, 그리고 그 안에 중첩된 모든 것), 제네릭 타입 안에 중첩된 클래스(`SSAL003` 참고), 그리고 구현한 인스턴스화가 정확히 일치하지 않는 open generic 클래스가 여기에 해당합니다.
+
+진단은 *선언* 자체의 실수에 대해서만 보고됩니다 — 여기에는 결과적으로 **아무것도 매칭하지 못한** 계약(`SSAL022`)도 포함되므로, 오타나 네임스페이스 착오로 아무것도 등록되지 않는 상황이 조용히 넘어가지 않습니다.
+
+### 명시가 규약을 이깁니다
+
+`[Service]`가 하나라도 붙은 클래스는 그 어셈블리의 모든 규약 스캔에서 제외되므로, 명시적 등록이 규약에 의해 중복되거나 뒤집히는 일이 없습니다. 이는 곧 클래스 단위 opt-out 수단이기도 합니다. 원하는 등록(다른 lifetime, `As` 타입, `Key`, `Mode`)을 `[Service]`로 직접 지정하면 스캔은 그 클래스를 건드리지 않습니다.
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IStartupTask))]
+
+public sealed class WarmCaches : IStartupTask { }          // 스캔이 등록: TryAddEnumerable Singleton
+
+[Service(ServiceLifetime.Transient)]
+public sealed class PersistStep : IStartupTask { }         // [Service]만 등록: Transient Add
+```
+
+### 기본 `Mode`가 `TryAddEnumerable`인 이유
+
+"X의 모든 구현체를 등록한다"는 본질적으로 여러 구현을 `IEnumerable<X>`로 함께 소비하는 패턴입니다. `TryAddEnumerable`은 구현들이 서로를 가리지 않게 해주는 유일한 모드이고, `SSAL015`가 절대 충돌로 보고하지 않는 유일한 모드이기도 합니다. 그래서 이 attribute의 기본값은 `Add`가 기본인 `[Service]`와 달리 `TryAddEnumerable`입니다. 스캔으로 단일 구현을 바인딩하려는 (더 드문) 경우에는 `Mode`를 명시하세요.
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IClock), Mode = RegistrationMode.TryAdd)]
+```
+
+매칭된 서비스 타입은 각각 독립적으로 등록됩니다. 여러 인터페이스를 가진 `[Service]`와 달리, 규약으로 스캔된 클래스는 구체 타입으로 한 번 등록되고 서비스 타입들이 그쪽으로 포워딩되는 방식이 아니므로, 같은 클래스에 매칭된 두 서비스 타입은 동일 인스턴스로 resolve되지 **않습니다**.
+
 ## Attribute 레퍼런스
 
 `[Service(lifetime, As = ..., Mode = ..., Key = ..., Factory = ...)]`
@@ -261,9 +331,19 @@ services.AddSingleton<IPaymentProcessorFactory, SsalKit.DependencyInjection.Gene
 
 `[ServiceFactory]`는 인자를 받지 않으며, 인터페이스에만 한 번씩 붙일 수 있습니다. [Enum 키 기반 서비스 팩토리](#enum-키-기반-서비스-팩토리)를 참고하세요.
 
+`[assembly: RegisterImplementationsOf(contract, lifetime, Mode = ...)]`
+
+| 속성        | 타입                | 기본값                                | 설명                                                                                     |
+|------------|---------------------|---------------------------------------|------------------------------------------------------------------------------------------|
+| `Contract` | `Type`               | *(필수)*                              | 생성자 인자입니다. 구현체를 찾을 인터페이스로, 비제네릭·closed 제네릭·unbound `typeof(IHandler<,>)` 모두 가능합니다. |
+| `Lifetime` | `ServiceLifetime`    | `ServiceLifetime.Singleton`           | 생성자 인자입니다. 매칭된 모든 구현체가 등록될 lifetime입니다.                                |
+| `Mode`     | `RegistrationMode`   | `RegistrationMode.TryAddEnumerable`   | 매칭된 각 등록을 컬렉션에 적용하는 방식입니다 — 기본값이 `[Service]`와 다르다는 점에 유의하세요. |
+
+이 attribute는 어셈블리 대상이며, 계약마다 하나씩 원하는 만큼 선언할 수 있습니다. [계약의 모든 구현체 등록하기](#계약의-모든-구현체-등록하기)를 참고하세요.
+
 ## 진단(Diagnostics)
 
-소스 생성기는 컴파일 타임에 `[Service]`와 `[ServiceFactory]` 사용을 검증합니다.
+소스 생성기는 컴파일 타임에 `[Service]`, `[ServiceFactory]`, `[assembly: RegisterImplementationsOf]` 사용을 검증합니다.
 
 | ID        | 심각도    | 설명                                                                          |
 |-----------|-----------|-------------------------------------------------------------------------------|
@@ -287,6 +367,12 @@ services.AddSingleton<IPaymentProcessorFactory, SsalKit.DependencyInjection.Gene
 | `SSAL018` | Error     | `[ServiceFactory]` 메서드의 시그니처를 사용할 수 없습니다 — 제네릭이거나, 값으로 전달되는 `enum` 매개변수 하나가 아니거나(`ref`/`out`/`in` 포함), `void`를 반환하거나, 참조로 반환하는 경우입니다. |
 | `SSAL019` | Error     | `[ServiceFactory]`가 제네릭 인터페이스 또는 제네릭 타입 안에 중첩된 인터페이스에 적용되었습니다 — 생성되는 구현은 하나의 closed 서비스 타입으로 등록되는 비제네릭 Singleton입니다. |
 | `SSAL020` | Error     | 팩토리 인터페이스, enum 키 타입, 반환 타입 중 하나가 생성된 구현(같은 어셈블리의 `SsalKit.DependencyInjection.Generated` 네임스페이스에 있는 별도 파일)에서 접근할 수 없습니다. 셋 다 최소 `internal`이어야 하며 file-local이면 안 됩니다. |
+| `SSAL021` | Error     | `[assembly: RegisterImplementationsOf]`의 계약이 인터페이스가 아닙니다. 클래스·구조체·enum·델리게이트·배열 타입에는 찾아낼 "구현체" 집합이라는 개념이 없습니다. |
+| `SSAL022` | Warning   | `[assembly: RegisterImplementationsOf]` 계약이 아무 클래스에도 매칭되지 않아 아무것도 등록하지 않았습니다. 흔한 원인은 인터페이스 이름 오타나 네임스페이스 착오, *참조* 어셈블리의 클래스가 발견될 것이라는 오해(발견되지 않습니다), 그리고 후보가 전부 abstract·static·접근 불가·제네릭 타입 안 중첩·`[Service]` 부착 등의 이유로 건너뛰어진 경우입니다. |
+| `SSAL023` | Error     | 동일한 계약을 `[assembly: RegisterImplementationsOf]`가 둘 이상 선언했습니다. 첫 번째 선언만 사용됩니다 — 같은 계약에 대한 두 선언은 합쳐진 의미가 없습니다. |
+| `SSAL024` | Error     | `[assembly: RegisterImplementationsOf]`에 정의되지 않은 `ServiceLifetime` 또는 `RegistrationMode` 값(예: `(ServiceLifetime)42`)이 전달되었습니다. |
+| `SSAL025` | Error     | 계약(또는 그 제네릭 타입 인자)이 생성된 등록 코드에서 접근할 수 없습니다. 최소 `internal`이어야 하며 file-local이면 안 됩니다. `file`-local 인터페이스는 attribute 적용 지점에서는 이름을 쓸 수 있어도 생성된 파일에서는 쓸 수 없습니다. |
+| `SSAL026` | Warning   | 겹치는 두 계약(보통 unbound `typeof(IHandler<>)`와 closed `typeof(IHandler<int>)`)이 같은 클래스를 같은 서비스 타입으로 매칭했지만 `Lifetime`/`Mode`가 서로 다릅니다. 두 등록이 모두 방출되며, 어느 쪽이 이길지는 선언이 아니라 Microsoft.Extensions.DependencyInjection의 규칙이 결정합니다. 설정이 *일치하는* 겹침은 하나의 등록으로 합쳐지고 아무것도 보고하지 않습니다. |
 
 ## 라이센스
 
