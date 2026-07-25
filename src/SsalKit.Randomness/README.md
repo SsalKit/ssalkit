@@ -4,7 +4,7 @@
 
 # SsalKit.Randomness
 
-A deterministic, state-serializable PRNG (xoshiro256** + SplitMix64) with a unified random-source abstraction and weighted-random sampling. Zero dependencies.
+A deterministic, state-serializable PRNG (`xoshiro256**` + SplitMix64) with a unified random-source abstraction and weighted-random sampling. Zero dependencies.
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness)
 
 ## Why SsalKit.Randomness?
@@ -19,7 +19,7 @@ Game logic, simulations, and procedural content all eventually run into the same
 
 SsalKit.Randomness takes a different approach:
 
-- **`DeterministicRandom`** is a sealed, `System.Random`-shaped PRNG (xoshiro256**) whose full 256-bit state can be exported, persisted anywhere (a save file, a database row, a network packet), and restored to resume the exact same sequence — forever, on any platform.
+- **`DeterministicRandom`** is a sealed, `System.Random`-shaped PRNG (`xoshiro256**`) whose full 256-bit state can be exported, persisted anywhere (a save file, a database row, a network packet), and restored to resume the exact same sequence — forever, on any platform.
 - **`IRandomSource`** unifies deterministic, shared (`Random.Shared`), and cryptographic randomness behind one interface, so range generation, shuffling, and picking are written once and work against any of them.
 - **Weighted random sampling** (`PickWeighted`, `PickManyWeighted(Distinct)`, `WeightedSampler<T>`) ships with the library, with a precise exception contract and an `O(1)`-per-draw alias-method sampler for repeated weighted picks.
 - **Zero dependencies.** No `PackageReference`, BCL only.
@@ -119,14 +119,14 @@ Building a `WeightedSampler<T>` isn't free — `Create(...)` takes 237 ns at N=1
 
 ## Algorithm & state contract (v1)
 
-`DeterministicRandom`'s output sequence is **xoshiro256\*\***, and seed expansion (from a single `ulong` seed to the 256-bit internal state) is **SplitMix64**. The state is exactly four `ulong` words, exposed as `RandomState`.
+`DeterministicRandom`'s output sequence is `xoshiro256**`, and seed expansion (from a single `ulong` seed to the 256-bit internal state) is **SplitMix64**. The state is exactly four `ulong` words, exposed as `RandomState`.
 
 This contract is permanently fixed for this type:
 
 - **The same seed or the same restored state always produces the same sequence** — on any platform, in any process, forever.
 - Because `RandomState` can be persisted as save data, changing the output sequence would corrupt every consumer's saved data. This will **never** happen in a patch or minor release.
 - If the algorithm ever needs to evolve, it will ship as a **new type** (e.g. a hypothetical `DeterministicRandomV2`), never by changing the behavior of `DeterministicRandom` itself.
-- The all-zero state is invalid (xoshiro256** can never leave it once entered) and is rejected by `FromState(...)`/`RandomState.FromSpan(...)` with an `ArgumentException`.
+- The all-zero state is invalid (`xoshiro256**` can never leave it once entered) and is rejected by `FromState(...)`/`RandomState.FromSpan(...)` with an `ArgumentException`.
 
 Derived guarantees:
 

@@ -4,7 +4,7 @@
 
 # SsalKit.Randomness
 
-결정적(deterministic)이고 상태를 직렬화할 수 있는 PRNG(xoshiro256** + SplitMix64)와, 통일된 난수 소스 추상화, 가중치 랜덤 추첨을 제공하는 라이브러리입니다. 의존성이 없습니다.
+결정적(deterministic)이고 상태를 직렬화할 수 있는 PRNG(`xoshiro256**` + SplitMix64)와, 통일된 난수 소스 추상화, 가중치 랜덤 추첨을 제공하는 라이브러리입니다. 의존성이 없습니다.
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Randomness.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Randomness)
 
 ## 왜 SsalKit.Randomness인가
@@ -19,7 +19,7 @@
 
 SsalKit.Randomness는 접근 방식 자체가 다릅니다.
 
-- **`DeterministicRandom`**은 `System.Random`과 비슷한 모양의 sealed PRNG(xoshiro256**)로, 256bit 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
+- **`DeterministicRandom`**은 `System.Random`과 비슷한 모양의 sealed PRNG(`xoshiro256**`)로, 256bit 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
 - **`IRandomSource`**는 결정적/공유(`Random.Shared`)/암호학적 난수를 하나의 인터페이스로 통일하므로, 범위 생성·셔플·추첨 코드를 한 번만 작성해 셋 중 무엇에도 적용할 수 있습니다.
 - **가중치 랜덤 추첨**(`PickWeighted`, `PickManyWeighted(Distinct)`, `WeightedSampler<T>`)이 라이브러리에 함께 제공되며, 명확한 예외 계약과 반복 추첨용 `O(1)` alias method 샘플러를 갖추고 있습니다.
 - **의존성 0.** `PackageReference` 없이 BCL만 사용합니다.
@@ -119,14 +119,14 @@ BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에�
 
 ## 알고리즘 및 상태 계약 (v1)
 
-`DeterministicRandom`의 출력 수열은 **xoshiro256\*\***이며, 시드 확장(단일 `ulong` 시드에서 256bit 내부 상태로)은 **SplitMix64**입니다. 상태는 정확히 4개의 `ulong` 워드로 구성되며 `RandomState`로 노출됩니다.
+`DeterministicRandom`의 출력 수열은 `xoshiro256**`이며, 시드 확장(단일 `ulong` 시드에서 256bit 내부 상태로)은 **SplitMix64**입니다. 상태는 정확히 4개의 `ulong` 워드로 구성되며 `RandomState`로 노출됩니다.
 
 이 계약은 이 타입에 대해 영구적으로 고정됩니다.
 
 - **같은 시드 또는 같은 방식으로 복원된 상태는 어떤 플랫폼·어떤 프로세스에서든, 영원히 항상 같은 수열을 만들어냅니다.**
 - `RandomState`가 세이브 데이터로 저장될 수 있으므로, 출력 수열을 바꾸면 모든 소비자의 세이브 데이터가 손상되는 것과 같습니다. 이런 변경은 패치/마이너 릴리스에서 **절대** 일어나지 않습니다.
 - 알고리즘을 언젠가 진화시켜야 한다면, `DeterministicRandom` 자체의 동작을 바꾸는 대신 **새로운 타입**(예: 가상의 `DeterministicRandomV2`)으로만 출시됩니다.
-- all-zero 상태는 무효한 상태입니다(xoshiro256**는 한 번 그 상태에 들어가면 절대 빠져나오지 못합니다). `FromState(...)`/`RandomState.FromSpan(...)`은 이를 `ArgumentException`으로 거부합니다.
+- all-zero 상태는 무효한 상태입니다(`xoshiro256**`는 한 번 그 상태에 들어가면 절대 빠져나오지 못합니다). `FromState(...)`/`RandomState.FromSpan(...)`은 이를 `ArgumentException`으로 거부합니다.
 
 파생 보장 사항:
 
