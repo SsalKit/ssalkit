@@ -14,12 +14,30 @@ namespace SsalKit.Generators.Toolkit;
 /// and hashing over its elements.
 /// </summary>
 /// <remarks>
+/// <para>
 /// <see cref="ImmutableArray{T}"/> implements <see cref="IEquatable{T}"/> but compares the
 /// underlying array by reference, not by content. Records (and the incremental generator
 /// pipeline) rely on <see cref="EqualityComparer{T}.Default"/> to decide whether a pipeline
 /// stage's output has changed since the previous run. Wrapping arrays in this type ensures two
 /// runs that produced the same elements are considered equal, which keeps the generator's
 /// caching correct and effective.
+/// </para>
+/// <para>
+/// <b>A <see langword="default"/> instance is not equal to <see cref="Empty"/>.</b> The wrapper
+/// deliberately preserves the distinction the underlying <see cref="ImmutableArray{T}"/> makes
+/// between "no array at all" (<see cref="ImmutableArray{T}.IsDefault"/>) and "an array with no
+/// elements": <see cref="Equals(EquatableArray{T})"/> answers <see langword="false"/> for that
+/// pair, and their hash codes differ. Every other member -- <see cref="Length"/>,
+/// <see cref="AsImmutableArray"/>, <see cref="GetEnumerator"/> -- treats the two alike, so the
+/// asymmetry only ever shows up in equality.
+/// </para>
+/// <para>
+/// That matters for pipeline models: a stage that produces <see langword="default"/> on one run
+/// and <see cref="Empty"/> on the next reports a change even though both mean "nothing". Pick one
+/// spelling for "empty" and stick to it -- <c>ToEquatableArray()</c> over an empty sequence and
+/// <see cref="Empty"/> both give the non-default form, and a field left uninitialized gives the
+/// default one.
+/// </para>
 /// </remarks>
 internal readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IEnumerable<T>
     where T : IEquatable<T>
@@ -39,6 +57,15 @@ internal readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IEnu
 
     public ImmutableArray<T> AsImmutableArray() => _array.IsDefault ? ImmutableArray<T>.Empty : _array;
 
+    /// <summary>
+    /// Compares two arrays element by element.
+    /// </summary>
+    /// <param name="other">The array to compare against.</param>
+    /// <returns>
+    /// <see langword="true"/> when both wrap the same elements in the same order. A
+    /// <see langword="default"/> instance equals only another <see langword="default"/> one, and in
+    /// particular is <b>not</b> equal to <see cref="Empty"/>; see the type's remarks.
+    /// </returns>
     public bool Equals(EquatableArray<T> other)
     {
         var left = _array;
@@ -67,20 +94,36 @@ internal readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IEnu
 
     public override bool Equals(object? obj) => obj is EquatableArray<T> other && Equals(other);
 
+    /// <summary>
+    /// Hashes the elements, consistently with <see cref="Equals(EquatableArray{T})"/>.
+    /// </summary>
+    /// <returns>
+    /// The combined hash of every element, or <c>0</c> for a <see langword="default"/> instance
+    /// (which is therefore not the hash of <see cref="Empty"/>; see the type's remarks).
+    /// </returns>
+    /// <remarks>
+    /// The accumulation is explicitly <c>unchecked</c>: these sources are compiled with the
+    /// consumer's own options, and a hash that wraps around is correct while an
+    /// <see cref="OverflowException"/> from a project that sets
+    /// <c>CheckForOverflowUnderflow</c> is not.
+    /// </remarks>
     public override int GetHashCode()
     {
-        if (_array.IsDefault)
+        unchecked
         {
-            return 0;
-        }
+            if (_array.IsDefault)
+            {
+                return 0;
+            }
 
-        var hash = 17;
-        foreach (var item in _array)
-        {
-            hash = (hash * 31) + (item?.GetHashCode() ?? 0);
-        }
+            var hash = 17;
+            foreach (var item in _array)
+            {
+                hash = (hash * 31) + (item?.GetHashCode() ?? 0);
+            }
 
-        return hash;
+            return hash;
+        }
     }
 
     public IEnumerator<T> GetEnumerator() =>

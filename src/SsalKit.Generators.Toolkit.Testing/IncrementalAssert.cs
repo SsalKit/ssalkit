@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -25,6 +25,23 @@ namespace SsalKit.Generators.Toolkit.Testing;
 /// it but fails <see cref="SomeOutputRecomputed"/>, because a real edit would silently keep the
 /// stale output.
 /// </para>
+/// <para>
+/// A requested name is resolved against <see cref="GeneratorTestResult.TrackedSteps"/> and
+/// <see cref="GeneratorTestResult.TrackedOutputSteps"/> alike, so the source-output stage can be
+/// asserted on under its well-known name <c>"SourceOutput"</c> even though an output step takes no
+/// <c>WithTrackingName</c> of its own. Naming it is worth doing: the value stages saying
+/// <c>Unchanged</c> while the output stage re-runs is a real and easily missed failure mode, and it
+/// is the output stage that decides whether the emitter runs again.
+/// </para>
+/// <para>
+/// <b>What this cannot see.</b> The reasons Roslyn records answer "did this step recompute", not
+/// "what is this step's value holding on to". A model that compares by value but keeps an
+/// <c>ISymbol</c>, a <c>SyntaxNode</c>, or a <c>Compilation</c> alive in a field that equality
+/// ignores passes both assertions while still pinning whole compilations in the driver's cache for
+/// as long as the IDE keeps the driver -- the memory half of the same bug. Nothing here measures
+/// retention; keeping symbols and syntax out of pipeline models remains a design rule rather than a
+/// tested one.
+/// </para>
 /// </remarks>
 public static class IncrementalAssert
 {
@@ -33,7 +50,8 @@ public static class IncrementalAssert
     /// <c>Cached</c> or <c>Unchanged</c>.
     /// </summary>
     /// <param name="secondRun">The second run of a two-run pair sharing one driver.</param>
-    /// <param name="trackingNames">The <c>WithTrackingName</c> names to check.</param>
+    /// <param name="trackingNames">The <c>WithTrackingName</c> names to check, plus, for the output
+    /// stages, the well-known output name (<c>"SourceOutput"</c>).</param>
     /// <exception cref="ArgumentException"><paramref name="trackingNames"/> is empty.</exception>
     /// <exception cref="GeneratorAssertionException">A name was never tracked, or one of its
     /// outputs was recomputed; the message tabulates every named step's cache state.</exception>
@@ -73,7 +91,8 @@ public static class IncrementalAssert
     /// <c>Modified</c> or <c>New</c>.
     /// </summary>
     /// <param name="secondRun">The second run of a two-run pair sharing one driver.</param>
-    /// <param name="trackingNames">The <c>WithTrackingName</c> names to check.</param>
+    /// <param name="trackingNames">The <c>WithTrackingName</c> names to check, plus, for the output
+    /// stages, the well-known output name (<c>"SourceOutput"</c>).</param>
     /// <exception cref="ArgumentException"><paramref name="trackingNames"/> is empty.</exception>
     /// <exception cref="GeneratorAssertionException">A name was never tracked, or every one of its
     /// outputs was reused even though the change was supposed to invalidate them; the message
@@ -118,13 +137,28 @@ public static class IncrementalAssert
             throw new ArgumentException("At least one tracking name must be supplied.", nameof(trackingNames));
         }
 
-        return secondRun.TrackedSteps;
+        return AllTrackedSteps(secondRun);
     }
+
+    /// <summary>
+    /// The value stages and the output stages under one set of keys, so a caller names a step
+    /// without having to know which of Roslyn's two dictionaries it landed in.
+    /// </summary>
+    /// <remarks>
+    /// The current Roslyn happens to record an output stage in both tables, with the same reasons in
+    /// each; only the output table is documented to hold it, which is why it is consulted at all.
+    /// The value table wins any collision, so a pipeline that did pass a well-known output name to
+    /// <c>WithTrackingName</c> keeps meaning what it meant, and no assertion that passed before this
+    /// merge existed can start reading a different step.
+    /// </remarks>
+    private static ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> AllTrackedSteps(
+        GeneratorTestResult secondRun) =>
+        secondRun.TrackedOutputSteps.SetItems(secondRun.TrackedSteps);
 
     private static GeneratorAssertionException Failure(
         GeneratorTestResult secondRun, string[] trackingNames, string reason)
     {
-        var trackedSteps = secondRun.TrackedSteps;
+        var trackedSteps = AllTrackedSteps(secondRun);
         var message = new StringBuilder(reason);
 
         message.AppendLine().AppendLine().AppendLine("Cache state of the requested steps:");

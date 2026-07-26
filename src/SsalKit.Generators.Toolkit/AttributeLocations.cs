@@ -23,6 +23,11 @@ internal static class AttributeLocations
     /// accepted by <see cref="Diagnostic.Create(DiagnosticDescriptor, Location?, object?[])"/> and
     /// surfaces the diagnostic without a file position, which is strictly better than dropping it.
     /// </remarks>
+    /// <remarks>
+    /// The location is built straight from the syntax reference's tree and span rather than by
+    /// calling <c>GetSyntax()</c>, which would materialize (and, for a tree read lazily, re-parse)
+    /// the whole attribute node only to ask it for the span the reference already carries.
+    /// </remarks>
     /// <param name="attributeData">The attribute application to locate.</param>
     /// <param name="fallbackSymbol">The decorated symbol, used when the attribute has no syntax.</param>
     /// <returns>The best available location, never <see langword="null"/>.</returns>
@@ -31,9 +36,31 @@ internal static class AttributeLocations
         var syntaxReference = attributeData.ApplicationSyntaxReference;
         if (syntaxReference is not null)
         {
-            return syntaxReference.GetSyntax().GetLocation();
+            return Location.Create(syntaxReference.SyntaxTree, syntaxReference.Span);
         }
 
         return fallbackSymbol.Locations.Length > 0 ? fallbackSymbol.Locations[0] : Location.None;
     }
+
+    /// <summary>
+    /// The same answer as <see cref="GetLocation"/>, already projected into the cache-safe
+    /// <see cref="LocationInfo"/> -- which is the form a value flowing through an incremental
+    /// pipeline must be in.
+    /// </summary>
+    /// <remarks>
+    /// A <see cref="Location"/> pins the <see cref="SyntaxTree"/> it came from, and through it the
+    /// whole <see cref="Compilation"/>, so a pipeline model that holds one both leaks memory and
+    /// never compares equal across runs. This overload exists so that a transform stage never has a
+    /// reason to name the raw-<see cref="Location"/> form at all: the misuse is blocked by there
+    /// being a shorter correct spelling than the incorrect one.
+    /// </remarks>
+    /// <param name="attributeData">The attribute application to locate.</param>
+    /// <param name="fallbackSymbol">The decorated symbol, used when the attribute has no syntax.</param>
+    /// <returns>
+    /// The projection of the best available location, or <see langword="null"/> when that location
+    /// is not in source -- which <c>Diagnostic.Create</c> accepts as "report without a position",
+    /// so it needs no special handling downstream.
+    /// </returns>
+    public static LocationInfo? GetLocationInfo(AttributeData attributeData, ISymbol fallbackSymbol) =>
+        LocationInfo.CreateFrom(GetLocation(attributeData, fallbackSymbol));
 }

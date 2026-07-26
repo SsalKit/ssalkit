@@ -79,8 +79,8 @@ public class GeneratorTestResultTests
         var snapshot = result.ToSnapshotText();
 
         // The header is a line of its own, so the file it names starts on the next line.
-        Assert.StartsWith("// ==== Alpha.Mini.g.cs" + Environment.NewLine, snapshot, StringComparison.Ordinal);
-        Assert.Contains("// ==== Zeta.Mini.g.cs" + Environment.NewLine, snapshot, StringComparison.Ordinal);
+        Assert.StartsWith("// ==== Alpha.Mini.g.cs\n", snapshot, StringComparison.Ordinal);
+        Assert.Contains("// ==== Zeta.Mini.g.cs\n", snapshot, StringComparison.Ordinal);
 
         // Both files are there, each body after its own header, in GeneratedSources order.
         var alphaHeader = snapshot.IndexOf("// ==== Alpha", StringComparison.Ordinal);
@@ -89,6 +89,26 @@ public class GeneratorTestResultTests
         var zetaBody = snapshot.IndexOf("ZetaGreeter", StringComparison.Ordinal);
 
         Assert.True(alphaHeader < alphaBody && alphaBody < zetaHeader && zetaHeader < zetaBody, snapshot);
+    }
+
+    /// <summary>
+    /// A snapshot is a file checked in and compared on whichever machine runs the tests, so the one
+    /// separator this method contributes must not be the host's. Only the structure it adds is
+    /// asserted here: the line breaks inside a generated file are whatever the generator emitted,
+    /// which is that generator's contract rather than this method's.
+    /// </summary>
+    [Fact]
+    public void ToSnapshotText_SeparatesFilesWithALineFeed_NotTheHostsNewline()
+    {
+        var result = GeneratorTest.Run<MiniGenerator>(
+            TestSources.TwoMarkedTypes, new GeneratorTestOptions { SortGeneratedSourcesByHintName = true });
+
+        var snapshot = result.ToSnapshotText();
+
+        // Both the header's own break and the join between two files are "\n", never "\r\n".
+        Assert.DoesNotContain("\r\n// ==== ", snapshot, StringComparison.Ordinal);
+        Assert.StartsWith("// ==== Alpha.Mini.g.cs\n", snapshot, StringComparison.Ordinal);
+        Assert.Contains("\n// ==== Zeta.Mini.g.cs\n", snapshot, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -201,6 +221,21 @@ public class GeneratorTestResultTests
 
         Assert.Contains(MiniGenerator.TrackingNames.Models, result.TrackedSteps.Keys);
         Assert.Contains(MiniGenerator.TrackingNames.Collected, result.TrackedSteps.Keys);
+    }
+
+    /// <summary>
+    /// Roslyn records the <c>RegisterSourceOutput</c> stages in a dictionary of their own, which is
+    /// where an output stage is guaranteed to appear -- so a harness that never surfaces it leaves
+    /// the stage that decides whether files are re-emitted at the mercy of the value-step table
+    /// happening to carry an entry of the same name.
+    /// </summary>
+    [Fact]
+    public void TrackedOutputSteps_ExposesTheSourceOutputStage()
+    {
+        var result = GeneratorTest.Run<MiniGenerator>(TestSources.OneMarkedType);
+
+        Assert.Contains("SourceOutput", result.TrackedOutputSteps.Keys);
+        Assert.NotEmpty(result.TrackedOutputSteps["SourceOutput"]);
     }
 
     [Fact]

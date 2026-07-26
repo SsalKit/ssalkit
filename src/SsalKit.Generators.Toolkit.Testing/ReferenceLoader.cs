@@ -23,21 +23,37 @@ internal static class ReferenceLoader
     /// Parses a <c>TRUSTED_PLATFORM_ASSEMBLIES</c>-shaped path list into metadata references,
     /// skipping entries that are not on disk.
     /// </summary>
+    /// <param name="trustedPlatformAssemblies">The
+    /// <see cref="Path.PathSeparator"/>-delimited path list.</param>
+    /// <returns>One reference per entry that exists on disk.</returns>
+    /// <exception cref="GeneratorAssertionException">The list is absent, empty, or names nothing
+    /// that exists -- in which case no compilation this harness builds could resolve so much as
+    /// <c>System.Object</c>, and every later failure would be a wall of spurious
+    /// <c>CS0518</c>/<c>CS0246</c> errors about the BCL rather than about the generator.</exception>
     internal static ImmutableArray<MetadataReference> LoadTrustedPlatformReferences(string? trustedPlatformAssemblies)
     {
-        if (string.IsNullOrEmpty(trustedPlatformAssemblies))
-        {
-            return [];
-        }
-
         var builder = ImmutableArray.CreateBuilder<MetadataReference>();
 
-        foreach (var path in trustedPlatformAssemblies.Split(Path.PathSeparator))
+        foreach (var path in (trustedPlatformAssemblies ?? string.Empty).Split(Path.PathSeparator))
         {
             if (File.Exists(path))
             {
                 builder.Add(MetadataReference.CreateFromFile(path));
             }
+        }
+
+        if (builder.Count == 0)
+        {
+            throw new GeneratorAssertionException(
+                "No reference assemblies could be resolved: the test host reported " +
+                (string.IsNullOrEmpty(trustedPlatformAssemblies)
+                    ? "no TRUSTED_PLATFORM_ASSEMBLIES list at all"
+                    : "a TRUSTED_PLATFORM_ASSEMBLIES list none of whose entries exist on disk") +
+                ". Every compilation this harness builds would then be missing the BCL, and each of " +
+                "them would fail with errors about System.Object rather than about the generator " +
+                "under test. This normally means the tests are being run in a host that is not a " +
+                "regular .NET test process -- a single-file or trimmed publish, or a custom " +
+                "AppDomain/AssemblyLoadContext that does not set the switch.");
         }
 
         return builder.ToImmutable();

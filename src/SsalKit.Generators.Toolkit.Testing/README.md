@@ -26,6 +26,7 @@ Together they're a two-sided contract: a model that captures too much fails the 
 
 Everything else in the package is the boilerplate you no longer have to write:
 
+- **A generator that crashes fails the test.** Roslyn never lets an exception out of a generator or an analyzer: it catches it and records it — as `CS8785`, a *warning*, for a generator, as `AD0001` for an analyzer. Neither is an error, so a crashed run leaves a compilation that still compiles cleanly, no generated files, and none of your package's diagnostics — and `AssertNoGeneratedSources()`, `DiagnosticAssert.None(...)` and "no error was reported" all pass, every one of them for the wrong reason. This harness refuses to hand such a run back at all.
 - **Real references, by default.** The compilation under test is built against every reference assembly the test host itself trusts, so `AssertCompilesCleanly()` type-checks generated code against the actual BCL. `AdditionalAssemblies = [typeof(MyAttribute).Assembly]` adds your shipping runtime package to that, so the emitted calls are checked against the API you actually ship, not against a copy of it pasted into the test source.
 - **Assertions that read like the intent.** `GetSingleSource()`, `GetSource("...ServiceCollectionExtensions.g.cs")`, `AssertNoGeneratedSources()`, `DiagnosticAssert.Single(..., exclusive: true)`, `DiagnosticAssert.LocatedOn(diagnostic, "[Marker]")` — and failure messages that list what *was* generated, or what *was* reported, instead of `Expected 1, got 0`.
 - **Analyzers too.** The same compilation setup runs a whole package's analyzers together, which is what proves the other analyzers stay silent about whichever construct a test source uses.
@@ -46,7 +47,7 @@ This is a **test-project** package: reference it from the test project, not from
 
 ## Prerequisites
 
-- Your test project targets **`net10.0`** or later.
+- Your test project targets **`net10.0`** or later. The package targets `net10.0` alone: it is consumed by test projects, which are free to move to the current TFM in a way a shipped library is not, and single-targeting keeps the harness free of `#if` and of a second set of behaviours to reason about. Multi-targeting is a backlog item, not a decision against it — open an issue if an older test TFM is blocking you.
 - The package brings **`Microsoft.CodeAnalysis.CSharp`** with it — that is its only dependency, and it deliberately does not depend on any test framework.
 
 ## Quick start
@@ -143,6 +144,14 @@ public void AnEditTheModelCapturesFlowsThroughToTheOutput()
 
 Both take the **second** of two runs sharing one driver — `RunTwice` replaces the source file, `RunTwiceWithCompilationChange` hands you the compilation so you can add or replace a syntax tree. The tracking names are whatever your pipeline passed to `WithTrackingName`; if one was never recorded, the failure message lists the names the run *did* record, which is usually enough to spot the typo.
 
+The **output** stage can be named too, as `"SourceOutput"`. It takes no `WithTrackingName` of its own and Roslyn records it in a dictionary of its own (`GeneratorTestResult.TrackedOutputSteps`), so it is the part of a pipeline easiest never to look at — and it is the one that decides whether your emitter actually re-runs. Value stages reporting `Unchanged` while `"SourceOutput"` reports `Modified` means the emitting is happening on every keystroke after all:
+
+```csharp
+IncrementalAssert.AllCachedOrUnchanged(second, TrackingNames.Models, "SourceOutput");
+```
+
+What the incremental assertions **cannot** see is retention. The reasons Roslyn records answer "did this step recompute", not "what is this step's value holding on to", so a model that compares by value while keeping an `ISymbol` or a `Compilation` alive in a field equality ignores passes both assertions and still pins whole compilations in the driver's cache. Keeping symbols and syntax out of pipeline models stays a design rule, not a tested one.
+
 Note what `RunTwice` can and cannot express: it replaces the whole source file, so a mutated second source invalidates every syntax-driven stage by construction. Called *without* a mutation it re-parses the identical text, which is the strictest caching test there is — nothing the pipeline observes changed, so nothing may recompute. But to assert that an edit *somewhere else in the compilation* changes nothing — the realistic IDE scenario — use `RunTwiceWithCompilationChange` and add an unrelated tree, as above.
 
 When an assertion fails it prints the per-step cache state, which is what turns "the cache broke" into "`Models[0] -> Modified`":
@@ -201,8 +210,8 @@ DiagnosticAssert.None(diagnostics, "MINE");
 | Type | What it does |
 |------|--------------|
 | `GeneratorTest` | The entry points. `Run<TGenerator>` for a single run; `RunTwice<TGenerator>`/`RunTwiceWithCompilationChange<TGenerator>` for the two-run pair the incremental assertions consume; `RunAnalyzerAsync<TAnalyzer>`/`RunAnalyzersAsync` for analyzers; `CreateCompilation` to build the compilation without running anything; `CompileToReference` to compile a second, separate assembly to reference. |
-| `GeneratorTestOptions` | The shared knobs, as an immutable record: `AssemblyName`, `LanguageVersion`, `NullableContextOptions`, `OutputKind`, `AllowUnsafe`, `AdditionalReferences`, `AdditionalAssemblies`, `DiagnosticIdPrefix`, `SortGeneratedSourcesByHintName`. `GeneratorTestOptions.Default` is what `null` means. |
-| `GeneratorTestResult` | What one run produced. Data: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`. Lookups: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. Assertions: `AssertCompilesCleanly()`, `AssertCompilesCleanlyAndGetSource()`, `AssertNoGeneratedSources()`. |
+| `GeneratorTestOptions` | The shared knobs, as an immutable record: `AssemblyName`, `LanguageVersion`, `NullableContextOptions`, `OutputKind`, `AllowUnsafe`, `AdditionalReferences`, `AdditionalAssemblies`, `DiagnosticIdPrefix`, `SortGeneratedSourcesByHintName`, `AllowGeneratorExceptions`. `GeneratorTestOptions.Default` is what `null` means. |
+| `GeneratorTestResult` | What one run produced. Data: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`, `TrackedOutputSteps`. Lookups: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. Assertions: `AssertCompilesCleanly()`, `AssertCompilesCleanlyAndGetSource()`, `AssertNoGeneratedSources()`. |
 | `GeneratedSource` | One generated file: a `readonly record struct` of `HintName` and `Text`. |
 | `IncrementalAssert` | The caching contract: `AllCachedOrUnchanged(secondRun, ...names)` and `SomeOutputRecomputed(secondRun, ...names)`. |
 | `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`, `None(diagnostics, idPrefix)`, `LocatedOn(diagnostic, snippet, source?)`, `SpanStartsWith(diagnostic, prefix, source?)`. |
@@ -254,6 +263,25 @@ That's what you want (two assemblies in one compilation can't share a name), but
 ### `DiagnosticIdPrefix` filters, `RawResult` doesn't
 
 `GeneratorTestResult.Diagnostics` and the analyzer entry points honour `DiagnosticIdPrefix`, which is what lets a test source be deliberately invalid without every assertion having to filter out the resulting `CS****`. The unfiltered generator diagnostics are still there on `RawResult.Diagnostics`, and `OutputCompilation`/`GetCompilationErrors()` are unaffected by it.
+
+Two ids are exempt: `CS8785` and `AD0001` survive the filter whatever the prefix is. The prefix exists to drop incidental `CS****` noise, but the one `CS****` that says "your generator crashed" is not noise, and dropping it silently is precisely how a crashed run passes a test.
+
+### Testing a crash on purpose
+
+`AllowGeneratorExceptions = true` turns the crash check off and hands the run back as it is — for a generator whose contract *is* to fail loudly on some input, or for a test of this behaviour itself:
+
+```csharp
+var result = GeneratorTest.Run<MyGenerator>(source, Options with { AllowGeneratorExceptions = true });
+
+Assert.Equal("CS8785", Assert.Single(result.Diagnostics).Id);
+Assert.IsType<InvalidOperationException>(Assert.Single(result.RawResult.Results).Exception);
+```
+
+Without it, the same run throws a `GeneratorAssertionException` naming the generator, the exception type, its message, and its stack trace.
+
+### `ToSnapshotText()` always joins with `"\n"`
+
+The `// ==== <hint name>` headers and the joins between files are line feeds, never `Environment.NewLine`. A snapshot is written on one machine and compared on another, so a host-dependent separator would turn "the generator's output changed" into "the test ran somewhere else". Line breaks *inside* a generated file are whatever your generator emitted — that is your generator's contract, and worth fixing to `"\n"` there too.
 
 ## Relationship to SsalKit.Generators.Toolkit
 

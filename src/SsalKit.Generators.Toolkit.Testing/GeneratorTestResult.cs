@@ -41,6 +41,12 @@ public sealed class GeneratorTestResult
     /// The diagnostics the generator reported, filtered by
     /// <see cref="GeneratorTestOptions.DiagnosticIdPrefix"/> when one is set.
     /// </summary>
+    /// <remarks>
+    /// <c>CS8785</c> -- the compiler's "a source generator threw" warning -- is never filtered out,
+    /// whatever the prefix is. A run can only get this far carrying one when
+    /// <see cref="GeneratorTestOptions.AllowGeneratorExceptions"/> was set, and a test that opted
+    /// into a crash needs to be able to assert on it.
+    /// </remarks>
     public ImmutableArray<Diagnostic> Diagnostics { get; }
 
     /// <summary>
@@ -60,8 +66,31 @@ public sealed class GeneratorTestResult
     /// <c>WithTrackingName</c>. Tracking is always enabled, so this is populated for every run;
     /// <see cref="IncrementalAssert"/> consumes it.
     /// </summary>
+    /// <remarks>
+    /// This covers the <em>value</em> pipeline only. The output stages registered with
+    /// <c>RegisterSourceOutput</c>/<c>RegisterImplementationSourceOutput</c> are tracked separately,
+    /// under <see cref="TrackedOutputSteps"/>.
+    /// </remarks>
     public ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> TrackedSteps =>
         RawResult.Results.Single().TrackedSteps;
+
+    /// <summary>
+    /// The generator's tracked <em>output</em> steps -- the ones registered with
+    /// <c>RegisterSourceOutput</c> and friends -- keyed by the well-known output name
+    /// (<c>"SourceOutput"</c> for <c>RegisterSourceOutput</c>).
+    /// </summary>
+    /// <remarks>
+    /// Roslyn keeps these in a dictionary of their own rather than in <see cref="TrackedSteps"/>,
+    /// and an output step carries no <c>WithTrackingName</c> of its own, so its cache state is the
+    /// one part of a pipeline that is easy to never look at. It is also the part that decides
+    /// whether the generator re-emits a file: a value stage that says <c>Unchanged</c> while the
+    /// output stage still says <c>Modified</c> means the emitter is being re-run (and the
+    /// compilation re-parsed) on every keystroke after all.
+    /// <see cref="IncrementalAssert"/> resolves a requested name against this dictionary as well as
+    /// <see cref="TrackedSteps"/>, so <c>"SourceOutput"</c> can be asserted on by name.
+    /// </remarks>
+    public ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> TrackedOutputSteps =>
+        RawResult.Results.Single().TrackedOutputSteps;
 
     /// <summary>
     /// The compiler errors, if any, in the compilation <em>after</em> the generated sources were
@@ -126,17 +155,26 @@ public sealed class GeneratorTestResult
     /// <returns>The generated sources concatenated in the order of
     /// <see cref="GeneratedSources"/>, or an empty string when the run produced nothing.</returns>
     /// <remarks>
+    /// <para>
     /// Because the hint names are part of the text, the snapshot also records which files were
     /// produced and under what names -- the half of a generator's output that per-file snapshots
     /// silently omit. Pair it with
     /// <see cref="GeneratorTestOptions.SortGeneratedSourcesByHintName"/> so the snapshot cannot
     /// churn when an unrelated edit reorders the generator's output.
+    /// </para>
+    /// <para>
+    /// The header lines and the joins between files are always <c>"\n"</c>, never
+    /// <see cref="Environment.NewLine"/>: a snapshot is a file checked in and compared across
+    /// machines, so a separator that differs between Windows and Linux would make the same
+    /// generator output mismatch depending on where the test ran. (Line breaks <em>inside</em> a
+    /// generated file are whatever the generator itself emitted; that is the generator's contract,
+    /// not this method's.)
+    /// </para>
     /// </remarks>
     public string ToSnapshotText() =>
         string.Join(
-            Environment.NewLine,
-            GeneratedSources.Select(static generated =>
-                "// ==== " + generated.HintName + Environment.NewLine + generated.Text));
+            "\n",
+            GeneratedSources.Select(static generated => "// ==== " + generated.HintName + "\n" + generated.Text));
 
     /// <summary>
     /// Asserts that the compilation still has no errors once the generated sources are in it.

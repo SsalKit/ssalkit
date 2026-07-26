@@ -41,6 +41,39 @@ public sealed class BadNameAnalyzer : DiagnosticAnalyzer
 }
 
 /// <summary>
+/// Throws from its symbol action, which the analyzer host catches and reports as <c>AD0001</c>
+/// rather than letting it escape -- the analyzer-side twin of <see cref="ThrowingGenerator"/>.
+/// </summary>
+/// <remarks>
+/// A crashed analyzer reports none of its own diagnostics, so a test asserting that nothing was
+/// reported passes precisely because the analyzer never ran.
+/// </remarks>
+[DiagnosticAnalyzer(LanguageNames.CSharp)]
+public sealed class ThrowingAnalyzer : DiagnosticAnalyzer
+{
+    public const string FailureMessage = "ThrowingAnalyzer failed on purpose.";
+
+    public static readonly DiagnosticDescriptor Rule = new(
+        "MINI902",
+        "Never reported",
+        "Never reported",
+        "MiniAnalyzer",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => [Rule];
+
+    public override void Initialize(AnalysisContext context)
+    {
+        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        context.EnableConcurrentExecution();
+
+        context.RegisterSymbolAction(
+            static _ => throw new InvalidOperationException(FailureMessage), SymbolKind.NamedType);
+    }
+}
+
+/// <summary>
 /// Reports <c>MINI901</c> on any type whose name starts with <c>Odd</c>. Its whole purpose is to be
 /// run alongside <see cref="BadNameAnalyzer"/>, which is how a package's analyzers actually run.
 /// </summary>

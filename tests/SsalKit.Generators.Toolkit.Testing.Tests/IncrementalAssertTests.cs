@@ -111,6 +111,58 @@ public class IncrementalAssertTests
     }
 
     /// <summary>
+    /// The output stage carries no <c>WithTrackingName</c> of its own and lives in a dictionary of
+    /// its own, so it is the part of a pipeline easiest to never look at -- and the part that
+    /// decides whether the emitter re-runs at all.
+    /// </summary>
+    [Fact]
+    public void AllCachedOrUnchanged_TheSourceOutputStage_CanBeAssertedOnByItsWellKnownName() =>
+        IncrementalAssert.AllCachedOrUnchanged(SecondRunOfCachingGenerator(), SourceOutputStepName);
+
+    [Fact]
+    public void SomeOutputRecomputed_TheSourceOutputStage_CanBeAssertedOnByItsWellKnownName()
+    {
+        var (_, second) = GeneratorTest.RunTwice<MiniGenerator>(
+            TestSources.OneMarkedType, static _ => TestSources.OneMarkedTypeWithOtherGreeting);
+
+        IncrementalAssert.SomeOutputRecomputed(second, SourceOutputStepName);
+    }
+
+    [Fact]
+    public void AllCachedOrUnchanged_AGeneratorWhoseOutputStageAlwaysReruns_FailsOnTheOutputName()
+    {
+        var (_, second) = GeneratorTest.RunTwiceWithCompilationChange<LeakyGenerator>(
+            "public class C { }",
+            static compilation => compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText("// unrelated")));
+
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => IncrementalAssert.AllCachedOrUnchanged(second, SourceOutputStepName));
+
+        Assert.Contains($"'{SourceOutputStepName}'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(SourceOutputStepName + "[0] -> ", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The output names join the value names in the failure message's index, so a caller who
+    /// mistyped one is shown that the output stages are nameable too.
+    /// </summary>
+    [Fact]
+    public void Failure_ListsTheOutputStepNamesAlongsideTheValueStepNames()
+    {
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => IncrementalAssert.AllCachedOrUnchanged(SecondRunOfCachingGenerator(), "NoSuchStage"));
+
+        Assert.Contains("- " + MiniGenerator.TrackingNames.Models, exception.Message, StringComparison.Ordinal);
+        Assert.Contains("- " + SourceOutputStepName, exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Roslyn's well-known name for a <c>RegisterSourceOutput</c> stage. It is not exposed as a
+    /// public constant, so it is spelled out here exactly as a consumer would have to spell it.
+    /// </summary>
+    private const string SourceOutputStepName = "SourceOutput";
+
+    /// <summary>
     /// A second run whose only change is an unrelated syntax tree, so the marked type's own stages
     /// are skipped outright (<c>Cached</c>) and the collected stage is re-run to an equal value
     /// (<c>Unchanged</c>).
