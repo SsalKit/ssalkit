@@ -114,7 +114,7 @@ Console.WriteLine();
 
 // ---------------------------------------------------------------------------------------
 // 4. Daylight saving. The scheduled time is a wall-clock time, and a wall clock can misbehave in
-//    exactly two ways. Both resolutions are a fixed versioned contract -- boundaries get
+//    exactly three ways. Every resolution is a fixed versioned contract -- boundaries get
 //    persisted, so they can never be changed in a patch or minor release.
 // ---------------------------------------------------------------------------------------
 Console.WriteLine("[DST rule 1]     a scheduled time that never happens -> the first instant after the gap");
@@ -149,7 +149,11 @@ Console.WriteLine($"                 first -> second 01:30 crosses {autumnSchedu
 Console.WriteLine($"                 the window lengthens instead: {Elapsed(autumnSchedule.CurrentWindow(secondOccurrence).Duration)} rather than 24h");
 Console.WriteLine();
 
-Console.WriteLine("[DST rule 3]     every other wall-clock time keeps its local time year-round");
+// Rule 3 -- a wall-clock time swallowed by a permanent change of the zone's *base* offset, as
+// Libya's turn of 2012 or Samoa's skipped 30 December 2011 -- resolves by rule 1's principle: the
+// first instant at which the zone's wall clock reaches the scheduled time. It is not demonstrated
+// here because whether a given zone carries such a seam depends on the platform's time-zone data.
+Console.WriteLine("[DST rule 4]     every other wall-clock time keeps its local time year-round");
 var nineAm = RecurrenceSchedule.Daily(new TimeOnly(9, 0), newYork);
 Console.WriteLine($"                 09:00 in January      {Instant(nineAm.PreviousBoundary(new DateTimeOffset(2026, 1, 15, 12, 0, 0, est)))}");
 Console.WriteLine($"                 09:00 in July         {Instant(nineAm.PreviousBoundary(new DateTimeOffset(2026, 7, 15, 12, 0, 0, edt)))}");

@@ -64,6 +64,19 @@ public sealed class RecurrenceSchedule
 
     private const int MonthsPerYear = 12;
 
+    /// <summary>
+    /// UTC offsets are bounded by ±14 hours, so an instant fifteen hours either side of the
+    /// scheduled wall clock — read as a UTC instant — is guaranteed to sit on the far side of it in
+    /// wall-clock terms. That brackets the answer of <see cref="FirstInstantReaching"/>.
+    /// </summary>
+    private static readonly long ProbeSpanTicks = TimeSpan.FromHours(15).Ticks;
+
+    /// <summary>
+    /// The granularity of the sweep in <see cref="FirstTransitionAfter"/> — one minute, far below
+    /// the shortest stretch of constant UTC offset any real zone has ever had.
+    /// </summary>
+    private static readonly long ProbeStepTicks = TimeSpan.FromMinutes(1).Ticks;
+
     private readonly RecurrenceKind _kind;
     private readonly TimeOnly _timeOfDay;
     private readonly DayOfWeek _dayOfWeek;
@@ -182,7 +195,7 @@ public sealed class RecurrenceSchedule
     /// <remarks>
     /// <para>
     /// <b>Daylight-saving contract (fixed for the lifetime of this type).</b> The scheduled time is
-    /// a <i>wall-clock</i> time in the schedule's time zone, and the two ways a wall clock can
+    /// a <i>wall-clock</i> time in the schedule's time zone, and the three ways a wall clock can
     /// misbehave are resolved as follows.
     /// </para>
     /// <para>
@@ -199,7 +212,15 @@ public sealed class RecurrenceSchedule
     /// under the pre-transition (larger) UTC offset. The schedule does not fire twice that day.
     /// </para>
     /// <para>
-    /// 3. Any other wall-clock time uses the zone's offset for that date, so the boundary sits at
+    /// 3. <b>A scheduled time the wall clock never reaches</b> — the zone's <i>base</i> offset
+    /// changed permanently, as Libya's did at the start of 2012, and the seam swallows the
+    /// scheduled time without <see cref="TimeZoneInfo.IsInvalidTime(DateTime)"/> reporting a gap —
+    /// resolves by the same principle as rule 1: <b>the first instant at which the zone's wall
+    /// clock reaches the scheduled time</b>. Rule 1 is the special case of this where the zone
+    /// itself calls the hole a gap.
+    /// </para>
+    /// <para>
+    /// 4. Any other wall-clock time uses the zone's offset for that date, so the boundary sits at
     /// the intended local time year-round rather than drifting with the seasons.
     /// </para>
     /// <para>
@@ -272,7 +293,10 @@ public sealed class RecurrenceSchedule
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="offset"/> moves the window
     /// outside the range of <see cref="DateTime"/>. The arithmetic is done in 64 bits and the
     /// result range-checked, so an extreme offset such as <see cref="int.MinValue"/> throws rather
-    /// than silently wrapping around to a nearby window.</exception>
+    /// than silently wrapping around to a nearby window. Only the throw raised by that check names
+    /// <c>offset</c>; an offset that stays inside 32 bits but still lands the window off the
+    /// calendar throws from the underlying date arithmetic instead, under whatever parameter name
+    /// that arithmetic uses.</exception>
     /// <remarks>
     /// <para>
     /// Consecutive offsets tile the timeline exactly, as consecutive windows do:
@@ -388,7 +412,11 @@ public sealed class RecurrenceSchedule
     {
         var key = PreviousCore(from).Key;
 
-        while (true)
+        // Stopping at the top of the calendar rather than walking off it is what lets the promised
+        // "exactly CountBoundaries(from, to) elements" hold for an open-ended upper bound such as
+        // DateTimeOffset.MaxValue: no boundary can ever exceed that, so the sequence has to end by
+        // running out of calendar rather than by overshooting `to`.
+        while (HasFollowingOccurrence(key))
         {
             key += _occurrenceStep;
             var boundary = ResolveBoundary(OccurrenceDate(key));
@@ -465,8 +493,12 @@ public sealed class RecurrenceSchedule
             boundary = ResolveBoundary(OccurrenceDate(key));
         }
 
+        // The mirror invariant — that the *following* occurrence resolves after asOf — is asserted
+        // only where the following occurrence is representable at all. At the very top of the
+        // calendar it is not, and evaluating it there would throw from a Debug build while a
+        // Release build sailed through; the invariant itself is covered by the boundary tests.
         Debug.Assert(
-            ResolveBoundary(OccurrenceDate(key + _occurrenceStep)) > asOf,
+            !HasFollowingOccurrence(key) || ResolveBoundary(OccurrenceDate(key + _occurrenceStep)) > asOf,
             "The occurrence following the located one must resolve to an instant after asOf.");
 
         return (key, boundary);
@@ -481,13 +513,6 @@ public sealed class RecurrenceSchedule
     {
         var wallClock = date.ToDateTime(_timeOfDay);
 
-        if (_timeZone.IsInvalidTime(wallClock))
-        {
-            // Rule 1: the scheduled wall-clock time was skipped by a forward transition. The
-            // boundary moves to the transition instant itself, the first valid time after the gap.
-            return FirstInstantAfterGap(wallClock);
-        }
-
         if (_timeZone.IsAmbiguousTime(wallClock))
         {
             // Rule 2: the scheduled wall-clock time happens twice. Take the first occurrence, which
@@ -499,47 +524,137 @@ public sealed class RecurrenceSchedule
             return new DateTimeOffset(wallClock, _timeZone.GetAmbiguousTimeOffsets(wallClock).Max());
         }
 
-        // Rule 3: an ordinary wall-clock time, at the zone's offset for that date.
-        return new DateTimeOffset(wallClock, _timeZone.GetUtcOffset(wallClock));
+        var offset = _timeZone.GetUtcOffset(wallClock);
+        var boundary = new DateTimeOffset(wallClock, offset);
+
+        // Rule 4, the fast path: an ordinary wall-clock time, at the zone's offset for that date —
+        // but only once the zone has agreed that the instant so built is really governed by that
+        // offset. Asking the round trip rather than IsInvalidTime is what makes rules 1 and 3 share
+        // a single fallback:
+        //
+        //   * Rule 1, a wall clock skipped by a forward transition, always fails the round trip:
+        //     read at whichever side's offset GetUtcOffset reports, it lands on the other side.
+        //   * Rule 3, a wall clock swallowed by a permanent base-offset seam, fails it too — and is
+        //     invisible to IsInvalidTime, which is the whole reason the round trip is asked. Left
+        //     unchecked it would fabricate a boundary that does not sit where it claims to, and
+        //     every invariant built on re-deriving the occurrence from a boundary would come apart.
+        if (_timeZone.GetUtcOffset(boundary) == offset)
+        {
+            return boundary;
+        }
+
+        return FirstInstantReaching(wallClock);
     }
 
     /// <summary>
     /// Returns the first instant whose wall-clock time in this schedule's zone is at or after
-    /// <paramref name="skippedWallClock"/>, given that the wall-clock time itself was skipped by a
-    /// forward transition. That instant is the transition, expressed with the post-transition
-    /// offset.
+    /// <paramref name="scheduledWallClock"/>, expressed with the offset in force at that instant —
+    /// so the result always agrees with the zone about where it sits, which is the property
+    /// everything else here is built on.
     /// </summary>
-    private DateTimeOffset FirstInstantAfterGap(DateTime skippedWallClock)
+    /// <remarks>
+    /// <para>
+    /// The zone's offset is a piecewise-constant function of the instant, so the wall clock is
+    /// piecewise <c>instant + offset</c>: strictly increasing inside a <i>stretch</i> of constant
+    /// offset, and jumping — either way — at a transition. Inside a stretch the first instant to
+    /// reach the scheduled wall clock is therefore just <c>max(stretchStart, scheduled - offset)</c>,
+    /// and the answer is the candidate of the earliest stretch long enough to contain its own
+    /// candidate. Walking the stretches in order is what keeps the answer the <i>first</i> such
+    /// instant where the wall clock runs backwards for a while, which is exactly what a base-offset
+    /// seam makes it do and what a bisection's monotonicity premise would misread.
+    /// </para>
+    /// <para>
+    /// Being an instant the zone agrees with is what makes the result idempotent: re-deriving the
+    /// occurrence from the wall clock the boundary reports lands back on the same boundary.
+    /// </para>
+    /// </remarks>
+    private DateTimeOffset FirstInstantReaching(DateTime scheduledWallClock)
     {
-        // Offsets are bounded by ±14 hours, so an instant a day either side of the skipped
-        // wall-clock time (read here as a UTC instant) is unambiguously on one side of the
-        // transition or the other.
-        var probe = DateTime.SpecifyKind(skippedWallClock, DateTimeKind.Utc);
-        var offsetBefore = _timeZone.GetUtcOffset(probe.AddDays(-1));
-        var offsetAfter = _timeZone.GetUtcOffset(probe.AddDays(1));
+        var scheduled = scheduledWallClock.Ticks;
+        var windowEnd = ClampToInstant(scheduled + ProbeSpanTicks);
+        var stretchStart = ClampToInstant(scheduled - ProbeSpanTicks);
+        var stretchOffset = OffsetAt(stretchStart);
 
-        // The wall clock is invalid precisely because it falls inside [gapStart, gapStart + delta),
-        // where the transition instant is gapStart - offsetBefore. Reading the skipped wall clock
-        // with the post-transition offset therefore lands strictly before the transition, and with
-        // the pre-transition offset at or after it — bracketing the transition in `delta` of time.
-        var beforeTransition = DateTime.SpecifyKind(skippedWallClock - offsetAfter, DateTimeKind.Utc);
-        var atOrAfterTransition = DateTime.SpecifyKind(skippedWallClock - offsetBefore, DateTimeKind.Utc);
-
-        while (atOrAfterTransition - beforeTransition > TimeSpan.FromTicks(1))
+        while (true)
         {
-            var middle = beforeTransition.AddTicks((atOrAfterTransition - beforeTransition).Ticks / 2);
-            if (_timeZone.GetUtcOffset(middle) == offsetAfter)
+            var candidate = Math.Max(stretchStart, ClampToInstant(scheduled - stretchOffset.Ticks));
+
+            // Sweeping only as far as the candidate is enough: a transition after it cannot take
+            // the candidate away from this stretch, and no later stretch can produce an earlier
+            // instant.
+            var stretchEnd = FirstTransitionAfter(stretchStart, Math.Min(candidate, windowEnd), stretchOffset);
+
+            if (candidate < stretchEnd)
             {
-                atOrAfterTransition = middle;
+                return Instant(candidate, stretchOffset);
+            }
+
+            stretchStart = stretchEnd;
+            stretchOffset = OffsetAt(stretchEnd);
+        }
+    }
+
+    /// <summary>
+    /// Sweeps <c>(from, until]</c> for the first instant at which the zone stops using
+    /// <paramref name="offset"/>, returning <c>until + 1</c> — one tick past the end of the swept
+    /// range, so that a caller comparing against it reads "the stretch outlasts the range" — when
+    /// it never does.
+    /// </summary>
+    /// <remarks>
+    /// A sweep rather than a bisection, because the offset need not change monotonically across the
+    /// range: a base-offset seam can dip to another offset and back within an hour, which a
+    /// bisection would step over. The step is small enough that no stretch of constant offset in
+    /// any real zone's history fits inside one, which is what licenses the bisection <i>within</i> a
+    /// step.
+    /// </remarks>
+    private long FirstTransitionAfter(long from, long until, TimeSpan offset)
+    {
+        for (var probe = from; probe < until;)
+        {
+            var next = Math.Min(probe + ProbeStepTicks, until);
+
+            if (OffsetAt(next) != offset)
+            {
+                return FirstInstantPastOffset(probe, next, offset);
+            }
+
+            probe = next;
+        }
+
+        return until + 1;
+    }
+
+    /// <summary>
+    /// Bisects <c>(before, atOrAfter]</c> — known to contain exactly one transition, being at most
+    /// <see cref="ProbeStepTicks"/> wide — for the first instant no longer governed by
+    /// <paramref name="previousOffset"/>.
+    /// </summary>
+    private long FirstInstantPastOffset(long before, long atOrAfter, TimeSpan previousOffset)
+    {
+        while (atOrAfter - before > 1)
+        {
+            var middle = before + ((atOrAfter - before) / 2);
+
+            if (OffsetAt(middle) == previousOffset)
+            {
+                before = middle;
             }
             else
             {
-                beforeTransition = middle;
+                atOrAfter = middle;
             }
         }
 
-        return new DateTimeOffset(atOrAfterTransition, TimeSpan.Zero).ToOffset(offsetAfter);
+        return atOrAfter;
     }
+
+    private TimeSpan OffsetAt(long instantTicks) => _timeZone.GetUtcOffset(new DateTime(instantTicks, DateTimeKind.Utc));
+
+    private static long ClampToInstant(long ticks) =>
+        Math.Clamp(ticks, DateTime.MinValue.Ticks, DateTime.MaxValue.Ticks);
+
+    private static DateTimeOffset Instant(long instantTicks, TimeSpan offset) =>
+        new DateTimeOffset(instantTicks, TimeSpan.Zero).ToOffset(offset);
 
     /// <summary>
     /// Returns the key of the latest occurrence whose calendar date is on or before
@@ -553,6 +668,20 @@ public sealed class RecurrenceSchedule
         RecurrenceKind.Weekly => date.DayNumber - (((int)date.DayOfWeek - (int)_dayOfWeek + DaysPerWeek) % DaysPerWeek),
         _ => MonthlyOccurrenceOnOrBefore(date),
     };
+
+    /// <summary>
+    /// The largest occurrence key <see cref="OccurrenceDate"/> can still turn into a calendar date:
+    /// the day number of <see cref="DateOnly.MaxValue"/> for daily and weekly schedules, the index
+    /// of the last month for monthly ones.
+    /// </summary>
+    private int LastRepresentableKey => _kind == RecurrenceKind.Monthly
+        ? MonthIndex(9999, MonthsPerYear)
+        : DateOnly.MaxValue.DayNumber;
+
+    /// <summary>
+    /// Whether the occurrence one step after <paramref name="key"/> is still inside the calendar.
+    /// </summary>
+    private bool HasFollowingOccurrence(int key) => key <= LastRepresentableKey - _occurrenceStep;
 
     private int MonthlyOccurrenceOnOrBefore(DateOnly date)
     {

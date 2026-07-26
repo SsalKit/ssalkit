@@ -24,7 +24,7 @@ SsalKit.RecurrenceSchedule fills that gap:
 
 - **`RecurrenceSchedule`** defines a calendar-aligned recurrence — every day at 04:30 Seoul time, every Monday at 09:00 UTC, the 31st of every month — and answers the four questions worth asking about it: `PreviousBoundary`, `NextBoundary`, `CurrentWindow`, and, for the "player was away" case, `HasCrossed` / `CountBoundaries`.
 - **One containment rule, everywhere.** `TimeWindow` is half-open `[Start, End)` with no inclusive variant, so consecutive windows tile the timeline with neither double counting nor holes.
-- **A daylight-saving contract that is fixed for the lifetime of the type.** Boundaries get persisted, so the resolution of a skipped or repeated wall-clock time is a versioned promise, not an implementation detail.
+- **A daylight-saving contract that is fixed for the lifetime of the type.** Boundaries get persisted, so the resolution of a wall-clock time that is skipped, repeated, or never reached at all is a versioned promise, not an implementation detail.
 - **Everything is a pure function of `(schedule, instant)`.** Nothing reads the ambient clock. The `TimeProvider` overloads are sugar on top, not the other way round.
 - **Zero dependencies.** No `PackageReference`, BCL only.
 
@@ -162,11 +162,14 @@ reset.HasCrossed(At(4, 00), At(4, 30));   // true
 
 ## Daylight-saving contract
 
-The scheduled time is a **wall-clock** time in the schedule's time zone, and a wall clock can misbehave in exactly two ways. Both resolutions are pinned here:
+The scheduled time is a **wall-clock** time in the schedule's time zone, and a wall clock can misbehave in exactly three ways. Every resolution is pinned here:
 
 1. **A scheduled time that does not exist** — the clock jumps forward over it, as 02:00 → 03:00 does to an 02:30 schedule — moves to **the first valid instant after the gap**: the transition itself, 03:00, not 03:30. The boundary is never dropped, so a daily schedule still has exactly one boundary that day and `CountBoundaries` still equals the number of elapsed days.
 2. **A scheduled time that happens twice** — the clock falls back over it, as 02:00 → 01:00 does to an 01:30 schedule — resolves to the **first** occurrence, the one under the pre-transition (larger) UTC offset. The schedule does not fire twice that day.
-3. **Every other wall-clock time** uses the zone's offset for that date, so the boundary stays at the intended local time year-round instead of drifting with the seasons.
+3. **A scheduled time the wall clock never reaches**, because the zone's *base* offset changed permanently rather than seasonally — Libya at the turn of 2012, Venezuela in 2007, Samoa's skipped 30 December 2011, North Korea in 2015, several re-based Russian zones — resolves to **the first instant at which the zone's wall clock reaches the scheduled time**. This is rule 1's principle stated in full, and rule 1 is the special case of it where the zone itself calls the hole a gap: `TimeZoneInfo.IsInvalidTime` reports nothing at these seams, and the offset the zone gives for the local time is not the offset in force at the instant that pairing points at. Resolving by "first instant reaching" is well defined even where the wall clock runs backwards for an hour before jumping forwards, which is what a seam makes it do.
+4. **Every other wall-clock time** uses the zone's offset for that date, so the boundary stays at the intended local time year-round instead of drifting with the seasons.
+
+Whether a given zone carries a seam is a property of the platform's time-zone data rather than of this library — the histories above are visible in the data Windows ships and are recorded as ordinary transitions by a tzdata build — so rule 3 is about being correct either way, not about a particular zone.
 
 Worked from the 2026 US transitions, using `America/New_York`:
 
@@ -187,6 +190,17 @@ var second = new DateTimeOffset(2026, 11, 1, 1, 30, 0, Est);   // 06:30Z
 autumn.PreviousBoundary(new DateTimeOffset(2026, 11, 1, 12, 0, 0, Est));  // == first
 autumn.CountBoundaries(first, second);                                    // 0 -- it does not fire twice
 autumn.CurrentWindow(second).Duration;                                    // 25:00 -- the window lengthens
+```
+
+A seam, worked from the data Windows ships for `Africa/Tripoli`, where the base offset drops from +02:00 to +01:00 at the turn of 2012:
+
+```csharp
+// 2011-12-31T21:00Z reads 23:00, 22:00Z reads 23:00 again (the base offset dips), and 23:00Z
+// reads 01:00 -- so the wall clock never reads 2012-01-01 00:00 at all.
+var midnight = RecurrenceSchedule.Daily(new TimeOnly(0, 0), tripoli);
+
+midnight.PreviousBoundary(new DateTimeOffset(2012, 1, 1, 12, 0, 0, TimeSpan.FromHours(2)));
+// 2012-01-01T01:00:00+02:00, i.e. 2011-12-31T23:00Z -- the first instant to reach the scheduled time
 ```
 
 These rules are **a versioned contract, never changed in a patch or minor release.** Boundaries get persisted — "the reset this player last saw" — and comparing a stored instant against a recomputed one only works if the computation never moves. Exactly like the algorithm contract of a seeded PRNG: if a different resolution policy is ever needed, it ships as a new type rather than as new behaviour on this one.
@@ -236,17 +250,14 @@ The extension methods only ever call `GetUtcNow()`, so there is nothing else to 
 
 ## Performance
 
-`CountBoundaries` is **closed-form calendar arithmetic, not a loop**: a ten-year gap costs what a one-day gap costs, so counting missed rewards for an account dormant since 2020 is not a 3,653-iteration walk.
+`CountBoundaries`, `PreviousBoundary`, `NextBoundary`, `CurrentWindow` and `WindowAt` are **O(1)**: closed-form calendar arithmetic, not loops. A ten-year gap costs what a one-day gap costs, so counting missed rewards for an account dormant since 2020 is not a 3,653-iteration walk, and `WindowAt(now, -1000)` costs what `WindowAt(now, -1)` costs. All of them land in the **low microseconds**, and what they spend it on is `TimeZoneInfo` conversion rather than the width of the interval — a UTC schedule, which needs no conversion at all, is an order of magnitude cheaper than the same call in a zone with daylight saving.
 
-Measured on .NET 10, AMD Ryzen 9 3950X, Windows 11:
+Two things are not O(1) and are not meant to be:
 
-| Call | Mean |
-|---|---:|
-| `CountBoundaries` over ten years, `America/New_York` (3,653 boundaries) | ~0.9 μs |
-| `CountBoundaries` over one day, `America/New_York` (1 boundary) | ~0.5 μs |
-| `CountBoundaries` over ten years, UTC | ~0.05 μs |
+- `EnumerateBoundaries` is O(number of boundaries), one time-zone resolution each — reach for `CountBoundaries` when the count is all that is wanted.
+- Resolving a boundary that falls on a daylight-saving gap or a base-offset seam (rules 1 and 3) searches for the instant the wall clock reaches the scheduled time, which costs perhaps a hundred times an ordinary resolution. That is one or two days a year per zone, and it never touches the ordinary path.
 
-The remaining cost is `TimeZoneInfo` conversion, not the width of the interval — which is why the UTC row is twenty times faster than the same ten-year span in a DST zone, and why the ten-year and one-day rows in that zone are within a factor of two of each other. No benchmark project ships with this library; these are indicative numbers from a scheduling API that is not a hot path.
+**No benchmark project ships with this library**, deliberately: unlike `SsalKit.Randomness`, this is a scheduling API rather than a hot path, and pinning absolute numbers to a machine would be a promise worth less than the maintenance it costs. The complexity claims above are what the library commits to; they are asserted structurally by the test suite rather than by a wall-clock budget.
 
 ## Where this sits
 

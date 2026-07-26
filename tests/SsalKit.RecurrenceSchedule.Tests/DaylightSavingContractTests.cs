@@ -70,6 +70,27 @@ public sealed class DaylightSavingContractTests
     }
 
     [Fact]
+    public void SkippedWallClockTime_OfASecondsPreciseSchedule_StillLandsExactlyOnTheTransition()
+    {
+        // 02:30:15 falls inside the gap just as 02:30 does, but its seconds put the transition
+        // strictly between two whole minutes of the schedule's own reckoning — so resolving it
+        // exercises the sub-minute half of the search rather than landing on a round number.
+        var schedule = RecurrenceSchedule.Daily(new TimeOnly(2, 30, 15), TestTimeZones.NewYork);
+
+        AssertTime.Exact(
+            new DateTimeOffset(2026, 3, 8, 3, 0, 0, Edt),
+            schedule.PreviousBoundary(new DateTimeOffset(2026, 3, 8, 12, 0, 0, Edt)));
+
+        // The neighbouring days keep their seconds.
+        AssertTime.Exact(
+            new DateTimeOffset(2026, 3, 7, 2, 30, 15, Est),
+            schedule.PreviousBoundary(new DateTimeOffset(2026, 3, 8, 1, 0, 0, Est)));
+        AssertTime.Exact(
+            new DateTimeOffset(2026, 3, 9, 2, 30, 15, Edt),
+            schedule.NextBoundary(new DateTimeOffset(2026, 3, 8, 12, 0, 0, Edt)));
+    }
+
+    [Fact]
     public void SkippedWallClockTime_DoesNotCostTheDayItsBoundary()
     {
         var schedule = RecurrenceSchedule.Daily(new TimeOnly(2, 30), TestTimeZones.NewYork);

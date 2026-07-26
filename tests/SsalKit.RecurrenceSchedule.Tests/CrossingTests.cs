@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace SsalKit.RecurrenceSchedule.Tests;
 
 public sealed class CrossingTests
@@ -112,31 +110,22 @@ public sealed class CrossingTests
     }
 
     /// <summary>
-    /// A ten-year gap must cost the same as a one-day gap: the count comes from calendar
-    /// arithmetic, not from stepping through 3,653 boundaries. The budget below is roughly a
-    /// thousand times what the closed form needs and roughly a thousandth of what per-day
-    /// iteration would.
+    /// A midnight schedule over a decade of transitions, counted in a zone that has them. That the
+    /// count is closed-form rather than a 3,653-step walk is asserted structurally — by
+    /// <see cref="CountBoundaries_MatchesWalkingTheScheduleBoundaryByBoundary"/>, which pins the
+    /// closed form to the walk it replaces — rather than by a wall-clock budget: timings belong to
+    /// benchmarks, which this repository deliberately keeps out of the CI gate.
     /// </summary>
     [Fact]
-    public void CountBoundaries_DoesNotIterateOverTheGap()
+    public void CountBoundaries_IsExactAcrossADecadeOfMidnightsInADaylightSavingZone()
     {
         var schedule = RecurrenceSchedule.Daily(new TimeOnly(0, 0), TestTimeZones.NewYork);
-        var from = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.FromHours(-5));
-        var to = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.FromHours(-5));
 
-        // Warm up the JIT and the time zone's adjustment-rule cache.
-        Assert.Equal(3653, schedule.CountBoundaries(from, to));
-
-        var stopwatch = Stopwatch.StartNew();
-        for (var i = 0; i < 1_000; i++)
-        {
-            schedule.CountBoundaries(from, to);
-        }
-
-        stopwatch.Stop();
-        Assert.True(
-            stopwatch.ElapsedMilliseconds < 500,
-            $"1,000 ten-year counts took {stopwatch.ElapsedMilliseconds} ms, which suggests the gap is being walked.");
+        Assert.Equal(
+            3653,
+            schedule.CountBoundaries(
+                new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.FromHours(-5)),
+                new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.FromHours(-5))));
     }
 
     [Fact]
