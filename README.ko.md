@@ -16,6 +16,7 @@
 | `SsalKit.Generators.Toolkit` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit) | Roslyn 소스 생성기 저작용 source-only 툴킷. 런타임 어셈블리 없이 소비자 컴파일에 임베드됩니다. | [README](src/SsalKit.Generators.Toolkit/README.ko.md) |
 | `SsalKit.Guard` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Guard.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Guard) | 에러 코드 기반 도메인 예외와 정적 가드 절, 그리고 컴파일 타임에 생성되는 예외→코드 매핑 테이블. | [README](src/SsalKit.Guard/README.ko.md) |
 | `SsalKit.Generators.Toolkit.Testing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.Testing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit.Testing) | 증분 소스 생성기와 분석기를 위한 테스트 프레임워크 비의존 하네스. 증분 캐싱 단언을 포함합니다. | [README](src/SsalKit.Generators.Toolkit.Testing/README.ko.md) |
+| `SsalKit.RecurrenceSchedule` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.RecurrenceSchedule.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.RecurrenceSchedule) | 타임존을 인지하는 반복 리셋 경계(일간/주간/월간)와 고정된 DST 계약, 그리고 반개구간 시간 창 산술. | [README](src/SsalKit.RecurrenceSchedule/README.ko.md) |
 
 ## 이름의 유래
 

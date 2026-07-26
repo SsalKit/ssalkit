@@ -42,7 +42,9 @@ $PackageNames = @(
     'SsalKit.DependencyInjection',
     'SsalKit.Randomness',
     'SsalKit.Generators.Toolkit',
-    'SsalKit.Guard'
+    'SsalKit.Generators.Toolkit.Testing',
+    'SsalKit.Guard',
+    'SsalKit.RecurrenceSchedule'
 )
 
 function Invoke-Step {

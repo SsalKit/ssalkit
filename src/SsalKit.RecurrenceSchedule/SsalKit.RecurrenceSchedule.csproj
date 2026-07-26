@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>SsalKit.RecurrenceSchedule</PackageId>
+    <Description>Time-zone-aware recurring reset boundaries (daily/weekly/monthly) over TimeProvider: previous/next boundary, current window, crossing detection and crossing counts, plus a half-open TimeWindow value type. The daylight-saving resolution rules are a fixed versioned contract. Zero dependencies.</Description>
+    <PackageDescription>$(Description)</PackageDescription>
+    <PackageTags>time;schedule;recurrence;reset;timezone;dst;timeprovider;interval;window</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.RecurrenceSchedule.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
