@@ -4,8 +4,7 @@ namespace SsalKit.Guard.Generator.Models;
 
 /// <summary>
 /// One <c>[ErrorCode&lt;TCode&gt;]</c> application, reduced to the strings the assembler and the
-/// emitter need. A type carrying two <c>[ErrorCode]</c> attributes with different code enums
-/// produces one candidate each.
+/// emitter need. Exactly one per decorated type, since a type declares exactly one code.
 /// </summary>
 /// <remarks>
 /// No <c>ISymbol</c>, <c>SyntaxNode</c> or <c>Compilation</c> survives into this record -- only

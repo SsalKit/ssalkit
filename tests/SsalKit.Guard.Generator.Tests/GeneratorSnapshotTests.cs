@@ -432,6 +432,132 @@ public class GeneratorSnapshotTests
     }
 
     /// <summary>
+    /// Every name the generated file will declare is reserved before any helper is named: the two
+    /// mapping methods, the container's own name -- a member may not share it (CS0542) -- and, for
+    /// each exception, the factory and the throw helper as a pair.
+    /// </summary>
+    /// <remarks>
+    /// The pair is what makes <c>FooException</c> and <c>ThrowFooException</c> work. Their factory
+    /// names differ (<c>Foo</c> and <c>ThrowFoo</c>), so a check that only looked at those would let
+    /// both through -- and then emit <c>ThrowFoo</c> twice, once as the first one's throw helper and
+    /// once as the second one's factory (CS0111).
+    /// </remarks>
+    [Fact]
+    public Task NamesTheGeneratedFileAlreadyUses_ArePushedToTheFallbackName()
+    {
+        const string source = """
+            using SsalKit.Guard;
+
+            namespace Game;
+
+            public enum GameStatusCode
+            {
+                Foo = 1,
+                ThrowFoo = 2,
+                Container = 3,
+                Lookup = 4,
+                Fallback = 5,
+            }
+
+            [ErrorCode<GameStatusCode>(GameStatusCode.Foo)]
+            public sealed class FooException : ErrorCodedException
+            {
+                public FooException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCode<GameStatusCode>(GameStatusCode.ThrowFoo)]
+            public sealed class ThrowFooException : ErrorCodedException
+            {
+                public ThrowFooException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCode<GameStatusCode>(GameStatusCode.Container)]
+            public sealed class GameErrorsException : ErrorCodedException
+            {
+                public GameErrorsException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCode<GameStatusCode>(GameStatusCode.Lookup)]
+            public sealed class TryMapException : ErrorCodedException
+            {
+                public TryMapException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCode<GameStatusCode>(GameStatusCode.Fallback)]
+            public sealed class MapOrDefaultException : ErrorCodedException
+            {
+                public MapOrDefaultException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCodes<GameStatusCode>]
+            public static partial class GameErrors
+            {
+            }
+            """;
+
+        // AssertCompilesCleanly is the assertion that matters here: every one of these collisions
+        // used to produce a generated file the compiler rejected.
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
+    /// The last resort of the naming walk: when even the flattened fully qualified name is taken --
+    /// <c>Game.Sub.Conflict</c> and a global-namespace <c>Game_Sub_Conflict</c> flatten to the same
+    /// identifier -- underscores are appended until the pair is free.
+    /// </summary>
+    [Fact]
+    public Task ExhaustedHelperNames_FallBackToASuffixedName()
+    {
+        const string source = """
+            using SsalKit.Guard;
+
+            [ErrorCode<Game.GameStatusCode>(Game.GameStatusCode.Flattened)]
+            public sealed class Game_Sub_Conflict : ErrorCodedException
+            {
+                public Game_Sub_Conflict(string? message = null) : base(message) { }
+            }
+
+            namespace Game
+            {
+                public enum GameStatusCode
+                {
+                    Trimmed = 1,
+                    Nested = 2,
+                    Flattened = 3,
+                }
+
+                [ErrorCode<GameStatusCode>(GameStatusCode.Trimmed)]
+                public sealed class Conflict : ErrorCodedException
+                {
+                    public Conflict(string? message = null) : base(message) { }
+                }
+
+                [ErrorCodes<GameStatusCode>]
+                public static partial class GameErrors
+                {
+                }
+            }
+
+            namespace Game.Sub
+            {
+                [ErrorCode<GameStatusCode>(GameStatusCode.Nested)]
+                public sealed class Conflict : ErrorCodedException
+                {
+                    public Conflict(string? message = null) : base(message) { }
+                }
+            }
+            """;
+
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
+
+        Assert.Contains("Game_Sub_Conflict_(", generated, StringComparison.Ordinal);
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
+    /// <summary>
     /// Two exceptions whose trimmed names collide keep their full type names, so the container never
     /// declares the same helper twice.
     /// </summary>

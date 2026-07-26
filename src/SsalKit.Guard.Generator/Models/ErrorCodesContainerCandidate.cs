@@ -4,9 +4,8 @@ namespace SsalKit.Guard.Generator.Models;
 
 /// <summary>
 /// One <c>[ErrorCodes&lt;TCode&gt;]</c> application: the container's shape, its own
-/// <c>[ExternalErrorCode&lt;TCode&gt;]</c> registrations, and whatever disqualified it. A container
-/// carrying two <c>[ErrorCodes]</c> attributes with different code enums produces one candidate
-/// each, and each one only sees the external registrations written for its own enum.
+/// <c>[ExternalErrorCode&lt;TCode&gt;]</c> registrations, and whatever disqualified it. Exactly one
+/// per container class, since a class can be the container for exactly one code enum.
 /// </summary>
 /// <param name="IsValid">
 /// Whether a file is generated for this container. <see langword="false"/> when SSALG002 or
@@ -21,8 +20,17 @@ namespace SsalKit.Guard.Generator.Models;
 /// generated <c>TryMap</c>/<c>MapOrDefault</c> may themselves be public: a public method may not
 /// expose a less accessible type.
 /// </param>
+/// <param name="TCodeExternalAssemblyName">
+/// The name of the assembly declaring the code enum when that is not the one being compiled, or the
+/// empty string when it is. A container for another assembly's enum cannot see that assembly's
+/// <c>[ErrorCode]</c> exceptions, which is what SSALG011 warns about.
+/// </param>
 /// <param name="ContainerFqn">The container's <c>global::</c>-prefixed name, used to group and order containers.</param>
 /// <param name="ContainerDisplayName">The container's name as documentation and diagnostics refer to it.</param>
+/// <param name="ContainerName">
+/// The container's own unqualified name. A generated member may not share it -- that would be
+/// CS0542 -- so it is one of the names the helper naming reserves up front.
+/// </param>
 /// <param name="Namespace">The container's namespace, or the empty string for the global namespace.</param>
 /// <param name="ContainingTypeDeclarations">
 /// The re-declaration of each type containing the container, outermost first, e.g.
@@ -38,8 +46,10 @@ internal sealed record ErrorCodesContainerCandidate(
     string TCodeFqn,
     string TCodeDisplayName,
     bool TCodeIsEffectivelyPublic,
+    string TCodeExternalAssemblyName,
     string ContainerFqn,
     string ContainerDisplayName,
+    string ContainerName,
     string Namespace,
     EquatableArray<string> ContainingTypeDeclarations,
     string ContainerDeclaration,
@@ -53,8 +63,8 @@ internal sealed record ErrorCodesContainerCandidate(
 /// </summary>
 /// <param name="IsValid">
 /// Whether the registration takes part in the mapping table. <see langword="false"/> when SSALG004
-/// fired, in which case only <see cref="Diagnostic"/> is meaningful and the rest of the container is
-/// generated as if the registration had not been written.
+/// or SSALG010 fired, in which case only <see cref="Diagnostic"/> is meaningful and the rest of the
+/// container is generated as if the registration had not been written.
 /// </param>
 /// <param name="ExceptionFqn">The registered type's <c>global::</c>-prefixed name.</param>
 /// <param name="ExceptionDisplayName">The registered type's name as diagnostics refer to it.</param>

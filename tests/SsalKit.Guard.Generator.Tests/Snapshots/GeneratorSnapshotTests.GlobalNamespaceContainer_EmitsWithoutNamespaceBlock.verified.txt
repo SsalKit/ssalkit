@@ -25,7 +25,7 @@ public static partial class GameErrors
     /// maintained by hand. An exception with no registration -- including a null reference --
     /// matches nothing and yields <see langword="false"/>.
     /// </remarks>
-    public static bool TryMap(global::System.Exception exception, out global::GameStatusCode code)
+    public static bool TryMap(global::System.Exception? exception, out global::GameStatusCode code)
     {
         if (exception is global::UserNotFoundException)
         {
@@ -49,7 +49,7 @@ public static partial class GameErrors
     /// exception is reported. Prefer <c>TryMap</c> where "unmapped" has to be handled
     /// differently from any real code -- logging the exception at the boundary, for instance.
     /// </remarks>
-    public static global::GameStatusCode MapOrDefault(global::System.Exception exception, global::GameStatusCode fallback)
+    public static global::GameStatusCode MapOrDefault(global::System.Exception? exception, global::GameStatusCode fallback)
     {
         if (TryMap(exception, out global::GameStatusCode code))
         {

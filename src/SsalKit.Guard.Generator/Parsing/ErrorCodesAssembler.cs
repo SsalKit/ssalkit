@@ -18,20 +18,24 @@ namespace SsalKit.Guard.Generator.Parsing;
 /// This is where every rule that cannot be decided while looking at a single declaration lives:
 /// SSALG003 (the same exception registered twice in one container), SSALG006 (whether an exception
 /// without a usable constructor actually ended up in a container), SSALG008 (whether a declared code
-/// enum has a container at all), and the derived-before-base ordering of the mapping table.
+/// enum has a container at all), SSALG011 (whether a container for another assembly's code enum
+/// ended up with anything in it), and the derived-before-base ordering of the mapping table.
 /// </remarks>
 internal static class ErrorCodesAssembler
 {
     private const string ExceptionSuffix = "Exception";
 
+    /// <summary>
+    /// The members the emitter writes into every container. A helper may not take one of these
+    /// names (CS0111), so they are reserved before any helper is named.
+    /// </summary>
+    private static readonly string[] EmittedMemberNames = ["TryMap", "MapOrDefault"];
+
     public static ErrorCodesAnalysisResult Analyze(
-        ImmutableArray<EquatableArray<ErrorCodesContainerCandidate>> containerGroups,
-        ImmutableArray<EquatableArray<ErrorCodeExceptionCandidate>> exceptionGroups,
+        ImmutableArray<ErrorCodesContainerCandidate> containers,
+        ImmutableArray<ErrorCodeExceptionCandidate> exceptions,
         CancellationToken cancellationToken)
     {
-        var containers = Flatten(containerGroups);
-        var exceptions = Flatten(exceptionGroups);
-
         var diagnostics = ImmutableArray.CreateBuilder<DiagnosticInfo>();
         CollectParseDiagnostics(containers, exceptions, diagnostics);
         ReportExceptionsWithoutContainer(containers, exceptions, diagnostics);
@@ -39,11 +43,11 @@ internal static class ErrorCodesAssembler
         var models = ImmutableArray.CreateBuilder<ErrorCodesContainerModel>();
 
         // Ordinal ordering throughout: the order pipeline nodes happened to run in must never leak
-        // into the generated output or the diagnostic list.
+        // into the generated output or the diagnostic list. The container's own name is a complete
+        // key, since a class is the container for exactly one code enum.
         foreach (var container in containers
             .Where(candidate => candidate.IsValid)
-            .OrderBy(candidate => candidate.ContainerFqn, StringComparer.Ordinal)
-            .ThenBy(candidate => candidate.TCodeFqn, StringComparer.Ordinal))
+            .OrderBy(candidate => candidate.ContainerFqn, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -57,23 +61,6 @@ internal static class ErrorCodesAssembler
         return new ErrorCodesAnalysisResult(
             EquatableArray.Create(models.ToImmutable()),
             EquatableArray.Create(SymbolFacts.SortForDiagnosticDeterminism(diagnostics.ToImmutable())));
-    }
-
-    private static ImmutableArray<T> Flatten<T>(ImmutableArray<EquatableArray<T>> groups)
-        where T : IEquatable<T>
-    {
-        if (groups.IsDefaultOrEmpty)
-        {
-            return ImmutableArray<T>.Empty;
-        }
-
-        var builder = ImmutableArray.CreateBuilder<T>();
-        foreach (var group in groups)
-        {
-            builder.AddRange(group.AsImmutableArray());
-        }
-
-        return builder.ToImmutable();
     }
 
     private static void CollectParseDiagnostics(
@@ -157,6 +144,8 @@ internal static class ErrorCodesAssembler
             return null;
         }
 
+        ReportEmptyContainerForAnotherAssemblysCodeEnum(container, owned, external, diagnostics);
+
         foreach (var exception in owned.Where(exception => exception.Constructor == ConstructorShape.None))
         {
             diagnostics.Add(new DiagnosticInfo(
@@ -187,8 +176,38 @@ internal static class ErrorCodesAssembler
             container.TCodeDisplayName,
             container.TCodeIsEffectivelyPublic ? "public" : "internal",
             EquatableArray.Create(entries),
-            BuildHelpers(owned),
+            BuildHelpers(owned, container.ContainerName),
             container.HintName);
+    }
+
+    /// <summary>
+    /// SSALG011: the container maps an enum declared in another assembly and nothing here registers
+    /// anything in it. The generator only sees this compilation, so the <c>[ErrorCode]</c> exceptions
+    /// that live next to the enum are invisible and the generated table comes out empty -- which
+    /// looks exactly like the generator not having run.
+    /// </summary>
+    /// <remarks>
+    /// A container that does register something -- whether an <c>[ErrorCode]</c> exception of its own
+    /// or an explicit <c>[ExternalErrorCode]</c>, which is the documented way to map another
+    /// assembly's types -- is deliberate and stays silent.
+    /// </remarks>
+    private static void ReportEmptyContainerForAnotherAssemblysCodeEnum(
+        ErrorCodesContainerCandidate container,
+        List<ErrorCodeExceptionCandidate> owned,
+        List<ExternalRegistrationCandidate> external,
+        ImmutableArray<DiagnosticInfo>.Builder diagnostics)
+    {
+        if (container.TCodeExternalAssemblyName.Length == 0 || owned.Count > 0 || external.Count > 0)
+        {
+            return;
+        }
+
+        diagnostics.Add(new DiagnosticInfo(
+            DiagnosticDescriptors.ContainerForAnotherAssemblysCodeEnumIsEmpty,
+            container.Location,
+            container.ContainerDisplayName,
+            container.TCodeDisplayName,
+            container.TCodeExternalAssemblyName));
     }
 
     /// <summary>
@@ -230,7 +249,16 @@ internal static class ErrorCodesAssembler
     /// them: a registration made with <c>[ExternalErrorCode]</c> is somebody else's type, whose
     /// constructor contract this library cannot vouch for.
     /// </summary>
-    private static EquatableArray<ExceptionHelperModel> BuildHelpers(List<ErrorCodeExceptionCandidate> owned)
+    /// <remarks>
+    /// Every name the generated file will declare goes through one reservation set: the two mapping
+    /// methods, the container's own name -- a member may not share it, which is CS0542 -- and, for
+    /// each exception, the factory <i>and</i> the throw helper together. Reserving the pair as a unit
+    /// is what stops a <c>FooException</c>/<c>ThrowFooException</c> pair from producing two
+    /// <c>ThrowFoo</c> members (CS0111): the factory names would differ, but the throw names would
+    /// not.
+    /// </remarks>
+    private static EquatableArray<ExceptionHelperModel> BuildHelpers(
+        List<ErrorCodeExceptionCandidate> owned, string containerName)
     {
         var withConstructors = owned
             .Where(exception => exception.Constructor != ConstructorShape.None)
@@ -240,30 +268,19 @@ internal static class ErrorCodesAssembler
             .GroupBy(exception => TrimExceptionSuffix(exception.ExceptionName), StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
 
-        var taken = new HashSet<string>(StringComparer.Ordinal);
+        var taken = new HashSet<string>(EmittedMemberNames, StringComparer.Ordinal) { containerName };
         var helpers = ImmutableArray.CreateBuilder<ExceptionHelperModel>();
 
         // 'owned' is already ordered by fully qualified name, so which exception keeps the shortest
         // name when two would collide is a property of the code, not of the pipeline's run order.
         foreach (var exception in withConstructors)
         {
-            var trimmed = TrimExceptionSuffix(exception.ExceptionName);
-            var name = trimmedNameCounts[trimmed] == 1 ? trimmed : exception.ExceptionName;
-
-            if (taken.Contains(name))
-            {
-                name = exception.ExceptionFlattenedName;
-            }
-
-            while (!taken.Add(name))
-            {
-                name += "_";
-            }
+            var name = ReserveHelperName(exception, trimmedNameCounts, taken);
 
             helpers.Add(new ExceptionHelperModel(
                 exception.ExceptionFqn,
                 CSharpNaming.EscapeKeyword(name),
-                CSharpNaming.EscapeKeyword("Throw" + name),
+                CSharpNaming.EscapeKeyword(ThrowNameOf(name)),
                 exception.CodeDisplayName,
                 exception.Constructor,
                 exception.MessageIsNullable,
@@ -273,6 +290,47 @@ internal static class ErrorCodesAssembler
 
         return EquatableArray.Create(helpers.ToImmutable());
     }
+
+    /// <summary>
+    /// Picks the first free name for one exception's pair of helpers and reserves both, walking the
+    /// same three steps as before -- the trimmed name, the whole type name, the fully qualified name
+    /// flattened -- and then appending underscores, except that a step only counts as free when
+    /// <i>both</i> the factory and the throw helper are.
+    /// </summary>
+    private static string ReserveHelperName(
+        ErrorCodeExceptionCandidate exception,
+        Dictionary<string, int> trimmedNameCounts,
+        HashSet<string> taken)
+    {
+        var trimmed = TrimExceptionSuffix(exception.ExceptionName);
+        var preferred = trimmedNameCounts[trimmed] == 1 ? trimmed : exception.ExceptionName;
+
+        if (IsPairAvailable(preferred, taken))
+        {
+            return Reserve(preferred, taken);
+        }
+
+        var name = exception.ExceptionFlattenedName;
+        while (!IsPairAvailable(name, taken))
+        {
+            name += "_";
+        }
+
+        return Reserve(name, taken);
+    }
+
+    private static bool IsPairAvailable(string name, HashSet<string> taken) =>
+        !taken.Contains(name) && !taken.Contains(ThrowNameOf(name));
+
+    private static string Reserve(string name, HashSet<string> taken)
+    {
+        taken.Add(name);
+        taken.Add(ThrowNameOf(name));
+
+        return name;
+    }
+
+    private static string ThrowNameOf(string name) => "Throw" + name;
 
     /// <summary>
     /// <c>UserNotFoundException</c> becomes <c>UserNotFound</c>, so a call site reads

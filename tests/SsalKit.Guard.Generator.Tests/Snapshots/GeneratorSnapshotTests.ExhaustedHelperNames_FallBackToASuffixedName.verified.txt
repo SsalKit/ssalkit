@@ -29,33 +29,21 @@ namespace Game
         /// </remarks>
         public static bool TryMap(global::System.Exception? exception, out global::Game.GameStatusCode code)
         {
-            if (exception is global::Game.EmptyException)
+            if (exception is global::Game.Conflict)
             {
-                code = global::Game.GameStatusCode.Empty;
+                code = global::Game.GameStatusCode.Trimmed;
                 return true;
             }
 
-            if (exception is global::Game.FullException)
+            if (exception is global::Game.Sub.Conflict)
             {
-                code = global::Game.GameStatusCode.Full;
+                code = global::Game.GameStatusCode.Nested;
                 return true;
             }
 
-            if (exception is global::Game.MessageOnlyException)
+            if (exception is global::Game_Sub_Conflict)
             {
-                code = global::Game.GameStatusCode.MessageOnly;
-                return true;
-            }
-
-            if (exception is global::Game.RequiredException)
-            {
-                code = global::Game.GameStatusCode.Required;
-                return true;
-            }
-
-            if (exception is global::Game.WidestException)
-            {
-                code = global::Game.GameStatusCode.Widest;
+                code = global::Game.GameStatusCode.Flattened;
                 return true;
             }
 
@@ -86,163 +74,105 @@ namespace Game
         }
 
         /// <summary>
-        /// Creates a new <see cref="global::Game.EmptyException"/>, which maps to
-        /// <c>GameStatusCode.Empty</c>.
-        /// </summary>
-        /// <returns>The new exception, ready to be thrown.</returns>
-        public static global::Game.EmptyException Empty()
-        {
-            return new global::Game.EmptyException();
-        }
-
-        /// <summary>
-        /// Throws a new <see cref="global::Game.EmptyException"/>, which maps to
-        /// <c>GameStatusCode.Empty</c>.
-        /// </summary>
-        /// <exception cref="global::Game.EmptyException">Always.</exception>
-        /// <remarks>
-        /// Marked <c>[DoesNotReturn]</c>, so the compiler's nullable flow analysis treats the path
-        /// through this call as ended: a value null-checked just before it stays non-null on the
-        /// way out, and nothing after it is analysed as reachable.
-        /// </remarks>
-        [global::System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowEmpty()
-        {
-            throw new global::Game.EmptyException();
-        }
-
-        /// <summary>
-        /// Creates a new <see cref="global::Game.FullException"/>, which maps to
-        /// <c>GameStatusCode.Full</c>.
-        /// </summary>
-        /// <param name="message">
-        /// The message that describes the error, or <see langword="null"/> to use the
-        /// exception's default message.
-        /// </param>
-        /// <param name="innerException">The exception that caused this one, or <see langword="null"/>.</param>
-        /// <returns>The new exception, ready to be thrown.</returns>
-        public static global::Game.FullException Full(string? message = null, global::System.Exception? innerException = null)
-        {
-            return new global::Game.FullException(message, innerException);
-        }
-
-        /// <summary>
-        /// Throws a new <see cref="global::Game.FullException"/>, which maps to
-        /// <c>GameStatusCode.Full</c>.
-        /// </summary>
-        /// <param name="message">
-        /// The message that describes the error, or <see langword="null"/> to use the
-        /// exception's default message.
-        /// </param>
-        /// <param name="innerException">The exception that caused this one, or <see langword="null"/>.</param>
-        /// <exception cref="global::Game.FullException">Always.</exception>
-        /// <remarks>
-        /// Marked <c>[DoesNotReturn]</c>, so the compiler's nullable flow analysis treats the path
-        /// through this call as ended: a value null-checked just before it stays non-null on the
-        /// way out, and nothing after it is analysed as reachable.
-        /// </remarks>
-        [global::System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowFull(string? message = null, global::System.Exception? innerException = null)
-        {
-            throw new global::Game.FullException(message, innerException);
-        }
-
-        /// <summary>
-        /// Creates a new <see cref="global::Game.MessageOnlyException"/>, which maps to
-        /// <c>GameStatusCode.MessageOnly</c>.
+        /// Creates a new <see cref="global::Game.Conflict"/>, which maps to
+        /// <c>GameStatusCode.Trimmed</c>.
         /// </summary>
         /// <param name="message">
         /// The message that describes the error, or <see langword="null"/> to use the
         /// exception's default message.
         /// </param>
         /// <returns>The new exception, ready to be thrown.</returns>
-        public static global::Game.MessageOnlyException MessageOnly(string? message = null)
+        public static global::Game.Conflict Conflict(string? message = null)
         {
-            return new global::Game.MessageOnlyException(message);
+            return new global::Game.Conflict(message);
         }
 
         /// <summary>
-        /// Throws a new <see cref="global::Game.MessageOnlyException"/>, which maps to
-        /// <c>GameStatusCode.MessageOnly</c>.
+        /// Throws a new <see cref="global::Game.Conflict"/>, which maps to
+        /// <c>GameStatusCode.Trimmed</c>.
         /// </summary>
         /// <param name="message">
         /// The message that describes the error, or <see langword="null"/> to use the
         /// exception's default message.
         /// </param>
-        /// <exception cref="global::Game.MessageOnlyException">Always.</exception>
+        /// <exception cref="global::Game.Conflict">Always.</exception>
         /// <remarks>
         /// Marked <c>[DoesNotReturn]</c>, so the compiler's nullable flow analysis treats the path
         /// through this call as ended: a value null-checked just before it stays non-null on the
         /// way out, and nothing after it is analysed as reachable.
         /// </remarks>
         [global::System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowMessageOnly(string? message = null)
+        public static void ThrowConflict(string? message = null)
         {
-            throw new global::Game.MessageOnlyException(message);
+            throw new global::Game.Conflict(message);
         }
 
         /// <summary>
-        /// Creates a new <see cref="global::Game.RequiredException"/>, which maps to
-        /// <c>GameStatusCode.Required</c>.
+        /// Creates a new <see cref="global::Game.Sub.Conflict"/>, which maps to
+        /// <c>GameStatusCode.Nested</c>.
         /// </summary>
-        /// <param name="message">The message that describes the error.</param>
+        /// <param name="message">
+        /// The message that describes the error, or <see langword="null"/> to use the
+        /// exception's default message.
+        /// </param>
         /// <returns>The new exception, ready to be thrown.</returns>
-        public static global::Game.RequiredException Required(string message)
+        public static global::Game.Sub.Conflict Game_Sub_Conflict(string? message = null)
         {
-            return new global::Game.RequiredException(message);
+            return new global::Game.Sub.Conflict(message);
         }
 
         /// <summary>
-        /// Throws a new <see cref="global::Game.RequiredException"/>, which maps to
-        /// <c>GameStatusCode.Required</c>.
+        /// Throws a new <see cref="global::Game.Sub.Conflict"/>, which maps to
+        /// <c>GameStatusCode.Nested</c>.
         /// </summary>
-        /// <param name="message">The message that describes the error.</param>
-        /// <exception cref="global::Game.RequiredException">Always.</exception>
+        /// <param name="message">
+        /// The message that describes the error, or <see langword="null"/> to use the
+        /// exception's default message.
+        /// </param>
+        /// <exception cref="global::Game.Sub.Conflict">Always.</exception>
         /// <remarks>
         /// Marked <c>[DoesNotReturn]</c>, so the compiler's nullable flow analysis treats the path
         /// through this call as ended: a value null-checked just before it stays non-null on the
         /// way out, and nothing after it is analysed as reachable.
         /// </remarks>
         [global::System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowRequired(string message)
+        public static void ThrowGame_Sub_Conflict(string? message = null)
         {
-            throw new global::Game.RequiredException(message);
+            throw new global::Game.Sub.Conflict(message);
         }
 
         /// <summary>
-        /// Creates a new <see cref="global::Game.WidestException"/>, which maps to
-        /// <c>GameStatusCode.Widest</c>.
+        /// Creates a new <see cref="global::Game_Sub_Conflict"/>, which maps to
+        /// <c>GameStatusCode.Flattened</c>.
         /// </summary>
         /// <param name="message">
         /// The message that describes the error, or <see langword="null"/> to use the
         /// exception's default message.
         /// </param>
-        /// <param name="innerException">The exception that caused this one, or <see langword="null"/>.</param>
         /// <returns>The new exception, ready to be thrown.</returns>
-        public static global::Game.WidestException Widest(string? message = null, global::System.Exception? innerException = null)
+        public static global::Game_Sub_Conflict Game_Sub_Conflict_(string? message = null)
         {
-            return new global::Game.WidestException(message, innerException);
+            return new global::Game_Sub_Conflict(message);
         }
 
         /// <summary>
-        /// Throws a new <see cref="global::Game.WidestException"/>, which maps to
-        /// <c>GameStatusCode.Widest</c>.
+        /// Throws a new <see cref="global::Game_Sub_Conflict"/>, which maps to
+        /// <c>GameStatusCode.Flattened</c>.
         /// </summary>
         /// <param name="message">
         /// The message that describes the error, or <see langword="null"/> to use the
         /// exception's default message.
         /// </param>
-        /// <param name="innerException">The exception that caused this one, or <see langword="null"/>.</param>
-        /// <exception cref="global::Game.WidestException">Always.</exception>
+        /// <exception cref="global::Game_Sub_Conflict">Always.</exception>
         /// <remarks>
         /// Marked <c>[DoesNotReturn]</c>, so the compiler's nullable flow analysis treats the path
         /// through this call as ended: a value null-checked just before it stays non-null on the
         /// way out, and nothing after it is analysed as reachable.
         /// </remarks>
         [global::System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowWidest(string? message = null, global::System.Exception? innerException = null)
+        public static void ThrowGame_Sub_Conflict_(string? message = null)
         {
-            throw new global::Game.WidestException(message, innerException);
+            throw new global::Game_Sub_Conflict(message);
         }
     }
 }

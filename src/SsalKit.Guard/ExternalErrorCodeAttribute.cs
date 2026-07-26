@@ -7,7 +7,9 @@ namespace SsalKit.Guard;
 /// </summary>
 /// <typeparam name="TCode">
 /// The enum type of the container this registration belongs to. It must match the container's own
-/// <see cref="ErrorCodesAttribute{TCode}"/>.
+/// <see cref="ErrorCodesAttribute{TCode}"/>: a class maps exactly one code enum, so a registration
+/// naming any other one belongs to no container at all and is reported as a warning rather than
+/// dropped in silence.
 /// </typeparam>
 /// <remarks>
 /// <para>

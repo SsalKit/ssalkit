@@ -6,8 +6,8 @@ namespace SsalKit.Guard.Generator.Models;
 /// </summary>
 /// <remarks>
 /// The values are ordered from narrowest to widest: when an exception declares several of these,
-/// the widest one wins, so the generated helper offers the caller everything the exception itself
-/// offers.
+/// the widest one wins. Only that one is mirrored -- an exception gets a single factory and a
+/// single throw helper, not one overload per constructor it happens to declare.
 /// </remarks>
 internal enum ConstructorShape
 {

@@ -67,27 +67,35 @@ public sealed class ErrorCodesGenerator : IIncrementalGenerator
     /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        IncrementalValuesProvider<EquatableArray<ErrorCodeExceptionCandidate>> exceptions = context.SyntaxProvider
+        // One candidate per decorated declaration, never a group: both attributes are
+        // AllowMultiple = false, which for a generic attribute is enforced against its generic
+        // definition, so a second application with a different TCode is CS0579 at the declaration
+        // site rather than something this pipeline ever sees.
+        IncrementalValuesProvider<ErrorCodeExceptionCandidate> exceptions = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 ErrorCodeAttributeMetadataName,
                 // Deliberately unfiltered, as in the other SsalKit generators: [AttributeUsage(Class)]
                 // already restricts what can carry the attribute, and the symbol-kind check in the
                 // parser covers the same ground without having to enumerate node kinds here.
                 predicate: static (_, _) => true,
-                transform: static (ctx, ct) => ErrorCodeExceptionParser.GetCandidates(ctx, ct))
+                transform: static (ctx, ct) => ErrorCodeExceptionParser.GetCandidate(ctx, ct))
+            .Where(static candidate => candidate is not null)
+            .Select(static (candidate, _) => candidate!)
             .WithTrackingName(TrackingNames.Exceptions);
 
-        IncrementalValuesProvider<EquatableArray<ErrorCodesContainerCandidate>> containers = context.SyntaxProvider
+        IncrementalValuesProvider<ErrorCodesContainerCandidate> containers = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 ErrorCodesAttributeMetadataName,
                 predicate: static (_, _) => true,
-                transform: static (ctx, ct) => ErrorCodesContainerParser.GetCandidates(ctx, ct))
+                transform: static (ctx, ct) => ErrorCodesContainerParser.GetCandidate(ctx, ct))
+            .Where(static candidate => candidate is not null)
+            .Select(static (candidate, _) => candidate!)
             .WithTrackingName(TrackingNames.Containers);
 
-        IncrementalValueProvider<ImmutableArray<EquatableArray<ErrorCodeExceptionCandidate>>> collectedExceptions =
+        IncrementalValueProvider<ImmutableArray<ErrorCodeExceptionCandidate>> collectedExceptions =
             exceptions.Collect().WithTrackingName(TrackingNames.CollectedExceptions);
 
-        IncrementalValueProvider<ImmutableArray<EquatableArray<ErrorCodesContainerCandidate>>> collectedContainers =
+        IncrementalValueProvider<ImmutableArray<ErrorCodesContainerCandidate>> collectedContainers =
             containers.Collect().WithTrackingName(TrackingNames.CollectedContainers);
 
         // The join has to see both sides at once: which container an exception belongs to, whether a

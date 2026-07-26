@@ -9,17 +9,20 @@ namespace SsalKit.Guard.Generator.Diagnostics;
 /// <remarks>
 /// <para>
 /// The rules split into three groups by what the generator does after reporting them. A rule about
-/// a single <i>registration</i> (SSALG001, SSALG004, SSALG005, SSALG009) drops that registration and
-/// leaves the rest of the container intact, because one mis-declared exception should not take the
-/// whole mapping table down with it. A rule about the <i>container</i> (SSALG002, SSALG007) or about
-/// an ambiguity the generator refuses to resolve on the user's behalf (SSALG003) suppresses that
-/// container's generated file entirely.
+/// a single <i>registration</i> (SSALG001, SSALG004, SSALG005, SSALG009, SSALG010) drops that
+/// registration and leaves the rest of the container intact, because one mis-declared exception
+/// should not take the whole mapping table down with it. A rule about the <i>container</i>
+/// (SSALG002, SSALG007) or about an ambiguity the generator refuses to resolve on the user's behalf
+/// (SSALG003) suppresses that container's generated file entirely.
 /// </para>
 /// <para>
-/// The two warnings describe something that still compiles but is very likely not what was meant:
-/// a decorated exception with no usable constructor (SSALG006) still takes part in the mapping and
-/// only loses its helpers, and an exception whose code enum has no container at all (SSALG008) is
-/// the silent-no-op case -- everything looks declared, yet nothing is generated anywhere.
+/// The warnings describe something that still compiles but is very likely not what was meant: a
+/// decorated exception with no usable constructor (SSALG006) still takes part in the mapping and
+/// only loses its helpers; an exception whose code enum has no container at all (SSALG008) is the
+/// silent-no-op case -- everything looks declared, yet nothing is generated anywhere; an
+/// <c>[ExternalErrorCode]</c> written for the wrong code enum (SSALG010) would otherwise be dropped
+/// without a word; and a container whose code enum lives in another assembly with nothing to fill
+/// it (SSALG011) is the cross-assembly shape of the same silence.
 /// </para>
 /// </remarks>
 internal static class DiagnosticDescriptors
@@ -36,14 +39,14 @@ internal static class DiagnosticDescriptors
         "'ErrorCodedException' is the compile-time anchor of the pattern: it is what lets a consumer separate domain failures from everything else with a single 'catch (ErrorCodedException)', and what guarantees every code-carrying type shares the same side-effect-free constructor contract. An exception type you do not own cannot derive from it -- register that one on the container with [ExternalErrorCode] instead.");
 
     /// <summary>
-    /// SSALG002: the <c>[ErrorCodes]</c> container is not a <c>static partial class</c>. Message
-    /// argument 1 names the specific modifiers that are missing or wrong.
+    /// SSALG002: the <c>[ErrorCodes]</c> container is not a <c>static partial class</c> that a
+    /// generated file can attach a second part to. Message argument 1 names every specific reason.
     /// </summary>
     public static readonly DiagnosticDescriptor ContainerMustBeStaticPartialClass = Factory.Error(
         2,
         "[ErrorCodes] container must be a static partial class",
         "'{0}' cannot be an error-code mapping container because it is {1}; declare it as a 'static partial class'",
-        "The generator emits the mapping table and the code helpers as a second part of the container, so the container has to be 'partial' for that part to attach to it, and 'static' because every generated member is static and the type holds no state of its own.");
+        "The generator emits the mapping table and the code helpers as a second part of the container, so the container has to be 'partial' for that part to attach to it, and 'static' because every generated member is static and the type holds no state of its own. The generated part is a separate file, so a 'file'-local container is rejected too -- a second part written in another file would declare a different type, silently leaving the hand-written one empty -- and every type the container is nested in has to be 'partial' as well, since the generated file has to re-declare the whole nesting chain.");
 
     /// <summary>
     /// SSALG003: the same exception type is registered twice in one container -- twice through
@@ -87,13 +90,14 @@ internal static class DiagnosticDescriptors
         "The generated helpers mirror one of the exception's own public constructors, so that 'throw Errors.Something(message)' constructs exactly what 'new SomethingException(message)' would. A type whose constructors all take other parameters has no shape to mirror; add one of the recognised constructors, or construct the exception directly.");
 
     /// <summary>
-    /// SSALG007: the container is generic, or nested inside a generic type.
+    /// SSALG007: the container is generic or nested inside a generic type, or its code enum is
+    /// nested inside a generic type. Message argument 1 carries the reason.
     /// </summary>
     public static readonly DiagnosticDescriptor ContainerCannotBeGeneric = Factory.Error(
         7,
-        "[ErrorCodes] container cannot be generic",
-        "'{0}' cannot be an error-code mapping container because it is generic or is nested inside a generic type",
-        "The generated part has to re-declare the container and every type containing it, and a generic container would have to repeat its type parameters and constraints there -- while adding nothing: the mapping table is the same for every instantiation, and 'Errors<T>.TryMap' would force every call site to state a T that does not matter. Use a non-generic container.");
+        "[ErrorCodes] container and code enum cannot be generic",
+        "'{0}' cannot be an error-code mapping container because {1}",
+        "The generated part has to re-declare the container and every type containing it, and a generic container would have to repeat its type parameters and constraints there -- while adding nothing: the mapping table is the same for every instantiation, and 'Errors<T>.TryMap' would force every call site to state a T that does not matter. A code enum nested inside a generic type is rejected for a related reason: its name is written into the generated documentation and into a 'cref', where the type arguments would have to be escaped as XML rather than as C#. Use a non-generic container and a code enum that is not nested inside a generic type.");
 
     /// <summary>
     /// SSALG008: a decorated exception's code enum has no <c>[ErrorCodes]</c> container anywhere in
@@ -114,4 +118,27 @@ internal static class DiagnosticDescriptors
         "[ErrorCode] exception type is not accessible to the generated code",
         "[ErrorCode] cannot be applied to '{0}' because {1}, so the generated mapping container cannot name it; the registration is ignored",
         "The container's generated part is a separate file, and every registration becomes a type test -- and, for a decorated exception, a 'new' expression -- written out in it. A type that is private, protected, private protected, or 'file'-local is not nameable from there, so including it would produce a generated file that does not compile: an error pointing at code the user never wrote. Declare the exception 'internal' or 'public', or drop the attribute.");
+
+    /// <summary>
+    /// SSALG010: an <c>[ExternalErrorCode&lt;TCode&gt;]</c> registration names a different code enum
+    /// from the container's own <c>[ErrorCodes&lt;TCode&gt;]</c>, so it belongs to no container at
+    /// all.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ExternalRegistrationForAnotherCodeEnum = Factory.Warning(
+        10,
+        "[ExternalErrorCode] does not match the container's code enum",
+        "[ExternalErrorCode<{0}>] on '{1}' is ignored because the container maps codes of type '{2}'; change the registration's code enum to '{2}'",
+        "A class can carry only one [ErrorCodes<TCode>] -- [AttributeUsage(AllowMultiple = false)] is enforced against the attribute's generic definition, so a second application with a different TCode is a duplicate-attribute error at the declaration site. An [ExternalErrorCode<TCode>] naming any other enum therefore has no container to join, and is always a typo rather than a registration for some other container.");
+
+    /// <summary>
+    /// SSALG011: the container's code enum comes from another assembly and nothing in this
+    /// compilation registers anything in it, which is what a cross-assembly arrangement looks like
+    /// when the <c>[ErrorCode]</c> exceptions the user expected to be collected are in that other
+    /// assembly.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ContainerForAnotherAssemblysCodeEnumIsEmpty = Factory.Warning(
+        11,
+        "Mapping container for another assembly's code enum has no registrations",
+        "'{0}' maps '{1}', which is declared in '{2}', but this compilation registers nothing in it, so the generated mapping is empty",
+        "The generator only sees the compilation it runs in: an exception carrying [ErrorCode] in another assembly is invisible here, and a container placed alongside the code enum's consumers rather than alongside its exceptions collects nothing. Move the container into the assembly that declares the [ErrorCode] exceptions, or register the types you want mapped explicitly with [ExternalErrorCode], which works across assembly boundaries.");
 }

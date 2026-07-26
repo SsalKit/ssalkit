@@ -24,6 +24,15 @@ namespace SsalKit.Guard.Generator.Emission;
 internal static class ErrorCodesEmitter
 {
     private const string ExceptionType = "global::System.Exception";
+
+    /// <summary>
+    /// The mapping methods' parameter type. Nullable on purpose: they document a null reference as
+    /// matching nothing, and a non-nullable parameter would make the caller warn (CS8604) for doing
+    /// exactly what the documentation promises -- <c>ex.InnerException</c> at a boundary being the
+    /// obvious case.
+    /// </summary>
+    private const string NullableExceptionType = ExceptionType + "?";
+
     private const string DoesNotReturnAttribute = "global::System.Diagnostics.CodeAnalysis.DoesNotReturn";
 
     public static string Emit(ErrorCodesContainerModel model)
@@ -112,7 +121,7 @@ internal static class ErrorCodesEmitter
             "</remarks>");
 
         using (writer.Block(
-            model.MapAccessibility + " static bool TryMap(" + ExceptionType + " exception, out " + model.TCodeFqn + " code)"))
+            model.MapAccessibility + " static bool TryMap(" + NullableExceptionType + " exception, out " + model.TCodeFqn + " code)"))
         {
             foreach (var entry in model.Entries)
             {
@@ -148,7 +157,7 @@ internal static class ErrorCodesEmitter
 
         using (writer.Block(
             model.MapAccessibility + " static " + model.TCodeFqn + " MapOrDefault("
-            + ExceptionType + " exception, " + model.TCodeFqn + " fallback)"))
+            + NullableExceptionType + " exception, " + model.TCodeFqn + " fallback)"))
         {
             using (writer.Block("if (TryMap(exception, out " + model.TCodeFqn + " code))"))
             {

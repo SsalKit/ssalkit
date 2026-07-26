@@ -9,7 +9,10 @@ namespace SsalKit.Guard;
 /// The enum type this container maps to. Only exceptions carrying
 /// <see cref="ErrorCodeAttribute{TCode}"/> with the same <typeparamref name="TCode"/>, plus this
 /// container's own <see cref="ExternalErrorCodeAttribute{TCode}"/> registrations, take part —
-/// so several containers with different code enums can coexist in one assembly.
+/// so several containers with different code enums can coexist in one assembly. One class maps one
+/// enum: a second application with a different <typeparamref name="TCode"/> is a duplicate-attribute
+/// error (CS0579), since <c>AllowMultiple</c> is enforced against this attribute's generic
+/// definition rather than against each constructed form of it.
 /// </typeparam>
 /// <remarks>
 /// <para>
@@ -26,9 +29,18 @@ namespace SsalKit.Guard;
 /// compiler cannot notice.
 /// </para>
 /// <para>
-/// The container must be a <see langword="static"/> <see langword="partial"/> class that is
-/// neither generic nor nested inside a generic type; violations are reported as compile-time
-/// errors.
+/// The generated part is a second file, so the container must be a <see langword="static"/>
+/// <see langword="partial"/> class that such a file can attach to and name: not
+/// <c>file</c>-local, nested only inside <see langword="partial"/> types, and neither generic nor
+/// nested inside a generic type (nor mapping a <typeparamref name="TCode"/> that is). Violations
+/// are reported as compile-time errors.
+/// </para>
+/// <para>
+/// Only this compilation is visible to the generator: an exception carrying
+/// <see cref="ErrorCodeAttribute{TCode}"/> in a referenced assembly is not collected, so a
+/// container belongs in the same project as its exceptions. Types from elsewhere are registered
+/// explicitly with <see cref="ExternalErrorCodeAttribute{TCode}"/>, which does cross assembly
+/// boundaries.
 /// </para>
 /// </remarks>
 /// <example>

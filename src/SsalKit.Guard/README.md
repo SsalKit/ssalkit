@@ -194,6 +194,8 @@ v1 recognises three public constructor shapes and mirrors the widest one the exc
 | `(string message)` | `Required(string message)` — non-nullable, so the parameter stays required |
 | `(string? message, Exception? innerException)` | `Full(string? message = null, Exception? innerException = null)` |
 
+Each exception gets exactly one factory and one throw helper — the widest shape it declares, not an overload per constructor — since anything narrower is reachable through that one's defaults.
+
 An exception declaring none of them still takes part in the mapping table; it simply gets no helpers, and `SSALG006` says so rather than leaving you to wonder. Externally registered types never get helpers either — this library cannot vouch for the constructor contract of a type it does not own.
 
 ### Several containers, several code enums
@@ -250,16 +252,18 @@ Three things worth pointing out:
 | ID | Severity | Reported when |
 |---|---|---|
 | `SSALG001` | Error | `[ErrorCode]` is applied to a type that does not derive from `ErrorCodedException`. |
-| `SSALG002` | Error | An `[ErrorCodes]` container is not a `static partial class`. |
+| `SSALG002` | Error | An `[ErrorCodes]` container is not a `static partial class` the generated file can attach a second part to — it is not a class, not `static`, not `partial`, `file`-local, or nested inside a type that is not `partial`. |
 | `SSALG003` | Error | The same exception type is registered more than once in one container. |
 | `SSALG004` | Error | `[ExternalErrorCode]` names a type that is not an exception, or an unbound generic type. |
 | `SSALG005` | Error | An `[ErrorCode]` exception is abstract, generic, or nested inside a generic type. |
 | `SSALG006` | Warning | An `[ErrorCode]` exception declares none of the recognised constructors, so no factory or throw helper is generated for it. It still maps. |
-| `SSALG007` | Error | An `[ErrorCodes]` container is generic, or nested inside a generic type. |
+| `SSALG007` | Error | An `[ErrorCodes]` container is generic or nested inside a generic type, or its code enum is nested inside a generic type. |
 | `SSALG008` | Warning | An `[ErrorCode<TCode>]` exception exists, but the compilation has no `[ErrorCodes<TCode>]` container for that enum, so nothing is generated for it anywhere. |
 | `SSALG009` | Error | An `[ErrorCode]` exception is not accessible from the generated file (`private`, `protected`, `private protected`, or `file`-local). |
+| `SSALG010` | Warning | An `[ExternalErrorCode<TCode>]` names a different code enum from the container's own `[ErrorCodes<TCode>]`, so it belongs to no container and is dropped. |
+| `SSALG011` | Warning | A container's code enum is declared in another assembly and nothing in this compilation registers anything in it, so the generated mapping is empty. |
 
-A rule about a single registration (`SSALG001`, `SSALG004`, `SSALG005`, `SSALG009`) drops that registration and leaves the rest of the container intact — one mis-declared exception should not take the whole mapping table down with it. A rule about the container (`SSALG002`, `SSALG007`), or an ambiguity the generator refuses to resolve on your behalf (`SSALG003`), suppresses that container's generated file entirely.
+A rule about a single registration (`SSALG001`, `SSALG004`, `SSALG005`, `SSALG009`, `SSALG010`) drops that registration and leaves the rest of the container intact — one mis-declared exception should not take the whole mapping table down with it. A rule about the container (`SSALG002`, `SSALG007`), or an ambiguity the generator refuses to resolve on your behalf (`SSALG003`), suppresses that container's generated file entirely.
 
 ## Things to know
 
@@ -267,7 +271,8 @@ A rule about a single registration (`SSALG001`, `SSALG004`, `SSALG005`, `SSALG00
 - **Only three constructor shapes are mirrored.** `()`, `(string?)`, and `(string?, Exception?)`. An exception with domain-specific parameters — `InsufficientFundsException(decimal balance, decimal amount)` — still maps perfectly well, gets `SSALG006` to say why it has no helpers, and is constructed the ordinary way, including inside a guard's exception-factory overload.
 - **Give `GuardViolationException` a code.** It derives from `ErrorCodedException` like any other domain failure, but it is declared in this package, so it is registered on your container rather than on the type: `[ExternalErrorCode<GameStatusCode>(typeof(GuardViolationException), GameStatusCode.GuardViolation)]`. Without that line every guard failure falls through your mapping as unmapped; with it, an internal invariant violation becomes a first-class code in your own enum.
 - **`ErrorCodedException` is also a `catch` target.** A single `catch (ErrorCodedException)` separates domain failures from everything else, which is useful at a boundary that wants to treat the two differently before any mapping happens.
-- **One container per class, if you have any doubt.** A class may carry `[ErrorCodes<A>]` and `[ErrorCodes<B>]` at once — they are different attribute types — and each enum's generated file is kept separate. The case that is not handled is an exception declaring a code in *both* enums: its helpers would be generated into both halves of the same class under the same name.
+- **One container per class, and one class per container — the language says so.** `[ErrorCodes<A>]` and `[ErrorCodes<B>]` on the same class is `CS0579`, "duplicate attribute": `AllowMultiple = false` is enforced against a generic attribute's *definition*, not against each constructed form of it. The same goes for `[ErrorCode<A>]` and `[ErrorCode<B>]` on one exception. A second code enum needs a second container class, which is the arrangement everything here is designed around anyway.
+- **The generator only sees one compilation.** A container collects the `[ErrorCode]` exceptions of the assembly it is compiled in, and nothing else — an exception in a referenced project is invisible to it, even when both projects share the code enum. Keep the container in the same project as its exceptions; to map types from elsewhere (a referenced project's exceptions, or any third-party type), register them explicitly with `[ExternalErrorCode]`, which works across assembly boundaries. A container for another assembly's code enum that ends up with nothing in it is `SSALG011`, a warning, rather than a silently empty table.
 
 ## License
 

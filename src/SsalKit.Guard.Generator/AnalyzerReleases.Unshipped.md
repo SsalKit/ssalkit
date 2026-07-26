@@ -11,6 +11,8 @@ SSALG003 | SsalKit.Guard | Error    | Duplicate error-code registration
 SSALG004 | SsalKit.Guard | Error    | [ExternalErrorCode] requires an exception type
 SSALG005 | SsalKit.Guard | Error    | [ErrorCode] exception must be concrete and non-generic
 SSALG006 | SsalKit.Guard | Warning  | No factory or throw helper is generated for the exception
-SSALG007 | SsalKit.Guard | Error    | [ErrorCodes] container cannot be generic
+SSALG007 | SsalKit.Guard | Error    | [ErrorCodes] container and code enum cannot be generic
 SSALG008 | SsalKit.Guard | Warning  | No mapping container for the declared code enum
 SSALG009 | SsalKit.Guard | Error    | [ErrorCode] exception type is not accessible to the generated code
+SSALG010 | SsalKit.Guard | Warning  | [ExternalErrorCode] does not match the container's code enum
+SSALG011 | SsalKit.Guard | Warning  | Mapping container for another assembly's code enum has no registrations
