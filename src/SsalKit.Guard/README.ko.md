@@ -194,6 +194,8 @@ v1은 세 가지 public 생성자 형태를 인식하며, 예외가 선언한 �
 | `(string message)` | `Required(string message)` — non-nullable이므로 매개변수가 필수로 유지됨 |
 | `(string? message, Exception? innerException)` | `Full(string? message = null, Exception? innerException = null)` |
 
+예외 하나가 얻는 것은 팩토리 하나와 throw 헬퍼 하나뿐입니다 — 생성자마다 오버로드가 하나씩 생기는 것이 아니라, 선언된 것 중 가장 넓은 형태 하나만 미러링됩니다. 더 좁은 형태는 그 하나의 기본값으로 도달할 수 있으니까요.
+
 셋 중 아무것도 선언하지 않은 예외도 매핑 테이블에는 정상적으로 참여하고, 헬퍼만 생성되지 않습니다. 이때는 사용자가 이유를 추측하도록 두지 않고 `SSALG006`으로 알려 줍니다. 외부 등록 타입 역시 헬퍼를 얻지 않습니다 — 이 라이브러리는 자신이 소유하지 않은 타입의 생성자 계약을 보증할 수 없기 때문입니다.
 
 ### 컨테이너 여러 개, 코드 enum 여러 개
@@ -250,16 +252,18 @@ public Response Handle(Func<Response> operation)
 | ID | 심각도 | 보고 조건 |
 |---|---|---|
 | `SSALG001` | 오류 | `[ErrorCode]`가 `ErrorCodedException` 파생이 아닌 타입에 붙음. |
-| `SSALG002` | 오류 | `[ErrorCodes]` 컨테이너가 `static partial class`가 아님. |
+| `SSALG002` | 오류 | `[ErrorCodes]` 컨테이너가 생성 파일이 두 번째 부분을 붙일 수 있는 `static partial class`가 아님 — 클래스가 아니거나, `static`이 아니거나, `partial`이 아니거나, `file`-local이거나, `partial`이 아닌 타입 안에 중첩됨. |
 | `SSALG003` | 오류 | 한 컨테이너에 같은 예외 타입이 두 번 이상 등록됨. |
 | `SSALG004` | 오류 | `[ExternalErrorCode]`가 예외가 아닌 타입, 또는 언바운드 제네릭 타입을 지정함. |
 | `SSALG005` | 오류 | `[ErrorCode]` 예외가 abstract이거나 제네릭이거나 제네릭 타입 안에 중첩됨. |
 | `SSALG006` | 경고 | `[ErrorCode]` 예외가 인식 가능한 생성자를 하나도 선언하지 않아 팩토리·throw 헬퍼가 생성되지 않음(매핑에는 정상 참여). |
-| `SSALG007` | 오류 | `[ErrorCodes]` 컨테이너가 제네릭이거나 제네릭 타입 안에 중첩됨. |
+| `SSALG007` | 오류 | `[ErrorCodes]` 컨테이너가 제네릭이거나 제네릭 타입 안에 중첩됨. 또는 코드 enum이 제네릭 타입 안에 중첩됨. |
 | `SSALG008` | 경고 | `[ErrorCode<TCode>]` 예외는 있는데 그 enum에 대한 `[ErrorCodes<TCode>]` 컨테이너가 컴파일 단위에 없어, 아무 곳에도 아무것도 생성되지 않음. |
 | `SSALG009` | 오류 | `[ErrorCode]` 예외가 생성 파일에서 접근 불가(`private`, `protected`, `private protected`, `file`-local). |
+| `SSALG010` | 경고 | `[ExternalErrorCode<TCode>]`가 컨테이너의 `[ErrorCodes<TCode>]`와 다른 코드 enum을 지정해, 어느 컨테이너에도 속하지 못하고 버려짐. |
+| `SSALG011` | 경고 | 컨테이너의 코드 enum이 다른 어셈블리에 선언되어 있고 이 컴파일 단위에서 등록되는 것이 하나도 없어, 생성된 매핑이 비어 있음. |
 
-등록 하나에 대한 규칙(`SSALG001`, `SSALG004`, `SSALG005`, `SSALG009`)은 해당 등록만 버리고 컨테이너의 나머지는 그대로 둡니다 — 잘못 선언된 예외 하나가 매핑 테이블 전체를 무너뜨려서는 안 되니까요. 컨테이너 자체에 대한 규칙(`SSALG002`, `SSALG007`)이나 생성기가 사용자 대신 해결하기를 거부하는 모호함(`SSALG003`)은 그 컨테이너의 생성 파일을 통째로 억제합니다.
+등록 하나에 대한 규칙(`SSALG001`, `SSALG004`, `SSALG005`, `SSALG009`, `SSALG010`)은 해당 등록만 버리고 컨테이너의 나머지는 그대로 둡니다 — 잘못 선언된 예외 하나가 매핑 테이블 전체를 무너뜨려서는 안 되니까요. 컨테이너 자체에 대한 규칙(`SSALG002`, `SSALG007`)이나 생성기가 사용자 대신 해결하기를 거부하는 모호함(`SSALG003`)은 그 컨테이너의 생성 파일을 통째로 억제합니다.
 
 ## 알아 둘 점
 
@@ -267,7 +271,8 @@ public Response Handle(Func<Response> operation)
 - **미러링되는 생성자는 세 형태뿐입니다.** `()`, `(string?)`, `(string?, Exception?)`. `InsufficientFundsException(decimal balance, decimal amount)`처럼 도메인 고유 매개변수를 받는 예외도 매핑은 아무 문제 없이 되고, 헬퍼가 없는 이유는 `SSALG006`이 알려 주며, 생성은 평범하게 `new`로 하면 됩니다. 가드의 예외 팩터리 오버로드 안에서도 마찬가지입니다.
 - **`GuardViolationException`에 코드를 주세요.** 이 타입도 다른 도메인 실패와 똑같이 `ErrorCodedException`을 상속하지만 이 패키지 안에 선언되어 있으므로, 타입이 아니라 컨테이너 쪽에서 등록합니다. `[ExternalErrorCode<GameStatusCode>(typeof(GuardViolationException), GameStatusCode.GuardViolation)]` 한 줄입니다. 이 줄이 없으면 모든 가드 실패가 매핑되지 않은 채 빠져나가고, 있으면 내부 불변식 위반이 여러분의 enum 안에서 1급 코드가 됩니다.
 - **`ErrorCodedException`은 `catch` 대상이기도 합니다.** `catch (ErrorCodedException)` 한 줄이면 도메인 실패를 나머지 전부와 분리할 수 있어, 매핑 이전 단계에서 둘을 다르게 다루고 싶은 경계에 유용합니다.
-- **애매하면 클래스 하나에 컨테이너 하나.** 한 클래스에 `[ErrorCodes<A>]`와 `[ErrorCodes<B>]`를 함께 붙일 수 있고(서로 다른 특성 타입입니다), enum별 생성 파일도 분리됩니다. 처리되지 않는 경우는 하나의 예외가 *양쪽* enum에 대해 코드를 선언했을 때입니다. 그러면 같은 클래스의 양쪽 절반에 같은 이름의 헬퍼가 생성됩니다.
+- **클래스 하나에 컨테이너 하나 — 언어가 그렇게 정합니다.** 한 클래스에 `[ErrorCodes<A>]`와 `[ErrorCodes<B>]`를 같이 붙이면 "특성이 중복되었습니다"(`CS0579`) 오류입니다. 제네릭 특성의 `AllowMultiple = false`는 구성된 각 형태가 아니라 특성 *정의*를 기준으로 적용되기 때문입니다. 한 예외에 `[ErrorCode<A>]`와 `[ErrorCode<B>]`를 함께 붙이는 것도 마찬가지입니다. 코드 enum이 하나 더 필요하면 컨테이너 클래스를 하나 더 만들면 되고, 어차피 여기의 모든 설계가 그 형태를 전제로 합니다.
+- **생성기는 컴파일 단위 하나만 봅니다.** 컨테이너는 자기가 컴파일되는 어셈블리의 `[ErrorCode]` 예외만 모읍니다. 두 프로젝트가 코드 enum을 공유하더라도, 참조된 프로젝트에 있는 예외는 컨테이너에게 보이지 않습니다. 컨테이너는 그 예외들과 같은 프로젝트에 두세요. 다른 곳의 타입(참조 프로젝트의 예외나 서드파티 타입)을 매핑하려면 `[ExternalErrorCode]`로 명시적으로 등록하면 되고, 이쪽은 어셈블리 경계를 넘습니다. 다른 어셈블리의 코드 enum을 맡은 컨테이너가 결국 텅 비게 되면, 조용히 빈 테이블이 나오는 대신 경고(`SSALG011`)가 나옵니다.
 
 ## 라이센스
 

@@ -262,13 +262,37 @@ public static class Guard
     /// </param>
     /// <returns><paramref name="value"/>, known to be within the range.</returns>
     /// <remarks>
+    /// <para>
     /// Both bounds are inclusive, and the message renders <paramref name="value"/>,
     /// <paramref name="min"/>, and <paramref name="max"/> with the invariant culture so a failure
     /// reads the same everywhere.
+    /// </para>
+    /// <para>
+    /// <b>A broken range is a programming error, a bad value is a domain failure.</b> Bounds that
+    /// cannot describe any range — <see langword="null"/>, or a <paramref name="min"/> greater than
+    /// <paramref name="max"/> — say the check itself is written wrong, so they raise an
+    /// <see cref="ArgumentException"/> rather than the <see cref="GuardViolationException"/> that
+    /// means "the domain said no". A <see langword="null"/> <paramref name="value"/> is the other
+    /// way round: it is a value that is not in the range, reported like any other one that is not.
+    /// </para>
+    /// <para>
+    /// <b>NaN never lies in a range.</b> <see cref="double.CompareTo(double)"/> and
+    /// <see cref="float.CompareTo(float)"/> order <c>NaN</c> below every other value, so a
+    /// <c>NaN</c> <paramref name="value"/> always fails the lower-bound comparison — which is the
+    /// intended answer, since <c>NaN</c> is in no range. A <c>NaN</c> <paramref name="min"/> is not
+    /// treated as a broken range for the same reason: it compares below <paramref name="max"/>, so
+    /// it reads as a lower bound nothing can fall under.
+    /// </para>
     /// </remarks>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="min"/> or <paramref name="max"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="min"/> compares greater than <paramref name="max"/>, so the range is empty.
+    /// </exception>
     /// <exception cref="GuardViolationException">
-    /// <paramref name="value"/> compares less than <paramref name="min"/> or greater than
-    /// <paramref name="max"/>.
+    /// <paramref name="value"/> is <see langword="null"/>, or compares less than
+    /// <paramref name="min"/> or greater than <paramref name="max"/>.
     /// </exception>
     public static T InRange<T>(
         T value,
@@ -277,6 +301,31 @@ public static class Guard
         [CallerArgumentExpression(nameof(value))] string? expression = null)
         where T : IComparable<T>
     {
+        // 'is null' rather than ArgumentNullException.ThrowIfNull: the latter takes 'object?', which
+        // would box a value-type T on every call, including the ones that pass.
+        if (min is null)
+        {
+            throw new ArgumentNullException(nameof(min));
+        }
+
+        if (max is null)
+        {
+            throw new ArgumentNullException(nameof(max));
+        }
+
+        if (min.CompareTo(max) > 0)
+        {
+            throw new ArgumentException(
+                FormattableString.Invariant(
+                    $"The range [{min}, {max}] is empty because 'min' is greater than 'max'."),
+                nameof(min));
+        }
+
+        if (value is null)
+        {
+            throw new GuardViolationException(BuildMessage(nameof(InRange), expression, "value was null."));
+        }
+
         if (value.CompareTo(min) < 0 || value.CompareTo(max) > 0)
         {
             throw new GuardViolationException(BuildMessage(

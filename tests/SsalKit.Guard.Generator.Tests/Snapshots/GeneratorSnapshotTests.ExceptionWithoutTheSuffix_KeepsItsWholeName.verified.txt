@@ -27,7 +27,7 @@ namespace Game
         /// maintained by hand. An exception with no registration -- including a null reference --
         /// matches nothing and yields <see langword="false"/>.
         /// </remarks>
-        public static bool TryMap(global::System.Exception exception, out global::Game.GameStatusCode code)
+        public static bool TryMap(global::System.Exception? exception, out global::Game.GameStatusCode code)
         {
             if (exception is global::Game.Exception)
             {
@@ -57,7 +57,7 @@ namespace Game
         /// exception is reported. Prefer <c>TryMap</c> where "unmapped" has to be handled
         /// differently from any real code -- logging the exception at the boundary, for instance.
         /// </remarks>
-        public static global::Game.GameStatusCode MapOrDefault(global::System.Exception exception, global::Game.GameStatusCode fallback)
+        public static global::Game.GameStatusCode MapOrDefault(global::System.Exception? exception, global::Game.GameStatusCode fallback)
         {
             if (TryMap(exception, out global::Game.GameStatusCode code))
             {

@@ -71,6 +71,54 @@ public class GeneratedApiUsabilityTests
     }
 
     /// <summary>
+    /// The lookup documents a null reference as matching nothing, so its parameter has to accept
+    /// one: <c>exception.InnerException</c> at a boundary is nullable, and a non-nullable parameter
+    /// would warn (CS8604) for doing exactly what the documentation promises.
+    /// </summary>
+    [Fact]
+    public void Lookup_AcceptsANullableException()
+    {
+        const string source = """
+            using System;
+            using SsalKit.Guard;
+
+            namespace Game;
+
+            public enum GameStatusCode
+            {
+                Unknown = 0,
+                UserNotFound = 1001,
+            }
+
+            [ErrorCode<GameStatusCode>(GameStatusCode.UserNotFound)]
+            public sealed class UserNotFoundException : ErrorCodedException
+            {
+                public UserNotFoundException(string? message = null) : base(message) { }
+            }
+
+            [ErrorCodes<GameStatusCode>]
+            public static partial class GameErrors
+            {
+            }
+
+            public static class Consumer
+            {
+                public static GameStatusCode MapTheCause(Exception exception) =>
+                    GameErrors.MapOrDefault(exception.InnerException, GameStatusCode.Unknown);
+
+                public static bool CauseIsMapped(Exception exception) =>
+                    GameErrors.TryMap(exception.InnerException, out _);
+            }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source);
+
+        Assert.Empty(result.GetCompilationErrors());
+        Assert.Empty(result.OutputCompilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Id is "CS8604"));
+    }
+
+    /// <summary>
     /// The throw helper carries <c>[DoesNotReturn]</c>, so the compiler's nullable flow analysis
     /// treats the path through it as ended -- which is the whole reason to prefer it over
     /// <c>throw Factory(...)</c> in a guard-style early exit.

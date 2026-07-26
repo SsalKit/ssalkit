@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using SsalKit.Generators.Toolkit;
@@ -10,108 +9,86 @@ using SsalKit.Guard.Generator.Models;
 namespace SsalKit.Guard.Generator.Parsing;
 
 /// <summary>
-/// Turns one <c>[ErrorCodes&lt;TCode&gt;]</c>-decorated class into the candidates the assembler
-/// fills with registrations: one per attribute application, since a class may be the container for
-/// more than one code enum, and each of those only collects the
-/// <c>[ExternalErrorCode&lt;TCode&gt;]</c> registrations written for its own enum.
+/// Turns one <c>[ErrorCodes&lt;TCode&gt;]</c>-decorated class into the candidate the assembler fills
+/// with registrations, together with the <c>[ExternalErrorCode&lt;TCode&gt;]</c> registrations
+/// written on it.
 /// </summary>
+/// <remarks>
+/// Exactly one candidate per class, because a class can be the container for exactly one code enum:
+/// <c>[AttributeUsage(AllowMultiple = false)]</c> is enforced against the attribute's generic
+/// definition, so <c>[ErrorCodes&lt;A&gt;][ErrorCodes&lt;B&gt;]</c> is CS0579 at the declaration
+/// site and never reaches the generator.
+/// </remarks>
 internal static class ErrorCodesContainerParser
 {
     private const string HintNameSuffix = ".ErrorCodes";
 
-    public static EquatableArray<ErrorCodesContainerCandidate> GetCandidates(
+    public static ErrorCodesContainerCandidate? GetCandidate(
         GeneratorAttributeSyntaxContext context, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         if (context.TargetSymbol is not INamedTypeSymbol container)
         {
-            return EquatableArray<ErrorCodesContainerCandidate>.Empty;
+            return null;
+        }
+
+        // Only ever one application: see the remarks on this type.
+        var attribute = context.Attributes[0];
+
+        var codeEnum = attribute.AttributeClass?.TypeArguments.Length == 1
+            ? attribute.AttributeClass.TypeArguments[0] as INamedTypeSymbol
+            : null;
+
+        if (codeEnum is null)
+        {
+            return null;
         }
 
         var compilation = context.SemanticModel.Compilation;
-        var exceptionBase = compilation.GetTypeByMetadataName("System.Exception");
-        var externalAttribute = compilation.GetTypeByMetadataName(
-            ErrorCodesGenerator.ExternalErrorCodeAttributeMetadataName);
-
+        var location = LocationInfo.CreateFrom(attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation());
         var containerDisplayName = container.ToDisplayString();
-        var shapeDiagnosticFactory = GetShapeDiagnosticFactory(container, containerDisplayName);
-
-        var candidates = ImmutableArray.CreateBuilder<ErrorCodesContainerCandidate>();
-
-        foreach (var attribute in context.Attributes)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var codeEnum = attribute.AttributeClass?.TypeArguments.Length == 1
-                ? attribute.AttributeClass.TypeArguments[0] as INamedTypeSymbol
-                : null;
-
-            if (codeEnum is null)
-            {
-                continue;
-            }
-
-            var location = LocationInfo.CreateFrom(attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation());
-
-            candidates.Add(GetCandidate(
-                container,
-                containerDisplayName,
-                codeEnum,
-                exceptionBase,
-                externalAttribute,
-                location,
-                shapeDiagnosticFactory));
-        }
-
-        return EquatableArray.Create(candidates.ToImmutable());
-    }
-
-    private static ErrorCodesContainerCandidate GetCandidate(
-        INamedTypeSymbol container,
-        string containerDisplayName,
-        INamedTypeSymbol codeEnum,
-        INamedTypeSymbol? exceptionBase,
-        INamedTypeSymbol? externalAttribute,
-        LocationInfo? location,
-        System.Func<LocationInfo?, DiagnosticInfo>? shapeDiagnosticFactory)
-    {
         var codeEnumFqn = SymbolFacts.ToFqn(codeEnum);
+
+        var shapeDiagnostic = GetShapeDiagnostic(container, containerDisplayName, codeEnum, location);
 
         // A container the generator refuses to fill still counts as declared: its code enum stays
         // out of SSALG008, so the user sees the one rule they have to fix and not one warning per
         // exception on top of it.
-        if (shapeDiagnosticFactory is not null)
+        if (shapeDiagnostic is not null)
         {
             return new ErrorCodesContainerCandidate(
                 IsValid: false,
                 TCodeFqn: codeEnumFqn,
                 TCodeDisplayName: codeEnum.ToDisplayString(),
                 TCodeIsEffectivelyPublic: false,
+                TCodeExternalAssemblyName: string.Empty,
                 ContainerFqn: SymbolFacts.ToFqn(container),
                 ContainerDisplayName: containerDisplayName,
+                ContainerName: container.Name,
                 Namespace: string.Empty,
                 ContainingTypeDeclarations: EquatableArray<string>.Empty,
                 ContainerDeclaration: string.Empty,
                 HintName: string.Empty,
                 ExternalRegistrations: EquatableArray<ExternalRegistrationCandidate>.Empty,
                 Location: location,
-                Diagnostic: shapeDiagnosticFactory(location));
+                Diagnostic: shapeDiagnostic);
         }
 
-        var containingNamespace = container.ContainingNamespace;
-        var namespaceName = containingNamespace is null || containingNamespace.IsGlobalNamespace
-            ? string.Empty
-            : containingNamespace.ToDisplayString();
+        var exceptionBase = compilation.GetTypeByMetadataName("System.Exception");
+        var externalAttribute = compilation.GetTypeByMetadataName(
+            ErrorCodesGenerator.ExternalErrorCodeAttributeMetadataName);
 
         return new ErrorCodesContainerCandidate(
             IsValid: true,
             TCodeFqn: codeEnumFqn,
             TCodeDisplayName: codeEnum.ToDisplayString(),
             TCodeIsEffectivelyPublic: SymbolFacts.IsEffectivelyPublic(codeEnum),
+            TCodeExternalAssemblyName: GetExternalAssemblyName(codeEnum, compilation),
             ContainerFqn: SymbolFacts.ToFqn(container),
             ContainerDisplayName: containerDisplayName,
-            Namespace: namespaceName,
+            ContainerName: container.Name,
+            Namespace: SymbolFacts.GetContainingNamespaceName(container),
             ContainingTypeDeclarations: GetContainingTypeDeclarations(container),
             ContainerDeclaration: GuardSymbolFacts.ToPartialDeclaration(container),
             HintName: BuildHintName(container, codeEnum),
@@ -122,32 +99,74 @@ internal static class ErrorCodesContainerParser
     }
 
     /// <summary>
-    /// Returns a factory for the diagnostic that disqualifies the container as a whole, or
-    /// <see langword="null"/> when its shape is fine. A factory rather than a diagnostic because
-    /// each <c>[ErrorCodes]</c> application on the class reports at its own location.
+    /// Returns the name of the assembly declaring <paramref name="codeEnum"/> when it is not the one
+    /// being compiled, or <see cref="string.Empty"/> when it is. A container whose code enum comes
+    /// from elsewhere can never collect that assembly's <c>[ErrorCode]</c> exceptions, which is what
+    /// SSALG011 is about.
     /// </summary>
-    private static System.Func<LocationInfo?, DiagnosticInfo>? GetShapeDiagnosticFactory(
-        INamedTypeSymbol container, string containerDisplayName)
+    private static string GetExternalAssemblyName(INamedTypeSymbol codeEnum, Compilation compilation)
     {
-        // SSALG007 first: a generic container is rejected outright, so telling the user to also add
-        // 'partial' would be pointing at the smaller of two problems.
-        if (SymbolFacts.IsGenericOrNestedInGeneric(container))
+        var declaring = codeEnum.ContainingAssembly;
+
+        return declaring is null || SymbolEqualityComparer.Default.Equals(declaring, compilation.Assembly)
+            ? string.Empty
+            : declaring.Name;
+    }
+
+    /// <summary>
+    /// Returns the diagnostic that disqualifies the container as a whole, or <see langword="null"/>
+    /// when nothing does.
+    /// </summary>
+    private static DiagnosticInfo? GetShapeDiagnostic(
+        INamedTypeSymbol container,
+        string containerDisplayName,
+        INamedTypeSymbol codeEnum,
+        LocationInfo? location)
+    {
+        // SSALG007 first: a container (or a code enum) that is rejected outright makes telling the
+        // user to also add 'partial' the smaller of two problems.
+        var genericReason = GetGenericReason(container, codeEnum);
+        if (genericReason is not null)
         {
-            return location => new DiagnosticInfo(
-                DiagnosticDescriptors.ContainerCannotBeGeneric, location, containerDisplayName);
+            return new DiagnosticInfo(
+                DiagnosticDescriptors.ContainerCannotBeGeneric, location, containerDisplayName, genericReason);
         }
 
         var reason = GetWrongShapeReason(container);
 
         return reason is null
             ? null
-            : location => new DiagnosticInfo(
+            : new DiagnosticInfo(
                 DiagnosticDescriptors.ContainerMustBeStaticPartialClass, location, containerDisplayName, reason);
     }
 
     /// <summary>
-    /// Returns the clause naming every way the container is not a <c>static partial class</c>, or
-    /// <see langword="null"/> when it is one.
+    /// Returns why the container or its code enum carries type parameters, or <see langword="null"/>
+    /// when neither does.
+    /// </summary>
+    /// <remarks>
+    /// The code enum is rejected as well as the container: an enum nested inside a generic type has
+    /// a display name like <c>Outer&lt;int&gt;.Code</c>, which the emitter splices into the generated
+    /// documentation and into a <c>cref</c>, where the angle brackets would have to be XML-escaped
+    /// rather than written as C#. Refusing the shape outright is better than emitting a file whose
+    /// documentation comments do not parse, and an enum nested inside a generic type has no
+    /// practical use to trade away for it.
+    /// </remarks>
+    private static string? GetGenericReason(INamedTypeSymbol container, INamedTypeSymbol codeEnum)
+    {
+        if (SymbolFacts.IsGenericOrNestedInGeneric(container))
+        {
+            return "it is generic or is nested inside a generic type";
+        }
+
+        return SymbolFacts.IsGenericOrNestedInGeneric(codeEnum)
+            ? "its code enum '" + codeEnum.ToDisplayString() + "' is nested inside a generic type"
+            : null;
+    }
+
+    /// <summary>
+    /// Returns the clause naming every way the container is not a <c>static partial class</c> a
+    /// generated file could attach a second part to, or <see langword="null"/> when it is one.
     /// </summary>
     private static string? GetWrongShapeReason(INamedTypeSymbol container)
     {
@@ -171,7 +190,37 @@ internal static class ErrorCodesContainerParser
             reasons.Add("not partial");
         }
 
+        // A file-local container reports as 'internal' and can be 'static partial', so it passes
+        // every check above -- while the generated part, being another file, would declare a
+        // second, unrelated type of the same name. Nothing would fail to compile; the user's
+        // container would simply stay empty.
+        if (container.IsFileLocal)
+        {
+            reasons.Add("file-local");
+        }
+
+        // The generated file re-declares the whole nesting chain, so every type in it has to be
+        // partial too. Without this the user gets CS0260 in generated code instead of a rule.
+        var nonPartialContainingType = FindNonPartialContainingType(container);
+        if (nonPartialContainingType is not null)
+        {
+            reasons.Add("nested inside '" + nonPartialContainingType.ToDisplayString() + "', which is not partial");
+        }
+
         return reasons.Count == 0 ? null : string.Join(" and ", reasons);
+    }
+
+    private static INamedTypeSymbol? FindNonPartialContainingType(INamedTypeSymbol container)
+    {
+        for (var current = container.ContainingType; current is not null; current = current.ContainingType)
+        {
+            if (!GuardSymbolFacts.IsPartial(current))
+            {
+                return current;
+            }
+        }
+
+        return null;
     }
 
     private static EquatableArray<string> GetContainingTypeDeclarations(INamedTypeSymbol container)
@@ -187,9 +236,9 @@ internal static class ErrorCodesContainerParser
     }
 
     /// <summary>
-    /// Reads the container's <c>[ExternalErrorCode&lt;TCode&gt;]</c> attributes for one code enum,
-    /// off the symbol rather than through a provider of their own: they are declared on the
-    /// container, and a separate provider would only have to be joined back to it.
+    /// Reads the container's <c>[ExternalErrorCode&lt;TCode&gt;]</c> attributes off the symbol rather
+    /// than through a provider of their own: they are declared on the container, and a separate
+    /// provider would only have to be joined back to it.
     /// </summary>
     private static EquatableArray<ExternalRegistrationCandidate> GetExternalRegistrations(
         INamedTypeSymbol container,
@@ -206,13 +255,35 @@ internal static class ErrorCodesContainerParser
             if (attributeClass is null
                 || !SymbolEqualityComparer.Default.Equals(attributeClass.OriginalDefinition, externalAttribute)
                 || attributeClass.TypeArguments.Length != 1
-                || !SymbolEqualityComparer.Default.Equals(attributeClass.TypeArguments[0], codeEnum)
                 || attribute.ConstructorArguments.Length != 2)
             {
                 continue;
             }
 
             var location = LocationInfo.CreateFrom(attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation());
+
+            // SSALG010: the container maps exactly one code enum, so a registration naming a
+            // different one has nowhere to go. Dropping it silently is how a typo becomes a
+            // mapping row that never appears.
+            if (attributeClass.TypeArguments[0] is not INamedTypeSymbol registeredCodeEnum
+                || !SymbolEqualityComparer.Default.Equals(registeredCodeEnum, codeEnum))
+            {
+                registrations.Add(new ExternalRegistrationCandidate(
+                    IsValid: false,
+                    ExceptionFqn: string.Empty,
+                    ExceptionDisplayName: string.Empty,
+                    CodeExpression: string.Empty,
+                    InheritanceDepth: 0,
+                    Location: location,
+                    Diagnostic: new DiagnosticInfo(
+                        DiagnosticDescriptors.ExternalRegistrationForAnotherCodeEnum,
+                        location,
+                        attributeClass.TypeArguments[0].ToDisplayString(),
+                        containerDisplayName,
+                        codeEnum.ToDisplayString())));
+                continue;
+            }
+
             var registered = attribute.ConstructorArguments[0].Value as INamedTypeSymbol;
             if (registered is null)
             {
@@ -273,8 +344,9 @@ internal static class ErrorCodesContainerParser
     }
 
     /// <summary>
-    /// The hint name carries the code enum as well as the container, because one class may be the
-    /// container for several enums and every generated file needs its own name.
+    /// The hint name carries the code enum as well as the container. One class maps one enum, so the
+    /// container alone would already be unique; including the enum keeps the generated file
+    /// self-describing in the IDE's generated-files list at no cost.
     /// </summary>
     /// <remarks>
     /// Both names arrive <c>global::</c>-qualified and neither is pre-stripped here:

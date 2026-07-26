@@ -6,7 +6,10 @@ namespace SsalKit.Guard;
 /// <typeparam name="TCode">
 /// The enum type the code belongs to. A codebase can use several unrelated code enums side by
 /// side; each one gets its own mapping container (see <see cref="ErrorCodesAttribute{TCode}"/>),
-/// and only exceptions declaring the matching <typeparamref name="TCode"/> take part in it.
+/// and only exceptions declaring the matching <typeparamref name="TCode"/> take part in it. One
+/// exception declares one code: a second application with a different <typeparamref name="TCode"/>
+/// is a duplicate-attribute error (CS0579), since <c>AllowMultiple</c> is enforced against this
+/// attribute's generic definition rather than against each constructed form of it.
 /// </typeparam>
 /// <remarks>
 /// <para>
