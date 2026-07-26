@@ -59,6 +59,17 @@ internal static class CSharpNaming
     /// contains no letters or digits at all.
     /// </param>
     /// <returns>A valid leading fragment for a C# identifier, in camelCase.</returns>
+    /// <remarks>
+    /// <b>The result may be a reserved keyword</b> -- <c>"Class"</c>, <c>"Event"</c> and
+    /// <c>"Params"</c> all lower-case into one. That is by design: this method answers "how is this
+    /// name spelled in camelCase", which is a different question from "is this safe to emit at a
+    /// declaration site", and a caller splicing the result into a longer identifier
+    /// (<c>classFactory</c>) must not get a stray <c>@</c> in the middle of it. Wrap the result in
+    /// <see cref="EscapeKeyword"/> at the point of use -- <c>EscapeKeyword(ToCamelCaseIdentifier(name))</c>
+    /// -- whenever the fragment is emitted as a parameter or local name on its own.
+    /// <see cref="ToPascalCaseIdentifier"/> needs no such care, because every C# reserved keyword is
+    /// lower-case.
+    /// </remarks>
     public static string ToCamelCaseIdentifier(string? text, string fallback = "identifier")
     {
         var pascal = BuildPascalCore(text);

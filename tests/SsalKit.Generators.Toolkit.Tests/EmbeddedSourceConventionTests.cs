@@ -137,6 +137,63 @@ public class EmbeddedSourceConventionTests
         Assert.DoesNotContain("Environment.NewLine", text);
     }
 
+    /// <summary>
+    /// Embedded sources are compiled with the <em>consumer's</em> options, and
+    /// <c>&lt;CheckForOverflowUnderflow&gt;true&lt;/CheckForOverflowUnderflow&gt;</c> turns every
+    /// arithmetic operation in the file into a checked one. A hash accumulator is the one place that
+    /// deliberately relies on wrap-around, so an unwrapped one throws
+    /// <see cref="OverflowException"/> at run time in such a project -- from inside a file its
+    /// author cannot edit, on a code path (equality) that has nothing to do with what they were
+    /// doing.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SourceFileCases))]
+    public void SourceFile_HashCodeArithmetic_IsExplicitlyUnchecked(string path)
+    {
+        var hashMethods = Parse(path).GetRoot()
+            .DescendantNodes()
+            .OfType<MethodDeclarationSyntax>()
+            .Where(method => method.Identifier.ValueText == "GetHashCode")
+            .ToArray();
+
+        foreach (var method in hashMethods)
+        {
+            var unprotected = method.DescendantNodes()
+                .OfType<BinaryExpressionSyntax>()
+                .Where(IsArithmetic)
+                .Where(expression => !expression.Ancestors().Any(IsUncheckedContext))
+                .ToArray();
+
+            Assert.Empty(unprotected);
+        }
+    }
+
+    /// <summary>
+    /// A <c>global using</c> in an embedded file would apply to every file of the consumer's
+    /// compilation, silently changing how names bind in source the package never sees.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(SourceFileCases))]
+    public void SourceFile_DeclaresNoGlobalUsing(string path)
+    {
+        var globalUsings = Parse(path).GetRoot()
+            .DescendantNodes()
+            .OfType<UsingDirectiveSyntax>()
+            .Where(directive => !directive.GlobalKeyword.IsKind(SyntaxKind.None))
+            .ToArray();
+
+        Assert.Empty(globalUsings);
+    }
+
+    private static bool IsArithmetic(BinaryExpressionSyntax expression) =>
+        expression.IsKind(SyntaxKind.MultiplyExpression)
+        || expression.IsKind(SyntaxKind.AddExpression)
+        || expression.IsKind(SyntaxKind.SubtractExpression);
+
+    private static bool IsUncheckedContext(SyntaxNode node) =>
+        (node is CheckedStatementSyntax statement && statement.Keyword.IsKind(SyntaxKind.UncheckedKeyword))
+        || (node is CheckedExpressionSyntax expression && expression.Keyword.IsKind(SyntaxKind.UncheckedKeyword));
+
     [Fact]
     public void Polyfill_WithoutOptOutSymbol_DeclaresIsExternalInit()
     {

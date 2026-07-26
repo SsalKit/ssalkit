@@ -103,4 +103,31 @@ public sealed record GeneratorTestOptions
     /// generated file at once and must not churn because an unrelated edit reordered them.
     /// </summary>
     public bool SortGeneratedSourcesByHintName { get; init; }
+
+    /// <summary>
+    /// Whether a run whose generator or analyzer threw is handed back instead of being reported as
+    /// a failed assertion. Defaults to <see langword="false"/>, which is what makes a crash visible.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Roslyn does not propagate an exception out of a generator or an analyzer: it catches it and
+    /// records it -- on <c>GeneratorRunResult.Exception</c> and as a <c>CS8785</c>
+    /// <b>warning</b> for a generator, as an <c>AD0001</c> diagnostic for an analyzer. Neither is an
+    /// error, so a crashed run still produces a compilation that "compiles cleanly" and reports no
+    /// diagnostics of the package's own -- and every negative assertion a test makes about it
+    /// (<c>AssertNoGeneratedSources</c>, <c>DiagnosticAssert.None</c>, "no error was reported")
+    /// passes for the wrong reason. By default this harness therefore refuses to hand such a run
+    /// back at all, and throws a <see cref="GeneratorAssertionException"/> carrying the exception's
+    /// type, message, and stack trace.
+    /// </para>
+    /// <para>
+    /// Set this only when the crash <em>is</em> the subject of the test -- a generator whose
+    /// contract is to fail loudly on some input, or a test of this behaviour itself. The run is then
+    /// returned as-is, and the evidence stays reachable through
+    /// <see cref="GeneratorTestResult.RawResult"/> and, for both generators and analyzers, through
+    /// <see cref="GeneratorTestResult.Diagnostics"/> -- <see cref="DiagnosticIdPrefix"/> never
+    /// filters out <c>CS8785</c> or <c>AD0001</c>, whatever it is set to.
+    /// </para>
+    /// </remarks>
+    public bool AllowGeneratorExceptions { get; init; }
 }

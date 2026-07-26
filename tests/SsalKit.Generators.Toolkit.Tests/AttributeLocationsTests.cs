@@ -81,6 +81,69 @@ public class AttributeLocationsTests
         Assert.Same(Location.None, AttributeLocations.GetLocation(attribute, locationless));
     }
 
+    /// <summary>
+    /// The location is built from the syntax reference's tree and span rather than by materializing
+    /// the attribute node, so the two spellings must still agree exactly.
+    /// </summary>
+    [Fact]
+    public void GetLocation_MatchesWhatMaterializingTheAttributeNodeWouldHaveGiven()
+    {
+        const string source = AttributeDeclaration + """
+
+            [Marker]
+            public class Decorated { }
+            """;
+
+        var compilation = CreateCompilation(source, "Decorated.cs");
+        var attribute = compilation.GetTypeByMetadataName("Sample.Decorated")!.GetAttributes().Single();
+
+        var fromReference = AttributeLocations.GetLocation(attribute, compilation.ObjectType);
+        var fromNode = attribute.ApplicationSyntaxReference!.GetSyntax().GetLocation();
+
+        Assert.Equal(fromNode, fromReference);
+    }
+
+    [Fact]
+    public void GetLocationInfo_ForAnAttributeWrittenInSource_ProjectsTheAttributeApplication()
+    {
+        const string source = AttributeDeclaration + """
+
+            [Marker]
+            public class Decorated { }
+            """;
+
+        var compilation = CreateCompilation(source, "Decorated.cs");
+        var type = compilation.GetTypeByMetadataName("Sample.Decorated")!;
+        var attribute = type.GetAttributes().Single();
+
+        var info = AttributeLocations.GetLocationInfo(attribute, type);
+
+        Assert.NotNull(info);
+        Assert.Equal("Decorated.cs", info.FilePath);
+        Assert.Equal(AttributeLocations.GetLocation(attribute, type).SourceSpan, info.TextSpan);
+    }
+
+    /// <summary>
+    /// A location that is not in source has no projection, which is exactly the <c>null</c>
+    /// <c>Diagnostic.Create</c> accepts as "report without a position" -- so the pipeline value needs
+    /// no special case for it.
+    /// </summary>
+    [Fact]
+    public void GetLocationInfo_WhenThereIsNoSourceLocationToProject_IsNull()
+    {
+        var reference = CompileToReference(AttributeDeclaration + """
+
+            [Marker]
+            public class DecoratedInMetadata { }
+            """);
+
+        var compilation = CreateCompilation("public class Consumer { }", "Consumer.cs", reference);
+        var type = compilation.GetTypeByMetadataName("Sample.DecoratedInMetadata")!;
+        var attribute = type.GetAttributes().Single();
+
+        Assert.Null(AttributeLocations.GetLocationInfo(attribute, type));
+    }
+
     private static MetadataReference CompileToReference(string source)
     {
         var compilation = CreateCompilation(source, "Referenced.cs");

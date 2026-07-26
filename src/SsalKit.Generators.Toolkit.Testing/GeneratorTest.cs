@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -21,9 +22,29 @@ namespace SsalKit.Generators.Toolkit.Testing;
 /// test framework's <c>Assert</c> class, so this package works under xunit, NUnit, MSTest, and
 /// TUnit alike.
 /// </para>
+/// <para>
+/// A generator or analyzer that <em>throws</em> is likewise a failed assertion. Roslyn catches such
+/// an exception and records it (as <c>CS8785</c>, a warning, for a generator; as <c>AD0001</c> for
+/// an analyzer) instead of letting it escape, which would otherwise leave the run looking like one
+/// that simply had nothing to produce -- and every negative assertion about it passing for the
+/// wrong reason. Every entry point here therefore refuses to return such a run unless
+/// <see cref="GeneratorTestOptions.AllowGeneratorExceptions"/> is set.
+/// </para>
 /// </remarks>
 public static class GeneratorTest
 {
+    /// <summary>
+    /// The compiler's id for "a source generator threw", reported as a <b>warning</b> -- so nothing
+    /// that looks only at errors, and no filter that keeps only a package's own prefix, would ever
+    /// see it.
+    /// </summary>
+    internal const string GeneratorCrashDiagnosticId = "CS8785";
+
+    /// <summary>
+    /// The analyzer host's id for "an analyzer threw", reported on the compilation with no location.
+    /// </summary>
+    internal const string AnalyzerCrashDiagnosticId = "AD0001";
+
     /// <summary>
     /// Builds the compilation a generator would run against, without running one.
     /// </summary>
@@ -215,6 +236,11 @@ public static class GeneratorTest
         var compilation = CreateCompilation(source, options);
         var diagnostics = await compilation.WithAnalyzers(analyzerArray).GetAllDiagnosticsAsync().ConfigureAwait(false);
 
+        if (!options.AllowGeneratorExceptions)
+        {
+            ThrowIfAnAnalyzerThrew(diagnostics);
+        }
+
         return FilterById(diagnostics, options.DiagnosticIdPrefix);
     }
 
@@ -222,6 +248,13 @@ public static class GeneratorTest
     /// Narrows <paramref name="diagnostics"/> to the ids starting with <paramref name="idPrefix"/>,
     /// or returns them unchanged when no prefix is configured.
     /// </summary>
+    /// <remarks>
+    /// <see cref="GeneratorCrashDiagnosticId"/> and <see cref="AnalyzerCrashDiagnosticId"/> survive
+    /// the filter unconditionally. A prefix exists so that a deliberately invalid test source's
+    /// incidental <c>CS****</c> noise does not have to be filtered out by hand -- but the one
+    /// <c>CS****</c> that says "your generator crashed" is not noise, and silently dropping it is
+    /// exactly how a crashed run passes a test.
+    /// </remarks>
     internal static ImmutableArray<Diagnostic> FilterById(ImmutableArray<Diagnostic> diagnostics, string? idPrefix)
     {
         if (idPrefix is null)
@@ -229,7 +262,71 @@ public static class GeneratorTest
             return diagnostics;
         }
 
-        return [.. diagnostics.Where(diagnostic => diagnostic.Id.StartsWith(idPrefix, StringComparison.Ordinal))];
+        return
+        [
+            .. diagnostics.Where(diagnostic =>
+                diagnostic.Id.StartsWith(idPrefix, StringComparison.Ordinal) || IsCrashDiagnostic(diagnostic)),
+        ];
+    }
+
+    private static bool IsCrashDiagnostic(Diagnostic diagnostic) =>
+        string.Equals(diagnostic.Id, GeneratorCrashDiagnosticId, StringComparison.Ordinal)
+        || string.Equals(diagnostic.Id, AnalyzerCrashDiagnosticId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Turns a generator that threw into a failed assertion, instead of a run whose every negative
+    /// assertion passes because the generator never got to do anything.
+    /// </summary>
+    private static void ThrowIfAGeneratorThrew(GeneratorDriverRunResult runResult)
+    {
+        foreach (var generatorResult in runResult.Results)
+        {
+            if (generatorResult.Exception is null)
+            {
+                continue;
+            }
+
+            // Type.ToString() is the fully qualified name, and unlike Type.FullName it is never
+            // null -- there is no "the generator has no name" case to fall back from.
+            var generatorName = generatorResult.Generator.GetGeneratorType().ToString();
+
+            throw new GeneratorAssertionException(
+                $"The generator '{generatorName}' threw {generatorResult.Exception.GetType().FullName}: " +
+                $"{generatorResult.Exception.Message}{Environment.NewLine}{Environment.NewLine}" +
+                $"Roslyn catches this and reports it as a {GeneratorCrashDiagnosticId} warning rather than " +
+                "letting it escape, so the run would otherwise look like a generator that simply produced " +
+                "nothing. Set " +
+                $"{nameof(GeneratorTestOptions)}.{nameof(GeneratorTestOptions.AllowGeneratorExceptions)} when the " +
+                $"crash is what the test is about.{Environment.NewLine}{Environment.NewLine}" +
+                $"Generator stack trace:{Environment.NewLine}{generatorResult.Exception.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// The analyzer-side counterpart of <see cref="ThrowIfAGeneratorThrew"/>: the host reports a
+    /// thrown analyzer as <c>AD0001</c> and carries on, so nothing else would notice.
+    /// </summary>
+    private static void ThrowIfAnAnalyzerThrew(ImmutableArray<Diagnostic> diagnostics)
+    {
+        var crashes = diagnostics
+            .Where(diagnostic =>
+                string.Equals(diagnostic.Id, AnalyzerCrashDiagnosticId, StringComparison.Ordinal))
+            .ToImmutableArray();
+
+        if (crashes.IsEmpty)
+        {
+            return;
+        }
+
+        throw new GeneratorAssertionException(
+            $"{crashes.Length} analyzer(s) threw. The host catches an analyzer exception and reports it as " +
+            $"{AnalyzerCrashDiagnosticId} rather than letting it escape, so the run would otherwise look like " +
+            "analyzers that simply had nothing to say. Set " +
+            $"{nameof(GeneratorTestOptions)}.{nameof(GeneratorTestOptions.AllowGeneratorExceptions)} when the " +
+            $"crash is what the test is about.{Environment.NewLine}{Environment.NewLine}" +
+            string.Join(
+                Environment.NewLine,
+                crashes.Select(static crash => "  - " + crash.GetMessage(CultureInfo.InvariantCulture))));
     }
 
     private static CSharpParseOptions ParseOptionsFor(GeneratorTestOptions options) =>
@@ -250,6 +347,13 @@ public static class GeneratorTest
         var ranDriver = driver.RunGeneratorsAndUpdateCompilation(
             compilation, out var outputCompilation, out var diagnostics);
 
-        return (ranDriver, new GeneratorTestResult(ranDriver.GetRunResult(), outputCompilation, diagnostics, options));
+        var runResult = ranDriver.GetRunResult();
+
+        if (!options.AllowGeneratorExceptions)
+        {
+            ThrowIfAGeneratorThrew(runResult);
+        }
+
+        return (ranDriver, new GeneratorTestResult(runResult, outputCompilation, diagnostics, options));
     }
 }

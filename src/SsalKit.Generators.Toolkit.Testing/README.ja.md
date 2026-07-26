@@ -1,4 +1,4 @@
-[← SsalKit](https://github.com/ssalkit/ssalkit/blob/main/README.ja.md)
+﻿[← SsalKit](https://github.com/ssalkit/ssalkit/blob/main/README.ja.md)
 
 [English](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Generators.Toolkit.Testing/README.md) | [한국어](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Generators.Toolkit.Testing/README.ko.md) | **日本語**
 
@@ -26,6 +26,7 @@ Roslyn 自身はその証拠を公開しています — `GeneratorDriverOptions
 
 パッケージのそれ以外の部分はすべて、あなたがもう書かなくてよくなる定型コードです。
 
+- **クラッシュしたジェネレーターはテストを失敗させます。** Roslyn はジェネレーターや analyzer から例外を外に出しません。捕まえて記録するだけです — ジェネレーターは `CS8785` という*警告*として、analyzer は `AD0001` として。どちらもエラーではないため、クラッシュした実行が残すのは、依然としてきれいにコンパイルされるコンパイル、0個の生成ファイル、そして0個のパッケージ独自診断です — その結果 `AssertNoGeneratedSources()`、`DiagnosticAssert.None(...)`、「エラーは報告されなかった」がすべて通ります。どれも間違った理由で、です。このハーネスはそのような実行をそもそも返しません。
 - **既定で本物の参照アセンブリを使用します。** テスト対象のコンパイルは、テストホスト自身が信頼するすべての参照アセンブリに対して構築されるため、`AssertCompilesCleanly()` は生成コードを本物の BCL に対して型チェックします。`AdditionalAssemblies = [typeof(MyAttribute).Assembly]` を使えば、出荷するランタイムパッケージをそこに追加できるので、生成された呼び出しは、テストソースに貼り付けたコピーではなく、実際に出荷している API に対して検証されます。
 - **意図がそのまま読めるアサーション。** `GetSingleSource()`、`GetSource("...ServiceCollectionExtensions.g.cs")`、`AssertNoGeneratedSources()`、`DiagnosticAssert.Single(..., exclusive: true)`、`DiagnosticAssert.LocatedOn(diagnostic, "[Marker]")` — 失敗メッセージも `Expected 1, got 0` ではなく、*実際に*何が生成されたか、あるいは*実際に*何が報告されたかを列挙します。
 - **analyzer にも対応します。** 同じコンパイル設定でパッケージ全体の analyzer をまとめて実行できるため、テストソースがどの構文を使っていても他の analyzer が沈黙し続けることを証明できます。
@@ -46,7 +47,7 @@ dotnet add package SsalKit.Generators.Toolkit.Testing
 
 ## 動作要件
 
-- テストプロジェクトが **`net10.0`** 以降をターゲットにしていること。
+- テストプロジェクトが **`net10.0`** 以降をターゲットにしていること。このパッケージは `net10.0` 単一ターゲットです。利用者がテストプロジェクトである以上、出荷用ライブラリと違って最新の TFM へ自由に移れますし、単一ターゲットならハーネスに `#if` が入り込まず、考慮すべき挙動の分岐も1つで済みます。マルチターゲットは反対の決定ではなくバックログ項目です — 古いテスト TFM が障害になっているなら issue を立ててください。
 - パッケージは **`Microsoft.CodeAnalysis.CSharp`** を同梱します — これが唯一の依存関係であり、意図的にどのテストフレームワークにも依存しません。
 
 ## クイックスタート
@@ -143,6 +144,14 @@ public void AnEditTheModelCapturesFlowsThroughToTheOutput()
 
 どちらも、1つのドライバーを共有する2回の実行のうち**2回目**を受け取ります — `RunTwice` はソースファイルを丸ごと差し替え、`RunTwiceWithCompilationChange` はコンパイルをそのまま渡してくれるので構文木を追加したり差し替えたりできます。トラッキング名は、あなたのパイプラインが `WithTrackingName` に渡したものそのものです。記録されなかった名前を指定した場合、失敗メッセージはその実行が*実際に*記録した名前の一覧を示すので、たいていはそれだけでタイプミスに気づけます。
 
+**出力**ステージも `"SourceOutput"` という名前で指定できます。このステージは自分の `WithTrackingName` を持たず、Roslyn が別の辞書(`GeneratorTestResult.TrackedOutputSteps`)に記録するため、パイプラインの中で最も見落とされやすい部分です — そして emitter が実際に再実行されるかを決めているのはこのステージです。値ステージが `Unchanged` なのに `"SourceOutput"` が `Modified` なら、結局キー入力のたびに出力が走っているということです。
+
+```csharp
+IncrementalAssert.AllCachedOrUnchanged(second, TrackingNames.Models, "SourceOutput");
+```
+
+インクリメンタルのアサーションが**見られない**のは保持(retention)です。Roslyn が記録する理由は「このステップは再計算されたか」に答えるもので、「このステップの値が何を掴んでいるか」には答えません。そのため、値で比較されつつ等価性が無視するフィールドに `ISymbol` や `Compilation` を生かしておくモデルは、両方のアサーションを通過しながらドライバーのキャッシュにコンパイル全体を留め続けます。シンボルや構文をパイプラインモデルの外に置くことは、依然としてテストされた規則ではなく設計上の規則です。
+
 `RunTwice` に何が表現できて何ができないかを押さえておきましょう。このメソッドはソースファイル全体を差し替えるため、2回目のソースを変形すると構文駆動のすべてのステージが構造上無効化されます。変形を渡さずに呼ぶと同一のテキストを再パースすることになり、これはもっとも厳しいキャッシュテストです — パイプラインが観測するものは何ひとつ変わっていないので、何も再計算されてはなりません。ただし、*コンパイルの別の場所*での編集が何も変えないこと — 現実的な IDE のシナリオです — を検証したい場合は、上記のように `RunTwiceWithCompilationChange` を使って無関係な構文木を追加してください。
 
 アサーションが失敗すると、ステップごとのキャッシュ状態が出力されます。これが「キャッシュが壊れた」を「`Models[0] -> Modified`」という具体的な情報に変えてくれます。
@@ -201,8 +210,8 @@ DiagnosticAssert.None(diagnostics, "MINE");
 | 型 | 内容 |
 |------|--------------|
 | `GeneratorTest` | すべてのエントリーポイントです。単発の実行には `Run<TGenerator>`、インクリメンタルアサーションが消費する2回実行のペアには `RunTwice<TGenerator>`/`RunTwiceWithCompilationChange<TGenerator>`、analyzer には `RunAnalyzerAsync<TAnalyzer>`/`RunAnalyzersAsync`、何も実行せずコンパイルだけを構築するには `CreateCompilation`、参照用に別の独立したアセンブリをコンパイルするには `CompileToReference` を使います。 |
-| `GeneratorTestOptions` | 共有される設定項目を持つイミュータブルな record です。`AssemblyName`、`LanguageVersion`、`NullableContextOptions`、`OutputKind`、`AllowUnsafe`、`AdditionalReferences`、`AdditionalAssemblies`、`DiagnosticIdPrefix`、`SortGeneratedSourcesByHintName` を持ちます。`null` が意味するのは `GeneratorTestOptions.Default` です。 |
-| `GeneratorTestResult` | 1回の実行が生成したものです。データ: `GeneratedSources`、`Diagnostics`、`OutputCompilation`、`RawResult`、`TrackedSteps`。検索: `GetSingleSource()`、`GetSource(hintNameSuffix)`、`GetCompilationErrors()`、`ToSnapshotText()`。アサーション: `AssertCompilesCleanly()`、`AssertCompilesCleanlyAndGetSource()`、`AssertNoGeneratedSources()`。 |
+| `GeneratorTestOptions` | 共有される設定項目を持つイミュータブルな record です。`AssemblyName`、`LanguageVersion`、`NullableContextOptions`、`OutputKind`、`AllowUnsafe`、`AdditionalReferences`、`AdditionalAssemblies`、`DiagnosticIdPrefix`、`SortGeneratedSourcesByHintName`、`AllowGeneratorExceptions` を持ちます。`null` が意味するのは `GeneratorTestOptions.Default` です。 |
+| `GeneratorTestResult` | 1回の実行が生成したものです。データ: `GeneratedSources`、`Diagnostics`、`OutputCompilation`、`RawResult`、`TrackedSteps`、`TrackedOutputSteps`。検索: `GetSingleSource()`、`GetSource(hintNameSuffix)`、`GetCompilationErrors()`、`ToSnapshotText()`。アサーション: `AssertCompilesCleanly()`、`AssertCompilesCleanlyAndGetSource()`、`AssertNoGeneratedSources()`。 |
 | `GeneratedSource` | 生成されたファイル1つ分です。`HintName` と `Text` を持つ `readonly record struct` です。 |
 | `IncrementalAssert` | キャッシュ契約です。`AllCachedOrUnchanged(secondRun, ...names)` と `SomeOutputRecomputed(secondRun, ...names)` を持ちます。 |
 | `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`、`None(diagnostics, idPrefix)`、`LocatedOn(diagnostic, snippet, source?)`、`SpanStartsWith(diagnostic, prefix, source?)` を持ちます。 |
@@ -254,6 +263,25 @@ var result = GeneratorTest.Run<GreeterGenerator>(
 ### `DiagnosticIdPrefix` はフィルタするが `RawResult` はしない
 
 `GeneratorTestResult.Diagnostics` と analyzer 用のエントリーポイントは `DiagnosticIdPrefix` を尊重します。これによって、意図的に不正なテストソースを使っても、結果として出る `CS****` をすべてのアサーションでいちいちフィルタする必要がなくなります。フィルタされていないジェネレーター診断は `RawResult.Diagnostics` にそのまま残っており、`OutputCompilation`/`GetCompilationErrors()` もこの設定の影響を受けません。
+
+例外が2つあります。`CS8785` と `AD0001` は接頭辞が何であってもフィルタを通過します。接頭辞は付随的な `CS****` のノイズを落とすためにありますが、「ジェネレーターがクラッシュした」と告げるその1つの `CS****` はノイズではなく、それを黙って落とすことこそクラッシュした実行がテストを通過する経路だからです。
+
+### クラッシュを意図的にテストする
+
+`AllowGeneratorExceptions = true` はクラッシュ検査を止め、実行結果をそのまま返します — 特定の入力で大きく失敗することが*契約である*ジェネレーターや、この挙動自体をテストする場合のためです。
+
+```csharp
+var result = GeneratorTest.Run<MyGenerator>(source, Options with { AllowGeneratorExceptions = true });
+
+Assert.Equal("CS8785", Assert.Single(result.Diagnostics).Id);
+Assert.IsType<InvalidOperationException>(Assert.Single(result.RawResult.Results).Exception);
+```
+
+この指定がなければ、同じ実行はジェネレーター名、例外の型、メッセージ、スタックトレースを含む `GeneratorAssertionException` を投げます。
+
+### `ToSnapshotText()` は常に `"\n"` で連結します
+
+`// ==== <hint name>` ヘッダーとファイル間の継ぎ目は `Environment.NewLine` ではなく常に line feed です。スナップショットはあるマシンで書かれ、別のマシンで比較されるため、ホスト依存の区切り文字は「ジェネレーターの出力が変わった」を「テストが別の場所で走った」にすり替えてしまいます。生成ファイルの*内側*の改行はあなたのジェネレーターが出力したそのままです — それはあなたのジェネレーターの契約であり、そちらでも `"\n"` に固定しておく価値があります。
 
 ## SsalKit.Generators.Toolkit との関係
 

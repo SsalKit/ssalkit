@@ -261,6 +261,55 @@ public class SymbolFactsTests
         Assert.Equal(new[] { "TEST001", "TEST002" }, sorted.Select(info => info.Descriptor.Id));
     }
 
+    /// <summary>
+    /// File, position and id together do not identify a diagnostic: one rule fires more than once at
+    /// one position whenever the reported location is the declaration and the offending detail is a
+    /// member of it. Without the message arguments as a final key, those come out in whatever order
+    /// the pipeline produced them -- the exact dependency this method exists to remove.
+    /// </summary>
+    [Fact]
+    public void SortForDiagnosticDeterminism_BreaksTiesAtOnePositionByMessageArguments()
+    {
+        var sorted = SymbolFacts.SortForDiagnosticDeterminism(ImmutableArray.Create(
+            Info(RuleA, "a.cs", 1, "Weight"),
+            Info(RuleA, "a.cs", 1, "Chance"),
+            Info(RuleA, "a.cs", 1, "Odds")));
+
+        Assert.Equal(
+            new[] { "Chance", "Odds", "Weight" },
+            sorted.Select(info => info.MessageArgs[0]));
+    }
+
+    /// <summary>
+    /// The same holds for the location-less diagnostics, which all share the one "position" of
+    /// having none.
+    /// </summary>
+    [Fact]
+    public void SortForDiagnosticDeterminism_BreaksTiesBetweenLocationlessDiagnosticsByMessageArguments()
+    {
+        var sorted = SymbolFacts.SortForDiagnosticDeterminism(ImmutableArray.Create(
+            new DiagnosticInfo(RuleA, location: null, "second"),
+            new DiagnosticInfo(RuleA, location: null, "first")));
+
+        Assert.Equal(new[] { "first", "second" }, sorted.Select(info => info.MessageArgs[0]));
+    }
+
+    /// <summary>
+    /// The join that builds the key uses a separator no message argument carries, so two argument
+    /// lists that concatenate to the same text still order by their real boundaries.
+    /// </summary>
+    [Fact]
+    public void SortForDiagnosticDeterminism_DoesNotConflateArgumentListsThatConcatenateAlike()
+    {
+        var sorted = SymbolFacts.SortForDiagnosticDeterminism(ImmutableArray.Create(
+            Info(RuleA, "a.cs", 1, "ab", "c"),
+            Info(RuleA, "a.cs", 1, "a", "bc")));
+
+        Assert.Equal(
+            new[] { "a", "ab" },
+            sorted.Select(info => info.MessageArgs[0]));
+    }
+
     [Fact]
     public void SortForDiagnosticDeterminism_OnAnEmptyArray_ReturnsEmpty()
     {
@@ -269,10 +318,12 @@ public class SymbolFactsTests
 
     // ---- fixtures ------------------------------------------------------------------------------
 
-    private static DiagnosticInfo Info(DiagnosticDescriptor descriptor, string filePath, int start) =>
+    private static DiagnosticInfo Info(
+        DiagnosticDescriptor descriptor, string filePath, int start, params string[] messageArgs) =>
         new(
             descriptor,
-            new LocationInfo(filePath, new TextSpan(start, 1), new LinePositionSpan(new LinePosition(0, start), new LinePosition(0, start + 1))));
+            new LocationInfo(filePath, new TextSpan(start, 1), new LinePositionSpan(new LinePosition(0, start), new LinePosition(0, start + 1))),
+            messageArgs);
 
     private static INamedTypeSymbol Type(string metadataName) => Compilation.GetTypeByMetadataName(metadataName)!;
 

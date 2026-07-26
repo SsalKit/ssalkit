@@ -1,4 +1,4 @@
-[← SsalKit](https://github.com/ssalkit/ssalkit/blob/main/README.ko.md)
+﻿[← SsalKit](https://github.com/ssalkit/ssalkit/blob/main/README.ko.md)
 
 [English](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Generators.Toolkit.Testing/README.md) | **한국어** | [日本語](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Generators.Toolkit.Testing/README.ja.md)
 
@@ -26,6 +26,7 @@ Roslyn은 이를 확인할 증거를 실제로 노출합니다 — `GeneratorDri
 
 이 패키지의 나머지는 여러분이 더 이상 손으로 쓰지 않아도 되는 보일러플레이트입니다:
 
+- **크래시한 생성기는 테스트를 실패시킵니다.** Roslyn은 생성기나 분석기에서 예외가 밖으로 나가게 두지 않습니다. 잡아서 기록할 뿐입니다 — 생성기는 `CS8785`라는 *경고*로, 분석기는 `AD0001`로요. 둘 다 오류가 아니므로, 크래시한 실행이 남기는 것은 여전히 깨끗하게 컴파일되는 컴파일, 생성 파일 0개, 그리고 여러분 패키지 진단 0개입니다 — 그래서 `AssertNoGeneratedSources()`, `DiagnosticAssert.None(...)`, "오류가 보고되지 않았다"가 전부 통과합니다. 하나같이 잘못된 이유로요. 이 하네스는 그런 실행을 아예 돌려주지 않습니다.
 - **기본값으로 실제 참조 어셈블리를 사용합니다.** 테스트 대상 컴파일은 테스트 호스트 자신이 신뢰하는 모든 참조 어셈블리를 대상으로 빌드되므로, `AssertCompilesCleanly()`는 생성된 코드를 실제 BCL 기준으로 타입 검사합니다. `AdditionalAssemblies = [typeof(MyAttribute).Assembly]`는 여기에 여러분이 배포하는 런타임 패키지를 추가하므로, 내보낸 호출이 테스트 소스에 붙여 넣은 사본이 아니라 실제로 배포하는 API를 기준으로 검사됩니다.
 - **의도가 그대로 읽히는 단언입니다.** `GetSingleSource()`, `GetSource("...ServiceCollectionExtensions.g.cs")`, `AssertNoGeneratedSources()`, `DiagnosticAssert.Single(..., exclusive: true)`, `DiagnosticAssert.LocatedOn(diagnostic, "[Marker]")` — 그리고 `Expected 1, got 0` 대신 *실제로* 무엇이 생성되었는지, 혹은 *실제로* 무엇이 보고되었는지를 나열하는 실패 메시지입니다.
 - **분석기도 지원합니다.** 동일한 컴파일 설정으로 패키지 전체의 분석기를 함께 실행할 수 있으며, 이것이 테스트 소스가 사용하는 어떤 구성에 대해서도 다른 분석기들이 침묵을 지킨다는 것을 증명하는 방법입니다.
@@ -46,7 +47,7 @@ dotnet add package SsalKit.Generators.Toolkit.Testing
 
 ## 사전 요구사항
 
-- 테스트 프로젝트가 **`net10.0`** 이상을 대상으로 해야 합니다.
+- 테스트 프로젝트가 **`net10.0`** 이상을 대상으로 해야 합니다. 이 패키지는 `net10.0` 단일 타겟입니다. 소비자가 테스트 프로젝트인 만큼 배포용 라이브러리와 달리 최신 TFM으로 자유롭게 옮길 수 있고, 단일 타겟이면 하네스에 `#if`가 끼어들지 않고 따져야 할 동작 갈래도 하나로 유지됩니다. 다중 타게팅은 반대 결정이 아니라 백로그 항목입니다 — 오래된 테스트 TFM 때문에 막혀 있다면 이슈를 열어 주세요.
 - 패키지는 `Microsoft.CodeAnalysis.CSharp`를 함께 가져옵니다 — 이것이 유일한 의존성이며, 어떤 테스트 프레임워크에도 의도적으로 의존하지 않습니다.
 
 ## 빠른 시작
@@ -143,6 +144,14 @@ public void AnEditTheModelCapturesFlowsThroughToTheOutput()
 
 둘 다 하나의 드라이버를 공유하는 두 번의 실행 중 **두 번째** 것을 받습니다 — `RunTwice`는 소스 파일을 교체하고, `RunTwiceWithCompilationChange`는 컴파일 자체를 넘겨주어 신택스 트리를 추가하거나 교체할 수 있게 합니다. 추적 이름은 여러분의 파이프라인이 `WithTrackingName`에 넘긴 그 이름들입니다. 하나가 한 번도 기록되지 않았다면, 실패 메시지는 실행이 *실제로* 기록한 이름들을 나열해 주므로 대개 오탈자를 찾기에 충분합니다.
 
+**출력** 단계도 `"SourceOutput"`이라는 이름으로 지목할 수 있습니다. 이 단계는 자기 몫의 `WithTrackingName`을 갖지 않고 Roslyn이 별도 딕셔너리(`GeneratorTestResult.TrackedOutputSteps`)에 기록하므로, 파이프라인에서 가장 들여다보지 않기 쉬운 부분입니다 — 그런데 실제로 emitter가 다시 도는지를 결정하는 것이 바로 이 단계입니다. 값 단계들은 `Unchanged`인데 `"SourceOutput"`이 `Modified`라면, 결국 키 입력마다 방출이 일어나고 있다는 뜻입니다.
+
+```csharp
+IncrementalAssert.AllCachedOrUnchanged(second, TrackingNames.Models, "SourceOutput");
+```
+
+증분 단언이 **볼 수 없는** 것은 보유(retention)입니다. Roslyn이 기록하는 사유는 "이 단계가 재계산되었는가"에 답하지 "이 단계의 값이 무엇을 붙잡고 있는가"에 답하지 않습니다. 그래서 값으로 비교되면서도 동등성이 무시하는 필드에 `ISymbol`이나 `Compilation`을 살려 두는 모델은 두 단언을 모두 통과하면서 드라이버 캐시에 컴파일 전체를 계속 붙잡아 둡니다. 심볼과 구문을 파이프라인 모델 밖에 두는 것은 여전히 테스트된 규칙이 아니라 설계 규칙입니다.
+
 `RunTwice`가 표현할 수 있는 것과 없는 것을 구분하세요. 이 메서드는 소스 파일 전체를 교체하므로, 두 번째 소스를 변형하면 구문에 의존하는 모든 단계가 구조상 무효화됩니다. 변형 없이 호출하면 동일한 텍스트를 다시 파싱하게 되는데, 이것이야말로 가장 엄격한 캐싱 테스트입니다 — 파이프라인이 관찰하는 것 중 달라진 게 하나도 없으므로 무엇도 재계산되어서는 안 됩니다. 다만 *컴파일의 다른 어딘가에서 일어난* 편집이 아무것도 바꾸지 않는다는, 실제 IDE에서 벌어지는 시나리오를 검증하려면 위 예제처럼 `RunTwiceWithCompilationChange`로 무관한 트리를 추가하세요.
 
 단언이 실패하면 단계별 캐시 상태를 출력하는데, 이것이 "캐시가 망가졌다"를 "`Models[0] -> Modified`"로 바꿔 주는 지점입니다:
@@ -201,8 +210,8 @@ DiagnosticAssert.None(diagnostics, "MINE");
 | 타입 | 하는 일 |
 |------|--------------|
 | `GeneratorTest` | 진입점들입니다. 단일 실행에는 `Run<TGenerator>`, 증분 단언이 소비하는 두 번의 실행 쌍에는 `RunTwice<TGenerator>`/`RunTwiceWithCompilationChange<TGenerator>`, 분석기에는 `RunAnalyzerAsync<TAnalyzer>`/`RunAnalyzersAsync`, 아무것도 실행하지 않고 컴파일만 만들려면 `CreateCompilation`, 참조할 두 번째의 별도 어셈블리를 컴파일하려면 `CompileToReference`를 씁니다. |
-| `GeneratorTestOptions` | 공유 설정 값들을 담은 불변 레코드입니다: `AssemblyName`, `LanguageVersion`, `NullableContextOptions`, `OutputKind`, `AllowUnsafe`, `AdditionalReferences`, `AdditionalAssemblies`, `DiagnosticIdPrefix`, `SortGeneratedSourcesByHintName`. `null`이 뜻하는 것이 `GeneratorTestOptions.Default`입니다. |
-| `GeneratorTestResult` | 한 번의 실행이 만들어 낸 결과입니다. 데이터: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`. 조회: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. 단언: `AssertCompilesCleanly()`, `AssertCompilesCleanlyAndGetSource()`, `AssertNoGeneratedSources()`. |
+| `GeneratorTestOptions` | 공유 설정 값들을 담은 불변 레코드입니다: `AssemblyName`, `LanguageVersion`, `NullableContextOptions`, `OutputKind`, `AllowUnsafe`, `AdditionalReferences`, `AdditionalAssemblies`, `DiagnosticIdPrefix`, `SortGeneratedSourcesByHintName`, `AllowGeneratorExceptions`. `null`이 뜻하는 것이 `GeneratorTestOptions.Default`입니다. |
+| `GeneratorTestResult` | 한 번의 실행이 만들어 낸 결과입니다. 데이터: `GeneratedSources`, `Diagnostics`, `OutputCompilation`, `RawResult`, `TrackedSteps`, `TrackedOutputSteps`. 조회: `GetSingleSource()`, `GetSource(hintNameSuffix)`, `GetCompilationErrors()`, `ToSnapshotText()`. 단언: `AssertCompilesCleanly()`, `AssertCompilesCleanlyAndGetSource()`, `AssertNoGeneratedSources()`. |
 | `GeneratedSource` | 생성된 파일 하나입니다: `HintName`과 `Text`로 이루어진 `readonly record struct`입니다. |
 | `IncrementalAssert` | 캐싱 계약입니다: `AllCachedOrUnchanged(secondRun, ...names)`와 `SomeOutputRecomputed(secondRun, ...names)`. |
 | `DiagnosticAssert` | `Single(diagnostics, id, severity?, locatedOnSnippet?, source?, exclusive?)`, `None(diagnostics, idPrefix)`, `LocatedOn(diagnostic, snippet, source?)`, `SpanStartsWith(diagnostic, prefix, source?)`. |
@@ -254,6 +263,25 @@ var result = GeneratorTest.Run<GreeterGenerator>(
 ### `DiagnosticIdPrefix`는 필터링하지만 `RawResult`는 아닙니다
 
 `GeneratorTestResult.Diagnostics`와 분석기 진입점들은 `DiagnosticIdPrefix`를 따르며, 이 덕분에 모든 단언이 그 결과로 나오는 `CS****`를 일일이 걸러내지 않아도 테스트 소스를 의도적으로 잘못 만들 수 있습니다. 필터링되지 않은 생성기 진단은 여전히 `RawResult.Diagnostics`에 남아 있고, `OutputCompilation`/`GetCompilationErrors()`는 이 설정의 영향을 받지 않습니다.
+
+예외가 둘 있습니다. `CS8785`와 `AD0001`은 접두사가 무엇이든 필터를 통과합니다. 접두사는 부수적인 `CS****` 잡음을 걷어내려고 있는 것인데, "생성기가 크래시했다"고 말하는 그 하나의 `CS****`는 잡음이 아니며, 그것을 조용히 버리는 것이야말로 크래시한 실행이 테스트를 통과하는 경로이기 때문입니다.
+
+### 크래시를 일부러 테스트하기
+
+`AllowGeneratorExceptions = true`는 크래시 검사를 끄고 실행 결과를 있는 그대로 돌려줍니다 — 특정 입력에서 요란하게 실패하는 것이 *계약인* 생성기, 또는 이 동작 자체를 테스트하는 경우를 위해서입니다.
+
+```csharp
+var result = GeneratorTest.Run<MyGenerator>(source, Options with { AllowGeneratorExceptions = true });
+
+Assert.Equal("CS8785", Assert.Single(result.Diagnostics).Id);
+Assert.IsType<InvalidOperationException>(Assert.Single(result.RawResult.Results).Exception);
+```
+
+이 옵션이 없으면 같은 실행은 생성기 이름, 예외 타입, 메시지, 스택 트레이스를 담은 `GeneratorAssertionException`을 던집니다.
+
+### `ToSnapshotText()`는 항상 `"\n"`으로 잇습니다
+
+`// ==== <hint name>` 헤더와 파일 사이의 이음매는 `Environment.NewLine`이 아니라 항상 line feed입니다. 스냅샷은 한 머신에서 쓰이고 다른 머신에서 비교되므로, 호스트에 따라 달라지는 구분자는 "생성기 출력이 바뀌었다"를 "테스트가 다른 데서 돌았다"로 바꿔 버립니다. 생성 파일 *안쪽*의 줄바꿈은 여러분 생성기가 내보낸 그대로입니다 — 그건 여러분 생성기의 계약이고, 거기서도 `"\n"`으로 고정해 둘 가치가 있습니다.
 
 ## SsalKit.Generators.Toolkit과의 관계
 

@@ -122,13 +122,22 @@ internal sealed class DiagnosticInfo : IEquatable<DiagnosticInfo>
     public override bool Equals(object? obj) => Equals(obj as DiagnosticInfo);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The accumulation is explicitly <c>unchecked</c>: these sources are compiled with the
+    /// consumer's own options, and a hash that wraps around is correct while an
+    /// <see cref="OverflowException"/> from a project that sets
+    /// <c>CheckForOverflowUnderflow</c> is not.
+    /// </remarks>
     public override int GetHashCode()
     {
-        var hash = 17;
-        hash = (hash * 31) + Descriptor.GetHashCode();
-        hash = (hash * 31) + (Location?.GetHashCode() ?? 0);
-        hash = (hash * 31) + MessageArgs.GetHashCode();
-        return hash;
+        unchecked
+        {
+            var hash = 17;
+            hash = (hash * 31) + Descriptor.GetHashCode();
+            hash = (hash * 31) + (Location?.GetHashCode() ?? 0);
+            hash = (hash * 31) + MessageArgs.GetHashCode();
+            return hash;
+        }
     }
 
     /// <summary>
@@ -227,13 +236,22 @@ internal sealed class LocationInfo : IEquatable<LocationInfo>
     public override bool Equals(object? obj) => Equals(obj as LocationInfo);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The accumulation is explicitly <c>unchecked</c>: these sources are compiled with the
+    /// consumer's own options, and a hash that wraps around is correct while an
+    /// <see cref="OverflowException"/> from a project that sets
+    /// <c>CheckForOverflowUnderflow</c> is not.
+    /// </remarks>
     public override int GetHashCode()
     {
-        var hash = 17;
-        hash = (hash * 31) + FilePath.GetHashCode();
-        hash = (hash * 31) + TextSpan.GetHashCode();
-        hash = (hash * 31) + LineSpan.GetHashCode();
-        return hash;
+        unchecked
+        {
+            var hash = 17;
+            hash = (hash * 31) + FilePath.GetHashCode();
+            hash = (hash * 31) + TextSpan.GetHashCode();
+            hash = (hash * 31) + LineSpan.GetHashCode();
+            return hash;
+        }
     }
 
     /// <summary>

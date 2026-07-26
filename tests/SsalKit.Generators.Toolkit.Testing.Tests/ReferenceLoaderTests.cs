@@ -11,11 +11,32 @@ namespace SsalKit.Generators.Toolkit.Testing.Tests;
 /// </summary>
 public class ReferenceLoaderTests
 {
+    /// <summary>
+    /// An empty reference set is never a usable answer: it would leave every compilation without so
+    /// much as <see cref="object"/>, so each of them would fail with a wall of errors about the BCL
+    /// instead of about the generator under test.
+    /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void LoadTrustedPlatformReferences_WithoutAList_ProducesNoReferences(string? list) =>
-        Assert.Empty(ReferenceLoader.LoadTrustedPlatformReferences(list));
+    public void LoadTrustedPlatformReferences_WithoutAList_SaysSoInsteadOfProducingNoReferences(string? list)
+    {
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => ReferenceLoader.LoadTrustedPlatformReferences(list));
+
+        Assert.Contains("no TRUSTED_PLATFORM_ASSEMBLIES list at all", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LoadTrustedPlatformReferences_WhenNoEntryIsOnDisk_DistinguishesThatFromAnAbsentList()
+    {
+        var list = string.Join(Path.PathSeparator, "not-a-real-file.dll", "neither-is-this.dll");
+
+        var exception = Assert.Throws<GeneratorAssertionException>(
+            () => ReferenceLoader.LoadTrustedPlatformReferences(list));
+
+        Assert.Contains("none of whose entries exist on disk", exception.Message, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void LoadTrustedPlatformReferences_SkipsEntriesThatAreNotOnDisk()
