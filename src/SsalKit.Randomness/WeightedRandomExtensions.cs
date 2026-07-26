@@ -15,6 +15,16 @@ namespace SsalKit.Randomness;
 /// table once and draws in <c>O(1)</c> thereafter.
 /// </para>
 /// <para>
+/// <b>Integer weights are exact; <c>double</c> weights are not.</b> The <c>long</c>-weighted
+/// members do all of their arithmetic in exact integers, so every item with a positive weight is
+/// reachable no matter how lopsided the table is. The <c>double</c>-weighted members draw a
+/// position as <c>total * NextDouble()</c>, which carries only 53 bits of mantissa: an item whose
+/// weight is smaller than roughly <c>total / 2^53</c> occupies a bucket narrower than one
+/// representable step near <c>total</c> and can be unreachable in practice, and cumulative
+/// summation adds its own rounding on top. Prefer the <c>long</c>-weighted overloads whenever the
+/// ratio between the largest and smallest positive weight is extreme.
+/// </para>
+/// <para>
 /// See the exception contract table on each member below. It is applied uniformly across every
 /// weighted-pick API in this type and in <see cref="WeightedSampler{T}"/>.
 /// </para>
@@ -81,6 +91,12 @@ public static class WeightedRandomExtensions
     /// Returns a single random element from <paramref name="items"/>, selected with probability
     /// proportional to the <see cref="double"/> weight <paramref name="weight"/> assigns to it.
     /// </summary>
+    /// <remarks>
+    /// The drawn position is <c>total * NextDouble()</c>, so selection resolution is bounded by
+    /// <see cref="double"/>'s 53-bit mantissa: an item whose weight is smaller than roughly
+    /// <c>total / 2^53</c> may never be selected. Use the <see cref="long"/>-weighted overload,
+    /// which is exact, when the weight ratio is that extreme.
+    /// </remarks>
     /// <typeparam name="T">The element type.</typeparam>
     /// <param name="source">The random source.</param>
     /// <param name="items">The candidate items. Must not be empty.</param>
@@ -181,6 +197,12 @@ public static class WeightedRandomExtensions
     /// Returns a single random element from <paramref name="items"/>, selected with probability
     /// proportional to the corresponding entry of <paramref name="weights"/>. Allocation-free.
     /// </summary>
+    /// <remarks>
+    /// The drawn position is <c>total * NextDouble()</c>, so selection resolution is bounded by
+    /// <see cref="double"/>'s 53-bit mantissa: an item whose weight is smaller than roughly
+    /// <c>total / 2^53</c> may never be selected. Use the <see cref="long"/>-weighted overload,
+    /// which is exact, when the weight ratio is that extreme.
+    /// </remarks>
     /// <typeparam name="T">The element type.</typeparam>
     /// <param name="source">The random source.</param>
     /// <param name="items">The candidate items. Must not be empty.</param>
@@ -300,12 +322,26 @@ public static class WeightedRandomExtensions
     /// among the items not yet drawn.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>Weights govern each draw, not the probability of being included.</b> Only the first
+    /// draw is proportional to the weights; every later draw renormalizes over the items not yet
+    /// taken. So for <paramref name="count"/> greater than 1, an item's probability of appearing
+    /// <em>anywhere</em> in the result is <em>not</em> proportional to its weight — light items
+    /// are over-represented relative to <c>count * weight / total</c> and heavy ones
+    /// under-represented, because a heavy item that was already taken can no longer crowd the
+    /// others out. That is the standard meaning of weighted sampling without replacement
+    /// (successive sampling), not a defect, but it is a classic source of surprise: a design that
+    /// needs inclusion probabilities proportional to weight needs a different scheme
+    /// (a &#960;ps design), which this method does not implement.
+    /// </para>
+    /// <para>
     /// Implemented as the "subtract the chosen item's weight from a running total and exclude it
     /// from future draws" linear strategy: each of the <paramref name="count"/> draws rebuilds a
     /// cumulative-sum array over the remaining weights, giving <c>O(count * n)</c> overall — this
     /// is adequate for the sizes this library targets and keeps the implementation simple; a
     /// Fenwick-tree-backed <c>O(count * log n)</c> version could replace this internally without
     /// an API change if a future workload needs it.
+    /// </para>
     /// </remarks>
     /// <typeparam name="T">The element type.</typeparam>
     /// <param name="source">The random source.</param>
@@ -424,6 +460,20 @@ public static class WeightedRandomExtensions
     /// (<c>WeightedSampler&lt;LootEntry&gt;.Create(...)</c>), while this extension infers it from
     /// the receiver. Validation, the alias-table construction, and the entire exception contract
     /// live in <c>Create</c> — this method only forwards.
+    /// </para>
+    /// <para>
+    /// <b>Why this one extends <see cref="IReadOnlyList{T}"/> and everything else extends
+    /// <see cref="IRandomSource"/>.</b> Every other member of this type hangs off the random
+    /// source, which keeps the extension surface off ordinary collections. This one deliberately
+    /// does not: a static <c>ToWeightedSampler&lt;T&gt;(IReadOnlyList&lt;T&gt;, ...)</c> would
+    /// force the element type to be written out at every call site, exactly the ceremony
+    /// <c>WeightedSampler&lt;T&gt;.Create</c> already imposes and this method exists to remove —
+    /// only an extension method infers <c>T</c> from the receiver. The accepted cost is that
+    /// <c>ToWeightedSampler</c> shows up in IntelliSense on every <see cref="IReadOnlyList{T}"/>
+    /// in a file that has <c>using SsalKit.Randomness;</c>. This is the opposite of the choice
+    /// <c>SsalKit.Guard</c> makes (static <c>Guard.</c> members precisely to avoid polluting
+    /// completion on unrelated types); the difference is that <c>Guard</c> has no type-inference
+    /// argument to trade against, and this method does.
     /// </para>
     /// <para>
     /// <b>Build once, draw many.</b> Building the alias table is <c>O(n)</c>; only the draws are
@@ -584,10 +634,15 @@ public static class WeightedRandomExtensions
     /// <summary>
     /// Finds the smallest index whose cumulative sum strictly exceeds <paramref name="position"/>
     /// (i.e. an upper-bound binary search). The search is bounded to <c>[0, Length - 1]</c>
-    /// regardless of <paramref name="position"/>'s magnitude, so the rare floating-point rounding
-    /// case where <c>total * NextDouble()</c> rounds up to (but is mathematically always strictly
-    /// less than) the true total simply resolves to the last index rather than going out of
-    /// range.
+    /// regardless of <paramref name="position"/>'s magnitude, which is what keeps a
+    /// <c>position</c> that is not strictly below the total from running off the end.
+    /// <c>total * NextDouble()</c> is exactly representable only by accident: the real product is
+    /// always strictly below <c>total</c> (the factor is drawn from <c>[0, 1)</c>), but the
+    /// rounded <see cref="double"/> result can land exactly on <c>total</c> whenever the product
+    /// falls within half an ulp of it. For a normal <c>total</c> that needs a factor within about
+    /// <c>2^-53</c> of 1 and is therefore vanishingly rare; for a subnormal <c>total</c>, where
+    /// the spacing between representable values is a large fraction of the value itself, it is
+    /// ordinary. Clamping resolves that case to the last index instead of an out-of-range access.
     /// </summary>
     private static int BinarySearchCumulativeDouble(ReadOnlySpan<double> cumulative, double position)
     {

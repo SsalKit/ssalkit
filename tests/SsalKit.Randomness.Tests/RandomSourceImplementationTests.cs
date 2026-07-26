@@ -126,4 +126,62 @@ public class RandomSourceImplementationTests
 
         source.NextBytes(Span<byte>.Empty);
     }
+
+    // ---- Concurrency smoke tests for the two sources documented as thread-safe ----
+    //
+    // Mirrors the Parallel.For style WeightedSamplerTests uses for the same purpose: the point is
+    // not to prove thread safety (no test can) but to pin the documented claim against an
+    // implementation that starts using shared mutable state, which would surface as a throw or a
+    // buffer that came back untouched.
+
+    private const int ConcurrentWorkerCount = 8;
+    private const int DrawsPerWorker = 500;
+
+    [Fact]
+    public void SharedRandomSource_ConcurrentDraws_DoNotThrowAndAlwaysProduceOutput()
+    {
+        AssertConcurrentDrawsSucceed(SharedRandomSource.Instance);
+    }
+
+    [Fact]
+    public void CryptoRandomSource_ConcurrentDraws_DoNotThrowAndAlwaysProduceOutput()
+    {
+        AssertConcurrentDrawsSucceed(CryptoRandomSource.Instance);
+    }
+
+    /// <summary>
+    /// Hammers one shared <see cref="IRandomSource"/> instance from several threads through both
+    /// interface members, and asserts every worker got a full set of draws back.
+    /// </summary>
+    /// <remarks>
+    /// The "all zero" check on the byte buffers is the strongest assertion available without
+    /// assuming a distribution: for a 32-byte buffer it is astronomically unlikely from either
+    /// source, so an all-zero buffer means the fill never happened.
+    /// </remarks>
+    private static void AssertConcurrentDrawsSucceed(IRandomSource source)
+    {
+        var scalarDraws = new ulong[ConcurrentWorkerCount][];
+        var byteDraws = new byte[ConcurrentWorkerCount][];
+
+        System.Threading.Tasks.Parallel.For(0, ConcurrentWorkerCount, worker =>
+        {
+            var scalars = new ulong[DrawsPerWorker];
+            for (int i = 0; i < DrawsPerWorker; i++)
+            {
+                scalars[i] = source.NextUInt64();
+            }
+
+            var buffer = new byte[32];
+            source.NextBytes(buffer);
+
+            scalarDraws[worker] = scalars;
+            byteDraws[worker] = buffer;
+        });
+
+        for (int worker = 0; worker < ConcurrentWorkerCount; worker++)
+        {
+            Assert.Equal(DrawsPerWorker, scalarDraws[worker].Length);
+            Assert.Contains(byteDraws[worker], b => b != 0);
+        }
+    }
 }

@@ -70,19 +70,24 @@ var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 | 型 | 役割 |
 |---|---|
 | `IRandomSource` | すべてのソースが共有する最小限の契約（`NextUInt64()` + `NextBytes(Span<byte>)`）。それより上位の演算はすべて、この 2 つのメンバーから拡張メソッドとして派生します。 |
-| `DeterministicRandom` | シード指定・状態 export・fork が可能な PRNG。`System.Random` に似たインスタンス API（`Next`、`NextInt64`、`NextDouble`、`NextSingle`、`NextBoolean`、`NextBytes`）に加え、`ExportState()`/`FromState(...)`/`Fork()` を提供します。 |
-| `RandomState` | 256 ビットの状態（`S0`..`S3`）を保持する `readonly record struct`。値の等価性と容易な JSON シリアライズを備え、`ulong[4]` との相互運用のために `ToArray()`/`FromSpan(...)`/`CopyTo(...)` があります。 |
+| `DeterministicRandom` | シード指定・状態 export・fork が可能な PRNG。`System.Random` に似たインスタンス API（`Next`、`NextInt64`、`NextDouble`、`NextSingle`、`NextBoolean`、`NextBytes`）に加え、`ExportState()`/`FromState(...)`/`Fork()`、そしてシード自体を予測不可能に引く `CreateRandomlySeeded()` を提供します。 |
+| `RandomState` | 256 ビットの状態（`S0`..`S3`）を保持する `readonly record struct`。値の等価性と容易な JSON シリアライズを備え、`IsValid`（all-zero 状態のときだけ false）と、`ulong[4]` との相互運用のための `ToArray()`/`FromSpan(...)`/`CopyTo(...)` があります。 |
 | `CryptoRandomSource` | `RandomNumberGenerator` を用いた `IRandomSource`。予測不可能でスレッドセーフ、`CryptoRandomSource.Instance` として提供されます。 |
 | `SharedRandomSource` | `Random.Shared` を用いた `IRandomSource`。スレッドセーフで、`SharedRandomSource.Instance` として提供されます。 |
 | `SystemRandomSource` | 任意の `Random` インスタンスをラップする `IRandomSource` アダプターで、相互運用とテスト用です。 |
 | `RandomSourceExtensions` | `IRandomSource` 向けの均等分布拡張メソッド: `Next`/`NextInt64`/`NextDouble`/`NextSingle`/`NextBoolean`、`Shuffle`、`Pick`。`DeterministicRandom` のインスタンスメソッドとアルゴリズム・出力が完全に一致します。 |
 | `WeightedRandomExtensions` | `PickWeighted`（単発、`long` または `double` の重み、リストまたは span 形式）、`PickManyWeighted`（復元抽出）、`PickManyWeightedDistinct`（非復元抽出）、および `ToWeightedSampler` — `items.ToWeightedSampler(x => x.Weight)` の形でリストから直接サンプラーをビルドでき、`WeightedSampler<T>.Create` のように型引数を書かなくても項目の型が推論されます。 |
-| `WeightedSampler<T>` | 固定された `long` 重み付き項目集合から繰り返し抽選する際に使う、不変でスレッドセーフな事前ビルド alias method サンプラー。ビルドは `O(n)`、`Pick`/`PickMany` は呼び出しごとに `O(1)`。 |
+| `WeightedSampler<T>` | 固定された `long` 重み付き項目集合から繰り返し抽選する際に使う、不変でスレッドセーフな事前ビルド alias method サンプラー。ビルドは `O(n)`、`Pick`/`PickMany` は呼び出しごとに `O(1)` で、ビルド時の項目数は `Count` で公開されます。 |
 | `RandomWeightAttribute` | モデル型の重みプロパティまたはフィールドに付ける属性。パッケージに同梱されたソースジェネレーターが、その型の `IReadOnlyList<T>` に対するセレクター不要の `PickWeighted`/`PickManyWeighted`/`PickManyWeightedDistinct`/`ToWeightedSampler` 拡張をコンパイル時に生成します。 |
+
+### 重み付き抽選で誤解しやすい 2 点
+
+- **`PickManyWeightedDistinct` の重みは 1 回ごとの抽選に効き、包含確率には効きません。** 重みに比例するのは最初の抽選だけで、以降の抽選はまだ引かれていない項目の上で正規化し直されます。したがって `count > 1` のとき、ある項目が結果の *どこかに* 現れる確率はその重みに比例し **ません** — すでに引かれた重い項目はもう他を押しのけられないため、軽い項目は `count * weight / total` より多く出て、重い項目は少なく出ます。これは *非復元* の重み付き抽出（successive sampling）の定義そのものであって欠陥ではありませんが、逆を期待しやすい典型的な箇所です。包含確率そのものを重みに比例させたい場合は別の設計（πps）が必要で、このライブラリはそれを提供しません。
+- **`double` の重みの分解能は 53 ビットです。** `double` 重みの抽選は位置を `total * NextDouble()` で引くため、重みがおおよそ `total / 2^53` を下回る項目は表現可能な最小刻みより狭い区間しか持てず、実際には決して選ばれないことがあります。累積和の丸め誤差もその上に乗ります。`long` 重みのオーバーロード（および alias テーブルを厳密な整数演算でビルドする `WeightedSampler<T>`）にはこの制限がないので、最大の重みと最小の正の重みの比が極端なときは `long` 側を使ってください。
 
 ## `[RandomWeight]` によるセレクター不要の抽選
 
-ここまでの重み付き API はすべてセレクターを受け取ります。`random.PickWeighted(lootTable, static x => (long)x.Weight)` のように。モデル型に重みメンバーが 1 つしかないのに、呼び出しのたびにこのセレクターを書き続けるのは無駄です。代わりにメンバーへ印を付けましょう。
+ここまでの重み付き API の多くはセレクターを受け取ります。`random.PickWeighted(lootTable, static x => (long)x.Weight)` のように。（span のオーバーロードはセレクターの代わりに重みを並列の span で受け取ります — 上のクイックスタートで使った形で、重みが項目自身に載っていないときに便利です。）モデル型に重みメンバーが 1 つしかないのに、呼び出しのたびにこのセレクターを書き続けるのは無駄です。代わりにメンバーへ印を付けましょう。
 
 ```csharp
 using SsalKit.Randomness;
@@ -200,12 +205,12 @@ BenchmarkDotNet v0.15.8、.NET 10.0.10、AMD Ryzen 9 3950X、Windows 11 の環�
 | NextInt64（範囲指定） | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
 | NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
 
-`DeterministicRandom` は計測したすべてのスカラー演算で最速です（1.5〜2.2 ns、上表にない `NextRange` も同じく 2.2 ns）。シード指定のレガシー `Random` に対して最大で約 17 倍、`Random.Shared` に対して約 1.4〜2 倍高速です。4 つのソースすべてで、スカラー生成の割り当ては 0 バイトです。
+`DeterministicRandom` は計測したすべてのスカラー演算で最速です（1.5〜2.2 ns、上表にない `NextRange` も同じく 2.2 ns）。シード指定のレガシー `Random` に対して最大で約 16.6 倍、`Random.Shared` に対して約 1.4〜2 倍高速です。4 つのソースすべてで、スカラー生成の割り当ては 0 バイトです。
 
 注記:
 - `Random.Shared` はスレッドセーフなラッパーであるため、上記のシングルスレッド向けソースとの比較は厳密には同一条件ではありません。
 - 唯一の例外は 64 バイトバッファへの `NextBytes` で、この場合は `Random.Shared`（14.4 ns）が `DeterministicRandom`（15.8 ns）よりわずかに高速です。
-- `CryptoRandomSource` は全体的に `DeterministicRandom` より約 28〜40 倍遅くなります — `RandomNumberGenerator` を基盤としており、他のソースにはない暗号学的な予測不可能性の対価であるため、当然の結果です。
+- `CryptoRandomSource` は上表のスカラー演算では `DeterministicRandom` より約 29〜40 倍遅く、64 バイトの `NextBytes` 充填では呼び出しごとの固定コストがより多くのバイトに分散されるため約 8 倍差まで縮まります。いずれにせよ `RandomNumberGenerator` を基盤としており、他のソースにはない暗号学的な予測不可能性の対価であるため、当然の結果です。
 
 ### ディスパッチコスト
 
@@ -238,6 +243,7 @@ BenchmarkDotNet v0.15.8、.NET 10.0.10、AMD Ryzen 9 3950X、Windows 11 の環�
 - `RandomState` はセーブデータとして永続化されうるため、出力数列を変更することはすべての利用者のセーブデータを破損させることと同義です。このような変更はパッチやマイナーリリースで **決して** 行われません。
 - アルゴリズムをいつか進化させる必要が生じた場合、`DeterministicRandom` 自体の挙動を変更するのではなく、**新しい型**（例えば仮の `DeterministicRandomV2`）として出荷されます。
 - all-zero 状態は無効な状態です（`xoshiro256**` は一度その状態に入ると二度と抜け出せません）。`FromState(...)`/`RandomState.FromSpan(...)` はこれを `ArgumentException` として拒否します。
+- `RandomState` は専用のコンバーターなしで `System.Text.Json` を損失なく往復します。JSON が .NET の外へ出る場合だけ注意が必要です。状態ワードは `ulong` の全域に一様に分布するため大半は `2^53` を超え、そうした値は JavaScript の `number` としてパースされた時点で精度を失います。JavaScript の境界を越える必要があるときは、ワードを文字列としてシリアライズするか、`ToArray()` とバイナリ形式を使ってください。
 
 派生する保証事項:
 
@@ -274,7 +280,7 @@ BenchmarkDotNet v0.15.8、.NET 10.0.10、AMD Ryzen 9 3950X、Windows 11 の環�
 | `long` の重みの合計がオーバーフロー | `OverflowException`（checked 加算） |
 | `count <= 0` | `ArgumentOutOfRangeException` |
 | `PickManyWeightedDistinct` で `count` が正の重みを持つ項目数を超える | `ArgumentOutOfRangeException` |
-| `RandomState.FromState(...)` / `RandomState.FromSpan(...)` に all-zero 状態を渡した | `ArgumentException` |
+| `DeterministicRandom.FromState(...)` / `RandomState.FromSpan(...)` に all-zero 状態を渡した | `ArgumentException` |
 | 範囲指定の `Next`/`NextInt64` オーバーロードで `minValue > maxValue` | `ArgumentOutOfRangeException` |
 
 重みが `0` の項目は **許可** されており、単に決して選ばれないだけです（合計さえ正であれば構いません）。`PickManyWeightedDistinct` における `count` の上限は `items.Count` ではなく、*正の* 重みを持つ項目の数です — 重み 0 の項目は決して選ばれないため、それ以上を要求すると無限探索になるか、重み 0 の項目を誤って返すことになります。

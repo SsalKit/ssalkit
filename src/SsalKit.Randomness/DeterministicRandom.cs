@@ -120,11 +120,20 @@ public sealed class DeterministicRandom : IRandomSource
     /// state by exactly one step in the process.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The contract is exactly <c>Fork() == new DeterministicRandom(this.NextUInt64())</c>: a
     /// single 64-bit value is drawn from this instance (which is indistinguishable from any
     /// other call to <see cref="NextUInt64"/> and leaves this instance's sequence otherwise
     /// unbroken) and expanded into the child's 256-bit state via SplitMix64, exactly as the
     /// <see cref="DeterministicRandom(ulong)"/> constructor would.
+    /// </para>
+    /// <para>
+    /// "Independent" here means the child's stream is derived from a distinct 64-bit seed, not
+    /// that distinct children are provably disjoint. Because the seed is 64 bits, two children
+    /// forked from unrelated parents can in principle collide, and by the birthday bound that
+    /// becomes non-negligible only around 2^32 forks — far beyond the scale of any game or
+    /// simulation workload, but worth knowing before treating fork counts in that range as safe.
+    /// </para>
     /// </remarks>
     /// <returns>A new, independent <see cref="DeterministicRandom"/>.</returns>
     public DeterministicRandom Fork() => new(NextUInt64());

@@ -12,6 +12,9 @@ namespace SsalKit.Randomness.Generator.Models;
 /// <param name="ExtensionClassName">
 /// The generated class name: the declaring type's name, with the names of any containing types
 /// flattened in front of it (<c>Outer_Inner</c>), plus the <c>RandomWeightExtensions</c> suffix.
+/// Because flattening is not injective, a second type in the same namespace that lands on the same
+/// name gets a numeric suffix appended (<c>...RandomWeightExtensions2</c>); see
+/// <c>RandomWeightTypeGrouper</c>.
 /// </param>
 /// <param name="MemberAccess">
 /// The weight member's name as it must be written in the generated selector, already

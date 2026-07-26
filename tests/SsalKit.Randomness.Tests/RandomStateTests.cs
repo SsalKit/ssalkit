@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SsalKit.Randomness.Tests;
 
 public class RandomStateTests
@@ -106,5 +108,73 @@ public class RandomStateTests
         var allZero = new RandomState(0UL, 0UL, 0UL, 0UL);
 
         Assert.Throws<ArgumentException>(() => DeterministicRandom.FromState(allZero));
+    }
+
+    // ---- System.Text.Json round-trip (the "trivially JSON-serializable" claim, asserted) ----
+
+    [Fact]
+    public void SystemTextJson_RoundTripsToAnEqualState_WithNoConverter()
+    {
+        var random = new DeterministicRandom(4242UL);
+        RandomState original = random.ExportState();
+
+        string json = JsonSerializer.Serialize(original);
+        RandomState roundTripped = JsonSerializer.Deserialize<RandomState>(json);
+
+        Assert.Equal(original, roundTripped);
+    }
+
+    [Fact]
+    public void SystemTextJson_RoundTrippedState_ResumesTheIdenticalSequence()
+    {
+        var original = new DeterministicRandom(20260726UL);
+        for (int i = 0; i < 5; i++)
+        {
+            original.NextUInt64();
+        }
+
+        string json = JsonSerializer.Serialize(original.ExportState());
+        DeterministicRandom restored = DeterministicRandom.FromState(JsonSerializer.Deserialize<RandomState>(json));
+
+        for (int i = 0; i < 32; i++)
+        {
+            Assert.Equal(original.NextUInt64(), restored.NextUInt64());
+        }
+    }
+
+    [Fact]
+    public void SystemTextJson_WordsAboveTwoToThe53_SurviveExactly()
+    {
+        // The documented caveat is about JavaScript consumers, not about .NET: System.Text.Json
+        // reads these back into ulong bit-for-bit, including ulong.MaxValue and values whose
+        // nearest double is a different integer. A JS `number` would not.
+        var state = new RandomState(ulong.MaxValue, (1UL << 53) + 1UL, 0x8000_0000_0000_0001UL, 12_345_678_901_234_567UL);
+
+        RandomState roundTripped = JsonSerializer.Deserialize<RandomState>(JsonSerializer.Serialize(state));
+
+        Assert.Equal(state, roundTripped);
+        Assert.NotEqual((ulong)(double)state.S1, state.S1);
+    }
+
+    [Fact]
+    public void SystemTextJson_SerializesTheFourWordsAsJsonNumbers()
+    {
+        // The four state words are written as plain JSON numbers -- which is exactly why the
+        // JavaScript 2^53 caveat applies to them. The computed IsValid property comes along as a
+        // redundant field (it has no setter, so it is simply ignored when reading back); pinning
+        // the whole document here means a change to that shape cannot slip out unnoticed, since
+        // the payload is something consumers persist.
+        string json = JsonSerializer.Serialize(new RandomState(1UL, 2UL, 3UL, 4UL));
+
+        Assert.Equal("""{"S0":1,"S1":2,"S2":3,"S3":4,"IsValid":true}""", json);
+    }
+
+    [Fact]
+    public void SystemTextJson_ExtraIsValidField_IsIgnoredWhenReadingBack()
+    {
+        RandomState state = JsonSerializer.Deserialize<RandomState>("""{"S0":1,"S1":2,"S2":3,"S3":4,"IsValid":false}""");
+
+        Assert.Equal(new RandomState(1UL, 2UL, 3UL, 4UL), state);
+        Assert.True(state.IsValid);
     }
 }

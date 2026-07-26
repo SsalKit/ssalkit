@@ -70,19 +70,24 @@ var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 | Type | Purpose |
 |---|---|
 | `IRandomSource` | Minimal contract (`NextUInt64()` + `NextBytes(Span<byte>)`) shared by every source. All higher-level operations are derived from these two members via extension methods. |
-| `DeterministicRandom` | Seedable, state-exportable, forkable PRNG. `System.Random`-shaped instance API (`Next`, `NextInt64`, `NextDouble`, `NextSingle`, `NextBoolean`, `NextBytes`) plus `ExportState()`/`FromState(...)`/`Fork()`. |
-| `RandomState` | `readonly record struct` holding the 256-bit state (`S0`..`S3`). Value-equatable, trivially JSON-serializable, with `ToArray()`/`FromSpan(...)`/`CopyTo(...)` for `ulong[4]` interop. |
+| `DeterministicRandom` | Seedable, state-exportable, forkable PRNG. `System.Random`-shaped instance API (`Next`, `NextInt64`, `NextDouble`, `NextSingle`, `NextBoolean`, `NextBytes`) plus `ExportState()`/`FromState(...)`/`Fork()`, and `CreateRandomlySeeded()` for a reproducible generator whose seed itself is unpredictable. |
+| `RandomState` | `readonly record struct` holding the 256-bit state (`S0`..`S3`). Value-equatable, trivially JSON-serializable, with `IsValid` (false only for the all-zero state) and `ToArray()`/`FromSpan(...)`/`CopyTo(...)` for `ulong[4]` interop. |
 | `CryptoRandomSource` | `IRandomSource` backed by `RandomNumberGenerator`. Unpredictable, thread-safe, exposed as `CryptoRandomSource.Instance`. |
 | `SharedRandomSource` | `IRandomSource` backed by `Random.Shared`. Thread-safe, exposed as `SharedRandomSource.Instance`. |
 | `SystemRandomSource` | `IRandomSource` adapter over any `Random` instance, for interop and tests. |
 | `RandomSourceExtensions` | Uniform extensions on `IRandomSource`: `Next`/`NextInt64`/`NextDouble`/`NextSingle`/`NextBoolean`, `Shuffle`, `Pick`. Identical algorithm and output to `DeterministicRandom`'s instance methods. |
 | `WeightedRandomExtensions` | `PickWeighted` (single shot, `long` or `double` weights, list or span form), `PickManyWeighted` (with replacement), `PickManyWeightedDistinct` (without replacement), plus `ToWeightedSampler` — `items.ToWeightedSampler(x => x.Weight)` builds a sampler straight off a list, inferring the item type instead of making you spell out `WeightedSampler<T>.Create`. |
-| `WeightedSampler<T>` | Immutable, thread-safe, pre-built alias-method sampler for repeated weighted draws from a fixed `long`-weighted item set: `O(n)` build, `O(1)` per `Pick`/`PickMany`. |
+| `WeightedSampler<T>` | Immutable, thread-safe, pre-built alias-method sampler for repeated weighted draws from a fixed `long`-weighted item set: `O(n)` build, `O(1)` per `Pick`/`PickMany`, plus `Count` (the number of items it was built from). |
 | `RandomWeightAttribute` | Marks a model type's weight property or field. The source generator bundled in the package emits selector-less `PickWeighted`/`PickManyWeighted`/`PickManyWeightedDistinct`/`ToWeightedSampler` extensions over `IReadOnlyList<T>` of that type, at compile time. |
+
+### Two things weighted picking will not do for you
+
+- **`PickManyWeightedDistinct` weights each draw, not inclusion.** Only the first draw is proportional to the weights; every later draw renormalizes over the items not yet taken. So for `count > 1`, an item's chance of appearing *anywhere* in the result is **not** proportional to its weight — light items end up over-represented relative to `count * weight / total` and heavy ones under-represented, because a heavy item that has already been drawn can no longer crowd the others out. That is exactly what weighted sampling *without replacement* means (successive sampling), not a defect — but it is the classic thing people expect otherwise. Inclusion probabilities proportional to weight need a different (πps) design, which this library does not provide.
+- **`double` weights carry only 53 bits of resolution.** A `double`-weighted pick draws its position as `total * NextDouble()`, so an item whose weight is below roughly `total / 2^53` occupies a bucket narrower than one representable step and can be unreachable in practice; cumulative summation rounds on top of that. The `long`-weighted overloads (and `WeightedSampler<T>`, whose alias table is built in exact integer arithmetic) have no such limit — prefer them whenever the ratio between the largest and smallest positive weight is extreme.
 
 ## Selector-less picking with `[RandomWeight]`
 
-Every weighted API above takes a selector: `random.PickWeighted(lootTable, static x => (long)x.Weight)`. When a model type has one obvious weight member, repeating that selector at every call site is pure noise. Mark the member instead:
+Most of the weighted APIs above take a selector: `random.PickWeighted(lootTable, static x => (long)x.Weight)`. (The span-based overloads take a parallel weight span instead — the form used in the Quick Start above, for when the weights don't live on the items.) When a model type has one obvious weight member, repeating that selector at every call site is pure noise. Mark the member instead:
 
 ```csharp
 using SsalKit.Randomness;
@@ -200,12 +205,12 @@ Measured with BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 
 | NextInt64 (bounded) | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
 | NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
 
-`DeterministicRandom` is the fastest option for every scalar operation measured (1.5–2.2 ns, including `NextRange` at 2.2 ns which isn't shown above), up to ~17x faster than a seeded legacy `Random` and ~1.4–2x faster than `Random.Shared`. All four sources allocate zero bytes for scalar generation.
+`DeterministicRandom` is the fastest option for every scalar operation measured (1.5–2.2 ns, including `NextRange` at 2.2 ns which isn't shown above), up to ~16.6x faster than a seeded legacy `Random` and ~1.4–2x faster than `Random.Shared`. All four sources allocate zero bytes for scalar generation.
 
 Notes:
 - `Random.Shared` is a thread-safe wrapper, so it isn't an apples-to-apples comparison with the single-threaded sources above.
 - The one exception is `NextBytes` on a 64-byte buffer, where `Random.Shared` (14.4 ns) edges out `DeterministicRandom` (15.8 ns).
-- `CryptoRandomSource` is ~28–40x slower than `DeterministicRandom` across the board — expected, since it's backed by `RandomNumberGenerator` and buys cryptographic unpredictability that the other sources don't provide.
+- `CryptoRandomSource` is ~29–40x slower than `DeterministicRandom` on the scalar operations in the table above, and ~8x slower on the 64-byte `NextBytes` fill, where its fixed per-call cost is spread over more bytes. Expected either way, since it's backed by `RandomNumberGenerator` and buys cryptographic unpredictability that the other sources don't provide.
 
 ### Dispatch cost
 
@@ -238,6 +243,7 @@ This contract is permanently fixed for this type:
 - Because `RandomState` can be persisted as save data, changing the output sequence would corrupt every consumer's saved data. This will **never** happen in a patch or minor release.
 - If the algorithm ever needs to evolve, it will ship as a **new type** (e.g. a hypothetical `DeterministicRandomV2`), never by changing the behavior of `DeterministicRandom` itself.
 - The all-zero state is invalid (`xoshiro256**` can never leave it once entered) and is rejected by `FromState(...)`/`RandomState.FromSpan(...)` with an `ArgumentException`.
+- `RandomState` round-trips losslessly through `System.Text.Json` with no converter of your own. One caveat if the JSON leaves .NET: state words are uniformly distributed over the whole `ulong` range, so most of them exceed `2^53` and lose precision when parsed into a JavaScript `number`. Serialize the words as strings — or use `ToArray()` with a binary format — when the state has to cross a JavaScript boundary.
 
 Derived guarantees:
 
@@ -274,7 +280,7 @@ The following contract applies uniformly across `RandomState`, the ranged-genera
 | A `long` weight sum overflows | `OverflowException` (checked summation) |
 | `count <= 0` | `ArgumentOutOfRangeException` |
 | In `PickManyWeightedDistinct`, `count` exceeds the number of items with strictly positive weight | `ArgumentOutOfRangeException` |
-| `RandomState.FromState(...)` / `RandomState.FromSpan(...)` given the all-zero state | `ArgumentException` |
+| `DeterministicRandom.FromState(...)` / `RandomState.FromSpan(...)` given the all-zero state | `ArgumentException` |
 | `minValue > maxValue` in a ranged `Next`/`NextInt64` overload | `ArgumentOutOfRangeException` |
 
 An item with weight `0` is **allowed** and simply never selected (only the total needs to be positive). In `PickManyWeightedDistinct`, the upper bound on `count` is the number of *positive*-weight items, not `items.Count` — a zero-weight item can never be drawn, so requiring more than that would mean either an infinite search or incorrectly returning a zero-weight item.
