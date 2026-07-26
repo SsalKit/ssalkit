@@ -144,6 +144,52 @@ public class RegisterImplementationsOfSnapshotTests
         return Verify(source);
     }
 
+    /// <summary>
+    /// All three features in one compilation, which is the arrangement nothing pinned until now:
+    /// the emitter writes the <c>[Service]</c> block, then the convention block, then the factory
+    /// block, and that order is a contract rather than an implementation detail -- it is what
+    /// decides which registration wins a single-instance resolution when two of them bind the same
+    /// service type (see SSAL027), so a change to it changes consumers' runtime behaviour silently.
+    /// </summary>
+    [Fact]
+    public Task ServiceAndConventionAndFactory_CoexistInAFixedBlockOrder()
+    {
+        const string source = Usings + """
+            [assembly: RegisterImplementationsOf(typeof(TestNs.IStartupTask))]
+            [assembly: RegisterImplementationsOf(typeof(TestNs.IValidator<>), ServiceLifetime.Transient)]
+
+            namespace TestNs;
+
+            public enum NotifierKind { Email, Sms }
+
+            public interface IStartupTask { }
+            public interface INotifier { }
+            public interface IValidator<T> { }
+            public interface IClock { }
+
+            // Sorts after the convention block's implementations alphabetically, so the snapshot
+            // also proves the blocks are not merged and sorted as one list.
+            [Service(ServiceLifetime.Singleton)]
+            public class ZuluClock : IClock { }
+
+            [Service(ServiceLifetime.Scoped, Key = NotifierKind.Email)]
+            public class EmailNotifier : INotifier { }
+
+            public class MigrateDatabase : IStartupTask { }
+            public class WarmCaches : IStartupTask { }
+
+            public class Validator<T> : IValidator<T> { }
+
+            [ServiceFactory]
+            public interface INotifierFactory
+            {
+                INotifier Resolve(NotifierKind kind);
+            }
+            """;
+
+        return Verify(source);
+    }
+
     private static Task Verify(string source)
     {
         var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);

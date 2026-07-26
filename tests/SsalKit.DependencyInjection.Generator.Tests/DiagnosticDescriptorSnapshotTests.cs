@@ -26,7 +26,7 @@ namespace SsalKit.DependencyInjection.Generator.Tests;
 /// </remarks>
 public class DiagnosticDescriptorSnapshotTests
 {
-    private const int ExpectedDescriptorCount = 26;
+    private const int ExpectedDescriptorCount = 28;
 
     private static readonly FieldInfo[] DescriptorFields = typeof(DiagnosticDescriptors)
         .GetFields(BindingFlags.Public | BindingFlags.Static)

@@ -65,12 +65,23 @@ namespace SsalKit.DependencyInjection;
 /// namespace mix-up does not silently register nothing at all.
 /// </para>
 /// <para>
-/// <strong>An explicit <c>[Service]</c> wins over the convention.</strong> A class carrying at
+/// <strong>An explicit <c>[Service]</c> opts a class out of the scan.</strong> A class carrying at
 /// least one <see cref="ServiceAttribute"/> is excluded from every convention scan in the assembly,
-/// so its explicit registration is never duplicated or contradicted by one. This doubles as the
-/// opt-out for a single class: give it the <c>[Service]</c> registration you actually want (which
-/// may specify a different lifetime, <c>As</c> type, <c>Key</c>, or <c>Mode</c>) and the scan will
-/// leave it alone.
+/// so <em>that class</em> is never registered twice. This doubles as the opt-out for a single class:
+/// give it the <c>[Service]</c> registration you actually want (which may specify a different
+/// lifetime, <c>As</c> type, <c>Key</c>, or <c>Mode</c>) and the scan will leave it alone.
+/// </para>
+/// <para>
+/// <strong>It is not a resolution-priority rule.</strong> The exclusion is per class, so a contract
+/// still matches every <em>other</em> implementation of the same service type. The generated method
+/// emits the <c>[Service]</c> registrations first and the convention registrations second, so
+/// Microsoft.Extensions.DependencyInjection's last-registration-wins rule gives a single-instance
+/// resolution to the convention rather than to the explicit registration. <c>SSAL027</c> reports
+/// that overlap for every <see cref="Mode"/> except <see cref="RegistrationMode.TryAddEnumerable"/>,
+/// which is additive and shadows nothing. <see cref="RegistrationMode.Replace"/> goes further still:
+/// <c>IServiceCollection.Replace</c> removes every existing descriptor for the service type before
+/// adding its own, so a <c>Replace</c> contract deletes an explicit registration of the same service
+/// type elsewhere in the assembly rather than merely out-ranking it.
 /// </para>
 /// <para>
 /// <strong>Why <see cref="RegistrationMode.TryAddEnumerable"/> is the default.</strong> Registering

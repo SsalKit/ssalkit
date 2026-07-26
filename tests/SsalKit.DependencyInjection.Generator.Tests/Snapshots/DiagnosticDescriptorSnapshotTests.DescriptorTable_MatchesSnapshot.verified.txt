@@ -27,7 +27,7 @@ ConflictingImplementations
   Category: SsalKit.DependencyInjection
   DefaultSeverity: Warning
   IsEnabledByDefault: True
-  Description: Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other.
+  Description: Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other. Known limits of the grouping: it compares service type identities as written, so an open generic registration (IRepo<>) and a closed one (IRepo<int>) are counted as two separate service types even though a request for IRepo<int> matches both at runtime -- merging them would report every assembly that deliberately specializes one instantiation -- and it only sees [Service] registrations, with the [Service]-versus-convention-scan overlap reported by SSAL027 instead.
   HelpLinkUri: 
   CustomTags: CompilationEnd
 
@@ -174,6 +174,17 @@ KeyedTryAddEnumerableNotSupported
   HelpLinkUri: 
   CustomTags: 
 
+NoPublicConstructor
+  Id: SSAL028
+  Title: Registered class has no public constructor
+  MessageFormat: '{0}' is registered as a service but declares no public constructor; Microsoft.Extensions.DependencyInjection activates an implementation type through its public constructors only, so resolving this service throws at runtime
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: The built-in container's constructor selection only ever considers public constructors, so a class whose constructors are all private, protected, or internal cannot be activated -- the failure surfaces as an InvalidOperationException the first time the service is resolved, far from the registration that caused it. Make a constructor public, name a static factory method via [Service(Factory = ...)] (which is not subject to this rule, since the generated code calls the method instead of a constructor), or suppress this warning when the service is resolved by a third-party container that supports non-public constructors.
+  HelpLinkUri: 
+  CustomTags: 
+
 OpenGenericInstanceNotShared
   Id: SSAL010
   Title: Open generic registrations do not share an instance across service types
@@ -207,6 +218,17 @@ SelfTryAddEnumerableNotSupported
   HelpLinkUri: 
   CustomTags: 
 
+ServiceAndConventionOverlap
+  Id: SSAL027
+  Title: A [Service] registration and a convention scan bind the same service type
+  MessageFormat: The service type '{0}' is registered both by [Service] and by the [RegisterImplementationsOf] contract(s) {1}, whose Mode is not TryAddEnumerable; the convention block is emitted after the [Service] block, so the convention's registration is the one a single-instance resolution returns
+  Category: SsalKit.DependencyInjection
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: Carrying a [Service] attribute excludes a class from every convention scan, but that is a scan-exclusion rule, not a resolution-priority rule: a contract that matches some *other* class still registers the same service type, and because the generated method emits the [Service] block first and the convention block second, Microsoft.Extensions.DependencyInjection's last-registration-wins rule hands the win to the convention. A TryAddEnumerable convention is exempt -- it is purely additive and is how several implementations of one service type are meant to coexist -- so this only fires for Add, TryAdd, and Replace, with Replace being the most destructive of the three (it removes the [Service] registration outright). Give the two registrations distinct 'Key' values, narrow the contract, switch the contract to TryAddEnumerable, or suppress this warning if the convention is deliberately meant to override the explicit registration.
+  HelpLinkUri: 
+  CustomTags: CompilationEnd
+
 ServiceFactoryGenericNotSupported
   Id: SSAL019
   Title: [ServiceFactory] cannot be applied to a generic interface or one nested inside a generic type
@@ -231,12 +253,12 @@ ServiceFactoryInaccessibleType
 
 ServiceFactoryMemberShapeInvalid
   Id: SSAL017
-  Title: [ServiceFactory] interface must declare exactly one method
-  MessageFormat: [ServiceFactory] interface '{0}' must declare exactly one member and that member must be an ordinary, non-static method, but {1}
+  Title: [ServiceFactory] interface must declare exactly one method and inherit no implementable member
+  MessageFormat: [ServiceFactory] interface '{0}' must declare exactly one member -- an ordinary, non-static method -- and must not inherit an interface that has implementable members of its own, but {1}
   Category: SsalKit.DependencyInjection
   DefaultSeverity: Error
   IsEnabledByDefault: True
-  Description: The generated implementation only knows how to implement a single enum-keyed lookup method. Any additional member -- another method, a property, an event, a field, or a nested type -- would be left unimplemented, so the whole interface is rejected rather than generating code that does not compile.
+  Description: The generated implementation only knows how to implement a single enum-keyed lookup method. Any additional member -- another method, a property, an event, a field, or a nested type -- would be left unimplemented, so the whole interface is rejected rather than generating code that does not compile. The same applies to members inherited from a base interface, which the generated class must implement just as much as the ones declared directly: a base interface is therefore only allowed when it is a pure marker (or when everything it declares is static, a nested type, or a default implementation).
   HelpLinkUri: 
   CustomTags: 
 

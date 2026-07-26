@@ -11,7 +11,11 @@ namespace SsalKit.DependencyInjection;
 /// A decorated interface must declare exactly one member, and that member must be an ordinary,
 /// non-static, non-generic method taking exactly one by-value parameter of an <see langword="enum"/>
 /// type and returning a non-<see langword="void"/> service type. The interface itself must be
-/// non-generic and not nested inside a generic type. Anything else is rejected at compile time
+/// non-generic and not nested inside a generic type, and it must not inherit an interface that has
+/// implementable members of its own -- the generated class implements the decorated interface and
+/// would have to implement those too. A marker base interface (or one whose every member is
+/// <see langword="static"/>, a nested type, or a default implementation) is allowed. Anything else
+/// is rejected at compile time
 /// (<c>SSAL016</c>-<c>SSAL020</c>) and no implementation is generated for it; other factories and
 /// every <c>[Service]</c> registration are unaffected.
 /// </para>

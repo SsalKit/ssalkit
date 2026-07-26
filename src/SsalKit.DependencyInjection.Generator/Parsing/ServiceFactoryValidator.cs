@@ -63,6 +63,18 @@ internal static class ServiceFactoryValidator
                 $"its only member '{members[0].Name}' is not an ordinary, non-static method");
         }
 
+        // SSAL017 (inherited members): the generated class implements the interface, which obliges
+        // it to implement everything the interface's *bases* declare too. GetMembers() above only
+        // sees what this interface declares itself, so without this check a factory inheriting an
+        // interface with members of its own passes validation and is then emitted as a class that
+        // does not compile (CS0535).
+        var inheritedFailure = DescribeInheritedMembers(type);
+        if (inheritedFailure is not null)
+        {
+            return ServiceFactoryValidation.Failure(
+                ServiceFactoryValidationKind.MemberShapeInvalid, inheritedFailure);
+        }
+
         // SSAL018: the method itself must be shaped like `TService Create(SomeEnum key)`.
         var signatureFailure = ValidateSignature(method);
         if (signatureFailure is not null)
@@ -143,7 +155,10 @@ internal static class ServiceFactoryValidator
     /// <remarks>
     /// Everything else -- an extra method, a field or constant, a nested type -- is counted, which
     /// is what makes SSAL017's rule "exactly one member" rather than "exactly one method plus
-    /// whatever else you like".
+    /// whatever else you like". Inherited members are deliberately <em>not</em> counted here; they
+    /// are a separate rule with a message of its own (see <see cref="DescribeInheritedMembers"/>),
+    /// because "you declared two members" and "your base interface declares one" are fixed in
+    /// different places.
     /// </remarks>
     private static List<ISymbol> GetDeclaredMembers(INamedTypeSymbol type)
     {
@@ -160,6 +175,83 @@ internal static class ServiceFactoryValidator
         }
 
         return members;
+    }
+
+    /// <summary>
+    /// Describes the first base interface (ordinal by fully-qualified name, so the message does not
+    /// depend on <see cref="INamedTypeSymbol.AllInterfaces"/>'s enumeration order) that obliges the
+    /// generated implementation to implement a member it knows nothing about, or
+    /// <see langword="null"/> when every inherited interface is safe to carry.
+    /// </summary>
+    /// <remarks>
+    /// A <em>marker</em> base interface -- one declaring nothing at all -- is explicitly allowed: it
+    /// imposes no implementation burden, and marker interfaces are a normal way to group factories
+    /// for a consumer's own scanning. The same reasoning admits a base interface whose every member
+    /// is static, a nested type, or carries a default implementation: none of those has to be
+    /// implemented by the class either.
+    /// </remarks>
+    private static string? DescribeInheritedMembers(INamedTypeSymbol type)
+    {
+        List<(string Fqn, List<string> Members)>? offenders = null;
+
+        foreach (var baseInterface in type.AllInterfaces)
+        {
+            var required = GetMembersRequiringImplementation(baseInterface);
+            if (required.Count == 0)
+            {
+                continue;
+            }
+
+            offenders ??= [];
+            offenders.Add((SymbolFacts.ToFqn(baseInterface), required));
+        }
+
+        if (offenders is null)
+        {
+            return null;
+        }
+
+        var (fqn, members) = offenders.OrderBy(offender => offender.Fqn, StringComparer.Ordinal).First();
+        var memberList = string.Join(", ", members.OrderBy(name => name, StringComparer.Ordinal).Select(name => $"'{name}'"));
+        var count = members.Count.ToString(CultureInfo.InvariantCulture);
+
+        return $"it inherits '{fqn}', which declares {count} member(s) the generated implementation would have to implement ({memberList})";
+    }
+
+    /// <summary>
+    /// The members of <paramref name="baseInterface"/> that an implementing class must supply a body
+    /// for: instance members without a default implementation. Accessors are folded into the
+    /// property/event they belong to, exactly as <see cref="GetDeclaredMembers"/> does, so a base
+    /// interface declaring one property is reported as one member rather than two.
+    /// </summary>
+    private static List<string> GetMembersRequiringImplementation(INamedTypeSymbol baseInterface)
+    {
+        var required = new List<string>();
+
+        foreach (var member in baseInterface.GetMembers())
+        {
+            // Static members (including constants) and nested types are never inherited obligations.
+            if (member.IsStatic || member is INamedTypeSymbol)
+            {
+                continue;
+            }
+
+            if (member is IMethodSymbol { AssociatedSymbol: not null })
+            {
+                continue;
+            }
+
+            // A default interface implementation is non-abstract, and the generated class inherits
+            // it rather than having to write one.
+            if (!member.IsAbstract)
+            {
+                continue;
+            }
+
+            required.Add(member.Name);
+        }
+
+        return required;
     }
 
     private static string DescribeMemberCount(int count) => count == 0
@@ -188,7 +280,10 @@ internal enum ServiceFactoryValidationKind
     /// <summary>SSAL016: the attribute was applied to something other than an interface.</summary>
     NotAnInterface,
 
-    /// <summary>SSAL017: the interface does not declare exactly one ordinary instance method.</summary>
+    /// <summary>
+    /// SSAL017: the interface does not declare exactly one ordinary instance method, or it inherits
+    /// a base interface with implementable members of its own.
+    /// </summary>
     MemberShapeInvalid,
 
     /// <summary>SSAL018: the single method is not shaped like <c>TService Create(SomeEnum key)</c>.</summary>

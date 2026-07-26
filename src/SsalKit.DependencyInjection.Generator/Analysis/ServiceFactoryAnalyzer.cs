@@ -33,7 +33,13 @@ public sealed class ServiceFactoryAnalyzer : DiagnosticAnalyzer
 
     public override void Initialize(AnalysisContext context)
     {
-        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        // Generated code is analyzed and reported on: a [ServiceFactory] interface emitted by
+        // another generator is compiled exactly like a hand-written one, and staying silent about it
+        // would mean the generator refuses to emit an implementation while nothing says why. This
+        // generator's own output is excluded by name instead (see GeneratedOutputRecognizer), which
+        // is a rule about *this* package rather than about generated code in general.
+        context.ConfigureGeneratedCodeAnalysis(
+            GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
         context.EnableConcurrentExecution();
 
         context.RegisterCompilationStartAction(compilationStartContext =>
@@ -53,7 +59,8 @@ public sealed class ServiceFactoryAnalyzer : DiagnosticAnalyzer
 
     private static void AnalyzeNamedType(SymbolAnalysisContext context, INamedTypeSymbol attributeSymbol)
     {
-        if (context.Symbol is not INamedTypeSymbol typeSymbol)
+        if (context.Symbol is not INamedTypeSymbol typeSymbol
+            || GeneratedOutputRecognizer.IsGeneratorOutput(typeSymbol))
         {
             return;
         }

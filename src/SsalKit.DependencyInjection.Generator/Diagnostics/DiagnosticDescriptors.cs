@@ -5,8 +5,9 @@ namespace SsalKit.DependencyInjection.Generator.Diagnostics;
 
 /// <summary>
 /// Diagnostic descriptors reported by <see cref="Analysis.ServiceAttributeAnalyzer"/> (SSAL001-
-/// SSAL015, for <c>[Service]</c>), <see cref="Analysis.ServiceFactoryAnalyzer"/> (SSAL016-SSAL020,
-/// for <c>[ServiceFactory]</c>), and <see cref="Analysis.RegisterImplementationsOfAnalyzer"/>
+/// SSAL015 for <c>[Service]</c>, plus SSAL027/SSAL028, which span <c>[Service]</c> and the
+/// convention scan), <see cref="Analysis.ServiceFactoryAnalyzer"/> (SSAL016-SSAL020, for
+/// <c>[ServiceFactory]</c>), and <see cref="Analysis.RegisterImplementationsOfAnalyzer"/>
 /// (SSAL021-SSAL026, for <c>[assembly: RegisterImplementationsOf]</c>).
 /// </summary>
 internal static class DiagnosticDescriptors
@@ -102,7 +103,7 @@ internal static class DiagnosticDescriptors
         15,
         "Multiple implementations registered for the same service type",
         "The service type '{0}'{1} is registered with {2} different implementation types ({3}); a single-instance resolution returns whichever of them is registered last, and the generator emits registrations ordered by implementation type name rather than by source order",
-        "Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other.",
+        "Microsoft.Extensions.DependencyInjection resolves a single service instance from the last matching registration, and this generator emits registrations sorted by implementation type name, so which implementation wins is decided by type naming rather than by the order the [Service] attributes appear in source -- renaming a class can silently change which one is resolved. If several implementations are meant to be injected together as IEnumerable<T>, register every one of them with RegistrationMode.TryAddEnumerable (a group consisting only of TryAddEnumerable registrations is never reported); otherwise disambiguate them with distinct 'Key' values, or suppress this warning if one deliberately overrides the other. Known limits of the grouping: it compares service type identities as written, so an open generic registration (IRepo<>) and a closed one (IRepo<int>) are counted as two separate service types even though a request for IRepo<int> matches both at runtime -- merging them would report every assembly that deliberately specializes one instantiation -- and it only sees [Service] registrations, with the [Service]-versus-convention-scan overlap reported by SSAL027 instead.",
         WellKnownDiagnosticTags.CompilationEnd);
 
     public static readonly DiagnosticDescriptor ServiceFactoryTargetNotInterface = Factory.Error(
@@ -113,9 +114,9 @@ internal static class DiagnosticDescriptors
 
     public static readonly DiagnosticDescriptor ServiceFactoryMemberShapeInvalid = Factory.Error(
         17,
-        "[ServiceFactory] interface must declare exactly one method",
-        "[ServiceFactory] interface '{0}' must declare exactly one member and that member must be an ordinary, non-static method, but {1}",
-        "The generated implementation only knows how to implement a single enum-keyed lookup method. Any additional member -- another method, a property, an event, a field, or a nested type -- would be left unimplemented, so the whole interface is rejected rather than generating code that does not compile.");
+        "[ServiceFactory] interface must declare exactly one method and inherit no implementable member",
+        "[ServiceFactory] interface '{0}' must declare exactly one member -- an ordinary, non-static method -- and must not inherit an interface that has implementable members of its own, but {1}",
+        "The generated implementation only knows how to implement a single enum-keyed lookup method. Any additional member -- another method, a property, an event, a field, or a nested type -- would be left unimplemented, so the whole interface is rejected rather than generating code that does not compile. The same applies to members inherited from a base interface, which the generated class must implement just as much as the ones declared directly: a base interface is therefore only allowed when it is a pure marker (or when everything it declares is static, a nested type, or a default implementation).");
 
     public static readonly DiagnosticDescriptor ServiceFactoryMethodSignatureInvalid = Factory.Error(
         18,
@@ -172,4 +173,17 @@ internal static class DiagnosticDescriptors
         "'{1}' is registered as '{0}' by {2} overlapping [RegisterImplementationsOf] contracts that do not agree on lifetime and mode; both registrations are emitted",
         "Two contracts can overlap -- typically an unbound generic one (typeof(IHandler<>)) alongside a closed instantiation of it (typeof(IHandler<int>)) -- and match the same class under the same service type. Identical registrations produced this way are collapsed into one and reported nothing; registrations that disagree on lifetime or mode cannot be collapsed, so both are emitted and which one wins is decided by Microsoft.Extensions.DependencyInjection's own rules rather than by anything in the declarations.",
         WellKnownDiagnosticTags.CompilationEnd);
+
+    public static readonly DiagnosticDescriptor ServiceAndConventionOverlap = Factory.Warning(
+        27,
+        "A [Service] registration and a convention scan bind the same service type",
+        "The service type '{0}' is registered both by [Service] and by the [RegisterImplementationsOf] contract(s) {1}, whose Mode is not TryAddEnumerable; the convention block is emitted after the [Service] block, so the convention's registration is the one a single-instance resolution returns",
+        "Carrying a [Service] attribute excludes a class from every convention scan, but that is a scan-exclusion rule, not a resolution-priority rule: a contract that matches some *other* class still registers the same service type, and because the generated method emits the [Service] block first and the convention block second, Microsoft.Extensions.DependencyInjection's last-registration-wins rule hands the win to the convention. A TryAddEnumerable convention is exempt -- it is purely additive and is how several implementations of one service type are meant to coexist -- so this only fires for Add, TryAdd, and Replace, with Replace being the most destructive of the three (it removes the [Service] registration outright). Give the two registrations distinct 'Key' values, narrow the contract, switch the contract to TryAddEnumerable, or suppress this warning if the convention is deliberately meant to override the explicit registration.",
+        WellKnownDiagnosticTags.CompilationEnd);
+
+    public static readonly DiagnosticDescriptor NoPublicConstructor = Factory.Warning(
+        28,
+        "Registered class has no public constructor",
+        "'{0}' is registered as a service but declares no public constructor; Microsoft.Extensions.DependencyInjection activates an implementation type through its public constructors only, so resolving this service throws at runtime",
+        "The built-in container's constructor selection only ever considers public constructors, so a class whose constructors are all private, protected, or internal cannot be activated -- the failure surfaces as an InvalidOperationException the first time the service is resolved, far from the registration that caused it. Make a constructor public, name a static factory method via [Service(Factory = ...)] (which is not subject to this rule, since the generated code calls the method instead of a constructor), or suppress this warning when the service is resolved by a third-party container that supports non-public constructors.");
 }

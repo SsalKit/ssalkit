@@ -230,6 +230,7 @@ services.AddSingleton<IPaymentProcessorFactory, SsalKit.DependencyInjection.Gene
 - 非ジェネリックであり、ジェネリック型の中にネストされていないこと（`SSAL019`）。
 - メンバーを**ちょうど 1 つだけ**宣言すること —— もう 1 つメソッドがある、プロパティ・イベント・ネストされた型がある、といった場合は拒否されます（`SSAL017`）。
 - そのメンバーは ordinary・非 static・非ジェネリックのメソッドで、**値渡しの `enum` 引数を 1 つだけ**受け取り、`void` でも `ref` 返しでもないサービス型を返すこと（`SSAL018`）。
+- 実装可能なメンバーを持つインターフェースを継承していないこと（`SSAL017`）—— 生成されるクラスはそれらのメンバーも実装しなければならなくなるためです。**マーカー**としての基底インターフェースは問題なく、すべてのメンバーが `static`、ネストされた型、またはデフォルト実装であるインターフェースも同様です。
 
 生成される実装はインターフェース・enum・戻り値の型をいずれも名前で直接参照するため、この 3 つはすべて `internal` 以上で、file-local であってはなりません（`SSAL020`）。生成されるクラス自体は常に `internal sealed` なので、ファクトリーインターフェースが `public` でも問題ありません —— アセンブリの外から実装型を名前で参照することはないからです。
 
@@ -292,9 +293,9 @@ services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupTask, WarmCaches>(
 
 診断が報告されるのは *宣言* 自体の誤りに対してだけです — その中には結果的に **何にもマッチしなかった** 契約（`SSAL022`）も含まれるため、タイプミスや名前空間の取り違えで何も登録されない事態が黙って見過ごされることはありません。
 
-### 明示は規約に優先します
+### `[Service]` はスキャン除外であり、解決の優先権ではありません
 
-`[Service]` が 1 つでも付いているクラスは、そのアセンブリのすべての規約スキャンから除外されます。したがって明示的な登録が規約によって重複したり覆されたりすることはありません。これはクラス単位のオプトアウト手段でもあります。望む登録（別の lifetime、`As` 型、`Key`、`Mode`）を `[Service]` で直接指定すれば、スキャンはそのクラスに手を出しません。
+`[Service]` が 1 つでも付いているクラスは、そのアセンブリのすべての規約スキャンから除外されるため、*そのクラス*が二重に登録されることはありません。これはクラス単位のオプトアウト手段でもあります。望む登録（別の lifetime、`As` 型、`Key`、`Mode`）を `[Service]` で直接指定すれば、スキャンはそのクラスに手を出しません。
 
 ```csharp
 [assembly: RegisterImplementationsOf(typeof(IStartupTask))]
@@ -304,6 +305,31 @@ public sealed class WarmCaches : IStartupTask { }          // スキャンによ
 [Service(ServiceLifetime.Transient)]
 public sealed class PersistStep : IStartupTask { }         // [Service] のみによる登録: Transient Add
 ```
+
+これが解決の優先順位を決めるルール**ではない**という点が重要です。除外はクラス単位で適用されるため、契約は同じサービス型の*他の*実装には引き続きマッチします —— そして規約ブロックが `[Service]` ブロックの**あと**に出力されるため（[出力順序](#出力順序)を参照）、Microsoft.Extensions.DependencyInjection の「最後の登録が優先される」というルールにより、単一インスタンスの解決は明示的な登録ではなく規約側に渡されます。
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IClock), Mode = RegistrationMode.TryAdd)]
+
+[Service]
+public sealed class ExplicitClock : IClock { }   // 先に出力される
+
+public sealed class ScannedClock : IClock { }    // あとに出力される —— IClock が解決する対象
+```
+
+`SSAL027` はまさにこの重なりを報告します。本質的に加算的で何も覆い隠さない既定値 `Mode = TryAddEnumerable` の場合と、キー付きの `[Service]` の場合（キー付き登録は、決してキー付きにならない規約側の登録とは異なるルックアップで解決されるため）には報告されません。
+
+`Mode = RegistrationMode.Replace` には独自の警告があってしかるべきです。`IServiceCollection.Replace` は自身を追加する前にそのサービス型の既存のディスクリプターを**すべて削除**するため、`Replace` を指定した契約は同じサービス型の以前の `[Service]` 登録を単に上回るのではなく、それを削除してしまいます。出力順序と組み合わさると、アセンブリレベルの attribute 1 つが、アセンブリ内のどこかにある明示的な登録を静かに登録解除してしまう可能性がある、ということです。
+
+### 出力順序
+
+生成される `Add{Assembly}Services()` メソッドは、常に次の順序で 3 つのブロックに登録を書き出します。
+
+1. 実装型の名前順に並んだすべての `[Service]` 登録
+2. 契約、実装型、サービス型の順に並んだすべての規約登録
+3. インターフェース名順に並んだすべての `[ServiceFactory]` singleton
+
+この順序は実装の詳細ではなく、パッケージの契約の一部です。最後の登録が優先されるというルールのもとでは、2 つのブロックが同じサービス型をバインドしている場合に単一インスタンスの解決がどちらの登録を返すかを決めるのがこの順序です。ブロック内ではソースコード上の位置ではなく*名前*順に並ぶため、クラス名を変更するだけで勝者が変わることがあります —— それを指摘するために `SSAL015` と `SSAL027` が存在します。
 
 ### 既定の `Mode` が `TryAddEnumerable` である理由
 
@@ -341,6 +367,14 @@ public sealed class PersistStep : IStartupTask { }         // [Service] のみ�
 
 この attribute はアセンブリ対象で、契約ごとに 1 つずつ、いくつでも宣言できます。[契約のすべての実装を登録する](#契約のすべての実装を登録する)を参照してください。
 
+## 既知の制約
+
+**生成されるクラスとメソッドの名前は、アセンブリ名から識別子として使えない文字を取り除いたものになります。** `MyApp.Web` は `MyAppWebServiceCollectionExtensions.AddMyAppWebServices()` になります。つまり、区切り文字だけが異なる 2 つのアセンブリ —— `Foo.Bar` と `FooBar`、あるいは `Foo-Bar` —— は、*同じ* `Microsoft.Extensions.DependencyInjection` 名前空間に*同じ*拡張クラスを生成します。両方を参照するプロジェクトは CS0101（型の重複）になるか、メソッドだけを呼び出す場合はあいまいな呼び出しエラーになります。
+
+これは意図的に回避策を用意していません。生成される名前はこのパッケージのユーザー向け API であるため、ハッシュやカウンター、完全なアセンブリ名などで衝突を回避すると、既存のすべての利用側がすでに呼び出しているメソッド名が変わってしまいます。2 つのアセンブリのどちらかの名前を変更するか、完全修飾型名を通じてメソッドを呼び出してください。
+
+**`SSAL015` はサービス型を宣言されたとおりに比較します。** open generic の登録（`IRepo<>`）と closed な登録（`IRepo<int>`）は、実行時には `IRepo<int>` へのリクエストが両方にマッチし最終的に closed な登録が優先されるにもかかわらず、異なる 2 つのサービス型として数えられます。これらを 1 つのグループにまとめると、単一のインスタンス化だけを意図的に特殊化しているすべてのアセンブリに対しても警告が出てしまうため、より狭いグループ化を維持し、open/closed の競合は利用者の判断に委ねています。
+
 ## 診断（Diagnostics）
 
 ソースジェネレーターはコンパイル時に `[Service]`、`[ServiceFactory]`、`[assembly: RegisterImplementationsOf]` の使い方を検証します。
@@ -361,9 +395,9 @@ public sealed class PersistStep : IStartupTask { }         // [Service] のみ�
 | `SSAL012` | Error     | `Factory` に指定した名前のメソッドは 1 つ以上存在しますが、そのいずれも static・非ジェネリックで、引数なしまたは `IServiceProvider` 引数を 1 つだけ持ち、登録対象のクラスを厳密に返すという、使用可能なシグネチャを満たしていません。 |
 | `SSAL013` | Error     | `Factory` は open generic クラスには使用できません —— Microsoft.Extensions.DependencyInjection には open generic 向けのファクトリーベースの登録 API が存在しません。 |
 | `SSAL014` | Error     | 選択された `Factory` メソッドが、生成されたコードからアクセスできません —— 少なくとも `internal` である必要があります。 |
-| `SSAL015` | Warning   | 同じサービス型（および `Key`）に対して、異なる実装型が 2 つ以上登録されています。単一インスタンスの解決では最後の登録が優先されますが、ジェネレーターは実装型の名前順に登録を出力するため、クラス名を変更しただけで優先される実装が静かに入れ替わることがあります。`IEnumerable<T>` としてまとめて注入する意図であれば、すべての実装に `RegistrationMode.TryAddEnumerable` を指定してください（すべてが TryAddEnumerable のグループは報告されません）。そうでない場合は異なる `Key` を指定するか、意図的な上書きであれば警告を抑制してください。 |
+| `SSAL015` | Warning   | 同じサービス型（および `Key`）に対して、異なる実装型が 2 つ以上登録されています。単一インスタンスの解決では最後の登録が優先されますが、ジェネレーターは実装型の名前順に登録を出力するため、クラス名を変更しただけで優先される実装が静かに入れ替わることがあります。`IEnumerable<T>` としてまとめて注入する意図であれば、すべての実装に `RegistrationMode.TryAddEnumerable` を指定してください（すべてが TryAddEnumerable のグループは報告されません）。そうでない場合は異なる `Key` を指定するか、意図的な上書きであれば警告を抑制してください。比較対象は `[Service]` の登録のみであり、open generic と closed generic のサービス型は別々に数えられます —— [既知の制約](#既知の制約)を参照してください。`[Service]` と規約の重なりは `SSAL027` が担当します。 |
 | `SSAL016` | Error     | `[ServiceFactory]` がインターフェース以外の対象に付与されています。この attribute の `AttributeUsage` は `Interface` なので通常はコンパイラーの `CS0592` が先に出ます。この診断は多重防御のためのものです。 |
-| `SSAL017` | Error     | `[ServiceFactory]` インターフェースはメンバーをちょうど 1 つだけ宣言し、そのメンバーは ordinary・非 static のメソッドである必要があります。メンバーが 0 個、メソッドがもう 1 つある、プロパティ・イベント・ネストされた型がある場合はいずれも拒否されます。 |
+| `SSAL017` | Error     | `[ServiceFactory]` インターフェースはメンバーをちょうど 1 つだけ宣言し、そのメンバーは ordinary・非 static のメソッドである必要があります。メンバーが 0 個、メソッドがもう 1 つある、プロパティ・イベント・ネストされた型がある場合はいずれも拒否されます —— 実装可能なメンバーを持つインターフェースを継承している場合も同様に拒否されます。生成されるクラスはそのメンバーも実装しなければならなくなるためです。マーカーとしての基底インターフェースは許可されます。 |
 | `SSAL018` | Error     | `[ServiceFactory]` メソッドのシグネチャが使用できません —— ジェネリックである、値渡しの `enum` 引数ちょうど 1 つ以外を取る（`ref`/`out`/`in` を含む）、`void` を返す、参照で返す、のいずれかです。 |
 | `SSAL019` | Error     | `[ServiceFactory]` がジェネリックインターフェース、またはジェネリック型の中にネストされたインターフェースに付与されています —— 生成される実装は、1 つの closed なサービス型に登録される非ジェネリックの Singleton です。 |
 | `SSAL020` | Error     | ファクトリーインターフェース、enum のキー型、戻り値の型のいずれかが、生成された実装（同一アセンブリ内の `SsalKit.DependencyInjection.Generated` 名前空間にある別ファイル）からアクセスできません。3 つとも `internal` 以上で、file-local であってはなりません。 |
@@ -373,6 +407,8 @@ public sealed class PersistStep : IStartupTask { }         // [Service] のみ�
 | `SSAL024` | Error     | `[assembly: RegisterImplementationsOf]` に定義されていない `ServiceLifetime` または `RegistrationMode` の値（例: `(ServiceLifetime)42`）が指定されました。 |
 | `SSAL025` | Error     | 契約（またはそのジェネリック型引数）が、生成された登録コードからアクセスできません。`internal` 以上で、file-local であってはなりません。`file`-local なインターフェースは attribute の適用箇所では名前を書けても、生成されたファイルからは書けません。 |
 | `SSAL026` | Warning   | 重なり合う 2 つの契約（通常は unbound な `typeof(IHandler<>)` と closed な `typeof(IHandler<int>)`）が、同じクラスを同じサービス型でマッチさせたものの `Lifetime`/`Mode` が食い違っています。両方の登録が出力され、どちらが優先されるかは宣言ではなく Microsoft.Extensions.DependencyInjection のルールが決めます。設定が *一致する* 重なりは 1 つの登録にまとめられ、何も報告されません。 |
+| `SSAL027` | Warning   | `[Service]` の登録と `[assembly: RegisterImplementationsOf]` の契約が同じ（キー付きでない）サービス型をバインドしており、その契約の `Mode` が `TryAddEnumerable` ではありません。`[Service]` は自身のクラスをスキャンから除外するだけで優先されるわけではなく、規約ブロックは最後に出力されるため、単一インスタンスの解決は規約側の登録を返し、`Replace` を指定した契約は明示的な登録をそのまま削除してしまいます。[`[Service]` はスキャン除外であり](#service-はスキャン除外であり解決の優先権ではありません)を参照してください。 |
+| `SSAL028` | Warning   | `[Service]` または規約スキャンによって登録されたクラスが `public` コンストラクターを 1 つも宣言していません。Microsoft.Extensions.DependencyInjection は public コンストラクターを通じてのみ実装型をアクティブ化するため、このサービスを解決すると実行時に例外がスローされます。コンストラクターを 1 つ public にするか、`[Service(Factory = ...)]` を使用する（生成されるコードはコンストラクターの代わりにそのメソッドを呼び出すため、この場合は報告されません）か、非 public コンストラクターをサポートするサードパーティ製コンテナーで解決している場合は警告を抑制してください。 |
 
 ## ライセンス
 

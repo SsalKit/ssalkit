@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Emission;
 using SsalKit.DependencyInjection.Generator.Models;
@@ -109,14 +110,96 @@ public sealed class ServiceRegistrationGenerator : IIncrementalGenerator
         // A source output of its own, not folded into the one above: the implementation classes
         // depend on nothing but their own models, so an edit that only changes a [Service] class
         // (or the assembly name) leaves every factory file untouched.
-        context.RegisterSourceOutput(collectedFactories, static (spc, models) =>
+        context.RegisterSourceOutput(collectedFactories, static (spc, models) => EmitFactories(spc, models));
+    }
+
+    /// <summary>
+    /// Writes one implementation file per distinct <c>[ServiceFactory]</c> interface, under a hint
+    /// name guaranteed unique within the run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both guarantees are load-bearing rather than defensive, because <c>AddSource</c> throws
+    /// <c>ArgumentException</c> (surfacing as CS8785) on a repeated hint name, and that exception
+    /// takes down the <em>whole</em> generator: the registration extension method disappears along
+    /// with every factory file, turning a local mistake into an assembly that no longer compiles at
+    /// all.
+    /// </para>
+    /// <para>
+    /// Two distinct paths lead there. A <c>partial</c> interface whose parts each carry the
+    /// attribute is matched once per declaring part, producing byte-identical models -- deduplicated
+    /// here by interface, so the emitted output is the same one part would have produced. And
+    /// <c>HintNameSanitizer</c> caps a hint name at 200 characters by keeping the tail, so two
+    /// deeply-nested interfaces whose qualified names differ only near the front sanitize to the
+    /// same name -- disambiguated here with a counter suffix.
+    /// </para>
+    /// <para>
+    /// The models are sorted by interface name first, so which of two colliding factories keeps the
+    /// unsuffixed hint name is decided by the source, not by the order the pipeline produced them.
+    /// </para>
+    /// </remarks>
+    private static void EmitFactories(SourceProductionContext spc, ImmutableArray<ServiceFactoryModel> models)
+    {
+        if (models.IsDefaultOrEmpty)
         {
-            foreach (var model in models)
+            return;
+        }
+
+        var ordered = models.Sort(static (a, b) => string.CompareOrdinal(a.InterfaceTypeFqn, b.InterfaceTypeFqn));
+
+        var emittedInterfaces = new HashSet<string>(StringComparer.Ordinal);
+        var usedHintNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var model in ordered)
+        {
+            spc.CancellationToken.ThrowIfCancellationRequested();
+
+            if (!emittedInterfaces.Add(model.InterfaceTypeFqn))
             {
-                spc.CancellationToken.ThrowIfCancellationRequested();
-                spc.AddSource(model.HintName, ServiceFactoryImplementationEmitter.Emit(model));
+                continue;
             }
-        });
+
+            spc.AddSource(GetUniqueHintName(model.HintName, usedHintNames), ServiceFactoryImplementationEmitter.Emit(model));
+        }
+    }
+
+    /// <summary>
+    /// Returns <paramref name="hintName"/> if no file has claimed it yet, or the first
+    /// <c>...{n}.g.cs</c> variant of it that is free.
+    /// </summary>
+    private static string GetUniqueHintName(string hintName, HashSet<string> usedHintNames)
+    {
+        if (usedHintNames.Add(hintName))
+        {
+            return hintName;
+        }
+
+        const string extension = ".g.cs";
+
+        // The only way two hint names collide is that HintNameSanitizer truncated both to its
+        // length cap, so the disambiguated name is kept at that same cap -- growing past it would
+        // undo the very trimming that a colliding name is evidence of. Truncating from the front
+        // (as the sanitizer does) leaves the counter at the tail, so successive candidates always
+        // differ and the loop terminates.
+        const int maxLength = 200;
+
+        var stem = hintName.EndsWith(extension, StringComparison.Ordinal)
+            ? hintName.Substring(0, hintName.Length - extension.Length)
+            : hintName;
+
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = stem + suffix.ToString(CultureInfo.InvariantCulture) + extension;
+            if (candidate.Length > maxLength)
+            {
+                candidate = candidate.Substring(candidate.Length - maxLength);
+            }
+
+            if (usedHintNames.Add(candidate))
+            {
+                return candidate;
+            }
+        }
     }
 
     /// <summary>
