@@ -26,6 +26,8 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
+    <!-- Agent-facing contract sheet, shipped alongside the human README. -->
+    <None Include="AI.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
