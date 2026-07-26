@@ -38,8 +38,13 @@ namespace SsalKit.DependencyInjection.Generator.Models;
 /// </param>
 /// <param name="ParameterTypeFqn">The fully-qualified name of the enum type used as the service key.</param>
 /// <param name="ReturnTypeFqn">
-/// The fully-qualified name of the resolved service type, used both as the generated method's
-/// return type and as the type argument to <c>GetRequiredKeyedService</c>.
+/// The fully-qualified name of the resolved service type <em>as the generated method declares it</em>,
+/// nullable reference type annotations included, so the implementation's signature matches the
+/// interface's exactly.
+/// </param>
+/// <param name="LookupTypeFqn">
+/// The same type with any top-level <c>?</c> removed, for use as the type argument to
+/// <c>GetRequiredKeyedService&lt;T&gt;</c>.
 /// </param>
 /// <param name="HintName">
 /// The <c>AddSource</c> hint name, derived from <see cref="InterfaceTypeFqn"/> and therefore
@@ -54,4 +59,5 @@ internal sealed record ServiceFactoryModel(
     string ParameterName,
     string ParameterTypeFqn,
     string ReturnTypeFqn,
+    string LookupTypeFqn,
     string HintName);

@@ -43,7 +43,16 @@ public sealed class RegisterImplementationsOfAnalyzer : DiagnosticAnalyzer
 
     public override void Initialize(AnalysisContext context)
     {
-        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        // Generated code is analyzed and reported on. Two things depend on it: MSBuild's
+        // `AssemblyAttribute` item injects [assembly: RegisterImplementationsOf] into an
+        // auto-generated AssemblyInfo.cs, where SSAL021-SSAL025 used to be silent even though the
+        // declaration is read from the assembly symbol and acted on; and a class emitted by another
+        // generator is a perfectly ordinary scan candidate, so counting it is what keeps SSAL022
+        // from claiming a contract matched nothing when the generator registered it. This
+        // generator's own output is excluded by name instead, at the shared IsCandidate gate (see
+        // GeneratedOutputRecognizer), because the generator itself cannot see it.
+        context.ConfigureGeneratedCodeAnalysis(
+            GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
         context.EnableConcurrentExecution();
 
         context.RegisterCompilationStartAction(compilationStartContext =>

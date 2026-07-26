@@ -19,9 +19,29 @@ internal static class ServiceFactoryParser
 {
     /// <summary>
     /// The namespace root every generated factory implementation is emitted into. Reserved for the
-    /// generator: consumer code is not expected to declare types under it.
+    /// generator: consumer code is not expected to declare types under it, and
+    /// <see cref="GeneratedOutputRecognizer"/> uses it to keep the analyzers from treating this
+    /// generator's own output as consumer code.
     /// </summary>
-    private const string GeneratedNamespaceRoot = "SsalKit.DependencyInjection.Generated";
+    private const string GeneratedNamespaceRoot = GeneratedOutputRecognizer.GeneratedNamespaceRoot;
+
+    /// <summary>
+    /// <see cref="SymbolDisplayFormat.FullyQualifiedFormat"/> plus nullable reference type
+    /// annotations, used for the two types that appear in the generated method's <em>declaration</em>
+    /// (its return type and its parameter type).
+    /// </summary>
+    /// <remarks>
+    /// The plain fully-qualified format drops <c>?</c> annotations entirely, so an interface
+    /// declaring <c>IList&lt;string?&gt; Create(Kind kind)</c> would be implemented as
+    /// <c>IList&lt;string&gt; Create(...)</c> -- a nullability mismatch the compiler reports as
+    /// CS8613/CS8766 inside a file the consumer cannot edit, and an error outright under
+    /// <c>TreatWarningsAsErrors</c>. Only the factory's signature types use this format; every other
+    /// name the generator emits identifies a type rather than declaring a member's nullability, so
+    /// annotating those would change existing output for no benefit.
+    /// </remarks>
+    private static readonly SymbolDisplayFormat SignatureFormat =
+        SymbolDisplayFormat.FullyQualifiedFormat.AddMiscellaneousOptions(
+            SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
     /// <summary>
     /// Distinguishes the generated class from the interface it implements without needing to
@@ -58,8 +78,17 @@ internal static class ServiceFactoryParser
             ImplementationTypeFqn: $"global::{implementationNamespace}.{implementationTypeName}",
             MethodName: CSharpNaming.EscapeKeyword(method.Name),
             ParameterName: CSharpNaming.EscapeKeyword(method.Parameters[0].Name),
-            ParameterTypeFqn: SymbolFacts.ToFqn(validation.KeyType!),
-            ReturnTypeFqn: SymbolFacts.ToFqn(validation.ReturnType!),
+            ParameterTypeFqn: validation.KeyType!.ToDisplayString(SignatureFormat),
+            ReturnTypeFqn: validation.ReturnType!.ToDisplayString(SignatureFormat),
+            // GetRequiredKeyedService<T> constrains T to `notnull`, so a top-level `?` on the
+            // service type has to come off before it is used as the type argument (CS8714
+            // otherwise). Only the top level: an annotation *inside* the type, as in
+            // `IList<string?>`, is part of the type's identity here and dropping it would make the
+            // returned value's type disagree with the declared one (CS8619). The non-null result is
+            // implicitly convertible to the nullable return type, so the method still type-checks.
+            LookupTypeFqn: validation.ReturnType!
+                .WithNullableAnnotation(NullableAnnotation.NotAnnotated)
+                .ToDisplayString(SignatureFormat),
             HintName: HintNameSanitizer.Sanitize($"{interfaceTypeFqn}.ServiceFactory"));
     }
 

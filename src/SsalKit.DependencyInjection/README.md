@@ -229,7 +229,8 @@ A `[ServiceFactory]` interface must:
 
 - be non-generic, and not nested inside a generic type (`SSAL019`);
 - declare **exactly one member** — one more method, a property, an event, or a nested type is rejected (`SSAL017`);
-- and that member must be an ordinary, non-static, non-generic method taking exactly one **by-value `enum` parameter** and returning a non-`void`, non-`ref` service type (`SSAL018`).
+- and that member must be an ordinary, non-static, non-generic method taking exactly one **by-value `enum` parameter** and returning a non-`void`, non-`ref` service type (`SSAL018`);
+- inherit no interface that has implementable members of its own (`SSAL017`), since the generated class would have to implement those too. A **marker** base interface is fine, as is one whose every member is `static`, a nested type, or a default implementation.
 
 The interface, the enum, and the return type must all be at least `internal` and not file-local, because the generated implementation names all three (`SSAL020`). The generated class itself is always `internal sealed`, so a `public` factory interface is fine — nothing outside the assembly ever names the implementation.
 
@@ -292,9 +293,9 @@ A convention scan describes a *shape*, not a specific type, so a class that simp
 
 Only mistakes in the *declaration* are diagnosed — including a contract that ends up matching **nothing** (`SSAL022`), so a typo or a namespace mix-up cannot silently register nothing at all.
 
-### `[Service]` wins over the convention
+### `[Service]` opts a class out of the scan — it does not outrank it
 
-A class carrying at least one `[Service]` attribute is excluded from every convention scan in the assembly, so its explicit registration is never duplicated or contradicted by one. That doubles as the per-class opt-out: give the class the `[Service]` registration you actually want — a different lifetime, `As` type, `Key`, or `Mode` — and the scan leaves it alone.
+A class carrying at least one `[Service]` attribute is excluded from every convention scan in the assembly, so *that class* is never registered twice. That doubles as the per-class opt-out: give the class the `[Service]` registration you actually want — a different lifetime, `As` type, `Key`, or `Mode` — and the scan leaves it alone.
 
 ```csharp
 [assembly: RegisterImplementationsOf(typeof(IStartupTask))]
@@ -304,6 +305,31 @@ public sealed class WarmCaches : IStartupTask { }          // TryAddEnumerable S
 [Service(ServiceLifetime.Transient)]
 public sealed class PersistStep : IStartupTask { }         // Transient Add, from [Service] alone
 ```
+
+What it is **not** is a resolution-priority rule. The exclusion is per class, so a contract still matches every *other* implementation of the same service type — and because the convention block is emitted **after** the `[Service]` block (see [Emission order](#emission-order)), Microsoft.Extensions.DependencyInjection's last-registration-wins rule hands a single-instance resolution to the convention, not to the explicit registration:
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IClock), Mode = RegistrationMode.TryAdd)]
+
+[Service]
+public sealed class ExplicitClock : IClock { }   // emitted first
+
+public sealed class ScannedClock : IClock { }    // emitted second — this is what IClock resolves to
+```
+
+`SSAL027` reports exactly this overlap. It is silent for the default `Mode = TryAddEnumerable`, which is additive by construction and never shadows anything, and for a keyed `[Service]`, which is resolved through a different lookup than the (never keyed) convention registration.
+
+`Mode = RegistrationMode.Replace` deserves its own warning: `IServiceCollection.Replace` **removes** every existing descriptor for the service type before adding its own, so a `Replace` contract does not merely out-rank an earlier `[Service]` registration of the same service type — it deletes it. Combined with the emission order, that means a single assembly-level attribute can silently unregister an explicit registration elsewhere in the assembly.
+
+### Emission order
+
+The generated `Add{Assembly}Services()` method writes its registrations in three blocks, always in this order:
+
+1. every `[Service]` registration, ordered by implementation type name;
+2. every convention registration, ordered by contract, then implementation type, then service type;
+3. every `[ServiceFactory]` singleton, ordered by interface name.
+
+This order is part of the package's contract, not an implementation detail: with last-registration-wins, it is what decides which registration a single-instance resolution returns whenever two blocks bind the same service type. Within a block, ordering is by *name* rather than by source position, so renaming a class can change the winner — which is what `SSAL015` and `SSAL027` exist to point out.
 
 ### Why the default `Mode` is `TryAddEnumerable`
 
@@ -341,6 +367,14 @@ A class can carry multiple `[Service]` attributes to register it several ways (d
 
 The attribute is assembly-scoped and can be applied any number of times, once per contract. See [Registering every implementation of a contract](#registering-every-implementation-of-a-contract).
 
+## Known limitations
+
+**The generated class and method are named after the assembly, with non-identifier characters removed.** `MyApp.Web` becomes `MyAppWebServiceCollectionExtensions.AddMyAppWebServices()`, which means two assemblies whose names differ only in separators — `Foo.Bar` and `FooBar`, or `Foo-Bar` — produce the *same* extension class in the *same* `Microsoft.Extensions.DependencyInjection` namespace. A project referencing both gets CS0101 (duplicate type) or, if only the method is called, an ambiguous invocation.
+
+This is not worked around, and deliberately so: the generated names are the package's user-facing API, so disambiguating them (with a hash, a counter, or the full assembly name) would rename the method every existing consumer already calls. Rename one of the two assemblies, or call the method through its fully qualified type name.
+
+**`SSAL015` compares service types as written.** An open generic registration (`IRepo<>`) and a closed one (`IRepo<int>`) are counted as two different service types, even though a request for `IRepo<int>` matches both at runtime and the closed registration wins. Merging them into one group would report every assembly that deliberately specializes a single instantiation, so the narrower grouping is kept and the open/closed race is left to the author.
+
 ## Diagnostics
 
 The generator validates your `[Service]`, `[ServiceFactory]`, and `[assembly: RegisterImplementationsOf]` usage at compile time:
@@ -361,9 +395,9 @@ The generator validates your `[Service]`, `[ServiceFactory]`, and `[assembly: Re
 | `SSAL012`| Error    | `'Factory' method has an unusable signature` — one or more methods with that name exist, but none is static, non-generic, parameterless-or-single-`IServiceProvider`-parameter, and returning exactly the decorated class. |
 | `SSAL013`| Error    | `'Factory' cannot be used on an open generic class` — Microsoft.Extensions.DependencyInjection has no factory-based registration API for open generics. |
 | `SSAL014`| Error    | `'Factory' method is not accessible to generated code` — the chosen factory method must be at least `internal` so the generated registration code (in a different file, same assembly) can call it. |
-| `SSAL015`| Warning  | The same service type (and `Key`) is registered with two or more *different* implementation types. A single-instance resolution returns the last registration, and the generator emits registrations ordered by implementation type name — so renaming a class can silently change the winner. Use `RegistrationMode.TryAddEnumerable` on every implementation if they are meant to be injected together as `IEnumerable<T>` (such a group is never reported), give them distinct `Key` values, or suppress the warning if one deliberately overrides the other. |
+| `SSAL015`| Warning  | The same service type (and `Key`) is registered with two or more *different* implementation types. A single-instance resolution returns the last registration, and the generator emits registrations ordered by implementation type name — so renaming a class can silently change the winner. Use `RegistrationMode.TryAddEnumerable` on every implementation if they are meant to be injected together as `IEnumerable<T>` (such a group is never reported), give them distinct `Key` values, or suppress the warning if one deliberately overrides the other. Only `[Service]` registrations are compared, and open and closed generic service types are counted separately — see [Known limitations](#known-limitations); the `[Service]`-versus-convention overlap is `SSAL027`'s. |
 | `SSAL016`| Error    | `[ServiceFactory]` was applied to something other than an interface. Normally pre-empted by the compiler's own `CS0592` (the attribute's `AttributeUsage` is `Interface`); reported as a defence in depth. |
-| `SSAL017`| Error    | A `[ServiceFactory]` interface must declare exactly one member, and that member must be an ordinary, non-static method. Zero members, a second method, a property, an event, or a nested type are all rejected. |
+| `SSAL017`| Error    | A `[ServiceFactory]` interface must declare exactly one member, and that member must be an ordinary, non-static method. Zero members, a second method, a property, an event, or a nested type are all rejected — as is inheriting an interface that has implementable members of its own, which the generated class would have to implement too. A marker base interface is allowed. |
 | `SSAL018`| Error    | The `[ServiceFactory]` method's signature is unusable: it is generic, takes anything other than exactly one by-value `enum` parameter (`ref`/`out`/`in` included), returns `void`, or returns by reference. |
 | `SSAL019`| Error    | `[ServiceFactory]` was applied to a generic interface, or to one nested inside a generic type — the generated implementation is a non-generic singleton registered against one closed service type. |
 | `SSAL020`| Error    | The factory interface, its enum key type, or its return type is not accessible from the generated implementation (a separate file in the `SsalKit.DependencyInjection.Generated` namespace, same assembly); each must be at least `internal` and not file-local. |
@@ -373,6 +407,8 @@ The generator validates your `[Service]`, `[ServiceFactory]`, and `[assembly: Re
 | `SSAL024`| Error    | An undefined `ServiceLifetime` or `RegistrationMode` value (e.g. `(ServiceLifetime)42`) was supplied to `[assembly: RegisterImplementationsOf]`. |
 | `SSAL025`| Error    | The contract (or one of its generic type arguments) is not accessible from the generated registration code; it must be at least `internal` and not file-local. A `file`-local interface can be named at the attribute application site but never from the generated file. |
 | `SSAL026`| Warning  | Two overlapping contracts — typically an unbound `typeof(IHandler<>)` alongside a closed `typeof(IHandler<int>)` — match the same class under the same service type but disagree on `Lifetime`/`Mode`, so both registrations are emitted and which one wins is decided by Microsoft.Extensions.DependencyInjection rather than by the declarations. Overlapping contracts that *agree* are collapsed into a single registration and reported nothing. |
+| `SSAL027`| Warning  | A `[Service]` registration and an `[assembly: RegisterImplementationsOf]` contract bind the same (non-keyed) service type, and the contract's `Mode` is not `TryAddEnumerable`. `[Service]` excludes its own class from the scan but does not outrank it, and the convention block is emitted last — so the convention's registration is what a single-instance resolution returns, and a `Replace` contract removes the explicit registration outright. See [`[Service]` opts a class out of the scan](#service-opts-a-class-out-of-the-scan--it-does-not-outrank-it). |
+| `SSAL028`| Warning  | A class registered by `[Service]` or by a convention scan declares no `public` constructor. Microsoft.Extensions.DependencyInjection activates an implementation type through its public constructors only, so resolving the service throws at runtime. Make a constructor public, use `[Service(Factory = ...)]` (never reported, since the generated code calls the method instead of a constructor), or suppress the warning if a third-party container that supports non-public constructors resolves it. |
 
 ## License
 

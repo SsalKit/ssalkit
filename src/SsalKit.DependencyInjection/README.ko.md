@@ -229,7 +229,8 @@ services.AddSingleton<IPaymentProcessorFactory, SsalKit.DependencyInjection.Gene
 
 - 제네릭이 아니어야 하고, 제네릭 타입 안에 중첩되어 있어도 안 됩니다 (`SSAL019`).
 - 멤버를 **정확히 하나만** 선언해야 합니다 — 메서드가 하나 더 있거나, 프로퍼티·이벤트·중첩 타입이 있으면 거부됩니다 (`SSAL017`).
-- 그 멤버는 ordinary·non-static·non-generic 메서드여야 하며, **값으로 전달되는 `enum` 매개변수 하나**만 받고, `void`가 아니고 `ref`가 아닌 서비스 타입을 반환해야 합니다 (`SSAL018`).
+- 그 멤버는 ordinary·non-static·non-generic 메서드여야 하며, **값으로 전달되는 `enum` 매개변수 하나**만 받고, `void`가 아니고 `ref`가 아닌 서비스 타입을 반환해야 합니다 (`SSAL018`);
+- 자체적으로 구현 가능한 멤버를 가진 인터페이스를 상속해서는 안 됩니다 (`SSAL017`) — 생성되는 클래스가 그 멤버들까지 구현해야 하기 때문입니다. **마커(marker)** 역할의 기반 인터페이스는 괜찮으며, 모든 멤버가 `static`이거나 중첩 타입이거나 기본 구현(default implementation)인 인터페이스도 마찬가지입니다.
 
 생성된 구현이 인터페이스·enum·반환 타입을 모두 직접 이름으로 참조하므로, 이 셋은 전부 최소 `internal`이어야 하고 file-local이면 안 됩니다 (`SSAL020`). 생성되는 클래스 자체는 항상 `internal sealed`이므로, 팩토리 인터페이스가 `public`이어도 문제가 없습니다 — 어셈블리 밖에서 구현 타입을 이름으로 참조할 일은 없습니다.
 
@@ -292,9 +293,9 @@ services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupTask, WarmCaches>(
 
 진단은 *선언* 자체의 실수에 대해서만 보고됩니다 — 여기에는 결과적으로 **아무것도 매칭하지 못한** 계약(`SSAL022`)도 포함되므로, 오타나 네임스페이스 착오로 아무것도 등록되지 않는 상황이 조용히 넘어가지 않습니다.
 
-### 명시가 규약을 이깁니다
+### `[Service]`는 스캔에서 제외할 뿐, 해석 우선권을 갖지 않습니다
 
-`[Service]`가 하나라도 붙은 클래스는 그 어셈블리의 모든 규약 스캔에서 제외되므로, 명시적 등록이 규약에 의해 중복되거나 뒤집히는 일이 없습니다. 이는 곧 클래스 단위 opt-out 수단이기도 합니다. 원하는 등록(다른 lifetime, `As` 타입, `Key`, `Mode`)을 `[Service]`로 직접 지정하면 스캔은 그 클래스를 건드리지 않습니다.
+`[Service]`가 하나라도 붙은 클래스는 그 어셈블리의 모든 규약 스캔에서 제외되므로, *그 클래스*가 두 번 등록되는 일은 없습니다. 이는 곧 클래스 단위 opt-out 수단이기도 합니다. 원하는 등록(다른 lifetime, `As` 타입, `Key`, `Mode`)을 `[Service]`로 직접 지정하면 스캔은 그 클래스를 건드리지 않습니다.
 
 ```csharp
 [assembly: RegisterImplementationsOf(typeof(IStartupTask))]
@@ -304,6 +305,31 @@ public sealed class WarmCaches : IStartupTask { }          // 스캔이 등록: 
 [Service(ServiceLifetime.Transient)]
 public sealed class PersistStep : IStartupTask { }         // [Service]만 등록: Transient Add
 ```
+
+이것이 **아닌** 것은 해석 우선순위 규칙이라는 점입니다. 제외는 클래스 단위로 적용되므로, 계약은 같은 서비스 타입의 *다른* 구현체는 여전히 매칭합니다 — 그리고 규약 블록이 `[Service]` 블록 **뒤에** 방출되기 때문에([방출 순서](#방출-순서) 참고), Microsoft.Extensions.DependencyInjection의 "마지막 등록이 이긴다" 규칙에 따라 단일 인스턴스 resolve는 명시적 등록이 아니라 규약 쪽으로 넘어갑니다.
+
+```csharp
+[assembly: RegisterImplementationsOf(typeof(IClock), Mode = RegistrationMode.TryAdd)]
+
+[Service]
+public sealed class ExplicitClock : IClock { }   // 먼저 방출됨
+
+public sealed class ScannedClock : IClock { }    // 나중에 방출됨 — IClock이 resolve하는 대상
+```
+
+`SSAL027`은 바로 이 겹침을 보고합니다. 본질적으로 추가(additive)적이라 아무것도 가리지 않는 기본값 `Mode = TryAddEnumerable`에 대해서는 침묵하며, keyed `[Service]`에 대해서도 침묵합니다 — keyed 등록은 (절대 keyed로 등록되지 않는) 규약 등록과는 다른 조회 경로로 resolve되기 때문입니다.
+
+`Mode = RegistrationMode.Replace`는 별도의 경고를 받을 만합니다. `IServiceCollection.Replace`는 새 디스크립터를 추가하기 전에 해당 서비스 타입의 기존 디스크립터를 **모두 제거**하므로, `Replace` 계약은 같은 서비스 타입의 이전 `[Service]` 등록을 단순히 앞지르는 것이 아니라 아예 지워버립니다. 방출 순서와 결합하면, 어셈블리 수준의 attribute 하나가 그 어셈블리 어딘가의 명시적 등록을 조용히 등록 해제할 수 있다는 뜻입니다.
+
+### 방출 순서
+
+생성된 `Add{Assembly}Services()` 메서드는 항상 다음 순서로 세 블록에 걸쳐 등록문을 작성합니다.
+
+1. 구현 타입 이름 순으로 정렬된 모든 `[Service]` 등록
+2. 계약, 구현 타입, 서비스 타입 순으로 정렬된 모든 규약 등록
+3. 인터페이스 이름 순으로 정렬된 모든 `[ServiceFactory]` singleton
+
+이 순서는 구현 세부사항이 아니라 패키지 계약의 일부입니다. 마지막 등록이 이기는 규칙 아래에서, 두 블록이 같은 서비스 타입을 바인딩할 때 단일 인스턴스 resolve가 어느 등록을 반환하는지를 바로 이 순서가 결정합니다. 한 블록 안에서는 소스 코드상의 위치가 아니라 *이름* 순으로 정렬되므로, 클래스 이름을 바꾸는 것만으로 승자가 바뀔 수 있습니다 — 이를 짚어주기 위해 `SSAL015`와 `SSAL027`이 존재합니다.
 
 ### 기본 `Mode`가 `TryAddEnumerable`인 이유
 
@@ -341,6 +367,14 @@ public sealed class PersistStep : IStartupTask { }         // [Service]만 등�
 
 이 attribute는 어셈블리 대상이며, 계약마다 하나씩 원하는 만큼 선언할 수 있습니다. [계약의 모든 구현체 등록하기](#계약의-모든-구현체-등록하기)를 참고하세요.
 
+## 알려진 한계
+
+**생성되는 클래스와 메서드의 이름은 어셈블리 이름에서 식별자로 쓸 수 없는 문자를 제거해 만들어집니다.** `MyApp.Web`은 `MyAppWebServiceCollectionExtensions.AddMyAppWebServices()`가 되는데, 이는 구분자만 다른 두 어셈블리 — `Foo.Bar`와 `FooBar`, 또는 `Foo-Bar` — 가 *같은* `Microsoft.Extensions.DependencyInjection` 네임스페이스에 *같은* 확장 클래스를 만들어낸다는 뜻입니다. 둘 다 참조하는 프로젝트는 CS0101(타입 중복) 오류를 만나거나, 메서드만 호출하는 경우라면 모호한 호출 오류를 만납니다.
+
+이는 의도적으로 우회하지 않은 문제입니다. 생성되는 이름은 이 패키지의 사용자 대면 API이므로, 해시나 카운터, 전체 어셈블리 이름 등으로 이름 충돌을 없애면 기존에 이 메서드를 호출하고 있는 모든 소비 코드의 메서드 이름이 바뀌어 버립니다. 두 어셈블리 중 하나의 이름을 바꾸거나, 완전히 정규화된(fully qualified) 타입 이름을 통해 메서드를 호출하세요.
+
+**`SSAL015`는 서비스 타입을 선언된 그대로 비교합니다.** Open generic 등록(`IRepo<>`)과 closed 등록(`IRepo<int>`)은, 런타임에는 `IRepo<int>` 요청이 둘 다에 매칭되고 결국 closed 등록이 이기더라도, 서로 다른 두 서비스 타입으로 취급됩니다. 이 둘을 하나의 그룹으로 합치면 단일 인스턴스화만 의도적으로 특수화한 모든 어셈블리에 대해서도 경고가 발생하므로, 더 좁은 그룹화를 유지하고 open/closed 경합 문제는 작성자에게 맡깁니다.
+
 ## 진단(Diagnostics)
 
 소스 생성기는 컴파일 타임에 `[Service]`, `[ServiceFactory]`, `[assembly: RegisterImplementationsOf]` 사용을 검증합니다.
@@ -361,9 +395,9 @@ public sealed class PersistStep : IStartupTask { }         // [Service]만 등�
 | `SSAL012` | Error     | `Factory`로 지정한 이름의 메서드가 하나 이상 존재하지만, 그중 어느 것도 static, non-generic, 매개변수 없음 또는 `IServiceProvider` 매개변수 하나, 그리고 등록 대상 클래스를 정확히 반환하는 사용 가능한 시그니처를 갖고 있지 않습니다. |
 | `SSAL013` | Error     | `Factory`는 open generic 클래스에는 사용할 수 없습니다 — Microsoft.Extensions.DependencyInjection에는 open generic을 위한 팩토리 기반 등록 API가 없습니다. |
 | `SSAL014` | Error     | 선택된 `Factory` 메서드가 생성된 코드에서 접근할 수 없습니다 — 최소 `internal`이어야 합니다. |
-| `SSAL015` | Warning   | 동일한 서비스 타입(과 `Key`)에 서로 다른 구현 타입이 둘 이상 등록되었습니다. 단일 인스턴스 resolve는 마지막 등록이 이기는데, 생성기는 구현 타입 이름 순서로 등록문을 방출하므로 클래스 이름만 바꿔도 승자가 조용히 뒤바뀔 수 있습니다. `IEnumerable<T>`로 함께 주입할 의도라면 모든 구현에 `RegistrationMode.TryAddEnumerable`을 사용하고(전부 TryAddEnumerable인 그룹은 보고하지 않습니다), 그렇지 않으면 서로 다른 `Key`를 지정하거나, 의도적인 덮어쓰기라면 경고를 억제하세요. |
+| `SSAL015` | Warning   | 동일한 서비스 타입(과 `Key`)에 서로 다른 구현 타입이 둘 이상 등록되었습니다. 단일 인스턴스 resolve는 마지막 등록이 이기는데, 생성기는 구현 타입 이름 순서로 등록문을 방출하므로 클래스 이름만 바꿔도 승자가 조용히 뒤바뀔 수 있습니다. `IEnumerable<T>`로 함께 주입할 의도라면 모든 구현에 `RegistrationMode.TryAddEnumerable`을 사용하고(전부 TryAddEnumerable인 그룹은 보고하지 않습니다), 그렇지 않으면 서로 다른 `Key`를 지정하거나, 의도적인 덮어쓰기라면 경고를 억제하세요. 비교 대상은 `[Service]` 등록뿐이며, open generic과 closed generic 서비스 타입은 별개로 취급됩니다 — [알려진 한계](#알려진-한계)를 참고하세요. `[Service]`와 규약 간의 겹침은 `SSAL027`의 몫입니다. |
 | `SSAL016` | Error     | `[ServiceFactory]`가 인터페이스가 아닌 대상에 적용되었습니다. attribute의 `AttributeUsage`가 `Interface`이므로 보통은 컴파일러의 `CS0592`가 먼저 걸리며, 이 진단은 이중 방어 목적입니다. |
-| `SSAL017` | Error     | `[ServiceFactory]` 인터페이스는 멤버를 정확히 하나만 선언해야 하고, 그 멤버는 ordinary·non-static 메서드여야 합니다. 멤버가 없거나, 메서드가 하나 더 있거나, 프로퍼티·이벤트·중첩 타입이 있으면 모두 거부됩니다. |
+| `SSAL017` | Error     | `[ServiceFactory]` 인터페이스는 멤버를 정확히 하나만 선언해야 하고, 그 멤버는 ordinary·non-static 메서드여야 합니다. 멤버가 없거나, 메서드가 하나 더 있거나, 프로퍼티·이벤트·중첩 타입이 있으면 모두 거부됩니다 — 자체적으로 구현 가능한 멤버를 가진 인터페이스를 상속하는 것도 마찬가지로 거부됩니다. 마커(marker) 역할의 기반 인터페이스는 허용됩니다. |
 | `SSAL018` | Error     | `[ServiceFactory]` 메서드의 시그니처를 사용할 수 없습니다 — 제네릭이거나, 값으로 전달되는 `enum` 매개변수 하나가 아니거나(`ref`/`out`/`in` 포함), `void`를 반환하거나, 참조로 반환하는 경우입니다. |
 | `SSAL019` | Error     | `[ServiceFactory]`가 제네릭 인터페이스 또는 제네릭 타입 안에 중첩된 인터페이스에 적용되었습니다 — 생성되는 구현은 하나의 closed 서비스 타입으로 등록되는 비제네릭 Singleton입니다. |
 | `SSAL020` | Error     | 팩토리 인터페이스, enum 키 타입, 반환 타입 중 하나가 생성된 구현(같은 어셈블리의 `SsalKit.DependencyInjection.Generated` 네임스페이스에 있는 별도 파일)에서 접근할 수 없습니다. 셋 다 최소 `internal`이어야 하며 file-local이면 안 됩니다. |
@@ -373,6 +407,8 @@ public sealed class PersistStep : IStartupTask { }         // [Service]만 등�
 | `SSAL024` | Error     | `[assembly: RegisterImplementationsOf]`에 정의되지 않은 `ServiceLifetime` 또는 `RegistrationMode` 값(예: `(ServiceLifetime)42`)이 전달되었습니다. |
 | `SSAL025` | Error     | 계약(또는 그 제네릭 타입 인자)이 생성된 등록 코드에서 접근할 수 없습니다. 최소 `internal`이어야 하며 file-local이면 안 됩니다. `file`-local 인터페이스는 attribute 적용 지점에서는 이름을 쓸 수 있어도 생성된 파일에서는 쓸 수 없습니다. |
 | `SSAL026` | Warning   | 겹치는 두 계약(보통 unbound `typeof(IHandler<>)`와 closed `typeof(IHandler<int>)`)이 같은 클래스를 같은 서비스 타입으로 매칭했지만 `Lifetime`/`Mode`가 서로 다릅니다. 두 등록이 모두 방출되며, 어느 쪽이 이길지는 선언이 아니라 Microsoft.Extensions.DependencyInjection의 규칙이 결정합니다. 설정이 *일치하는* 겹침은 하나의 등록으로 합쳐지고 아무것도 보고하지 않습니다. |
+| `SSAL027` | Warning   | `[Service]` 등록과 `[assembly: RegisterImplementationsOf]` 계약이 같은 (keyed가 아닌) 서비스 타입을 바인딩하고, 그 계약의 `Mode`가 `TryAddEnumerable`이 아닙니다. `[Service]`는 자신의 클래스를 스캔에서 제외할 뿐 그것을 앞지르지는 않으며, 규약 블록이 마지막에 방출되므로 단일 인스턴스 resolve는 규약 쪽 등록을 반환하고, `Replace` 계약은 명시적 등록을 아예 제거해버립니다. [`[Service]`는 스캔에서 제외할 뿐](#service는-스캔에서-제외할-뿐-해석-우선권을-갖지-않습니다)을 참고하세요. |
+| `SSAL028` | Warning   | `[Service]` 또는 규약 스캔으로 등록된 클래스가 `public` 생성자를 하나도 선언하지 않았습니다. Microsoft.Extensions.DependencyInjection은 오직 public 생성자를 통해서만 구현 타입을 활성화하므로, 이 서비스를 resolve하면 런타임에 예외가 발생합니다. 생성자 하나를 public으로 만들거나, `[Service(Factory = ...)]`를 사용하거나(생성기가 생성자 대신 그 메서드를 호출하므로 이 경우는 절대 보고되지 않습니다), non-public 생성자를 지원하는 서드파티 컨테이너로 resolve하는 경우라면 경고를 억제하세요. |
 
 ## 라이센스
 

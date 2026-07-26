@@ -217,6 +217,115 @@ public class ServiceFactoryAnalyzerTests
         Assert.Contains("it declares 2 members", diagnostic.GetMessage(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The generated class implements the decorated interface, which obliges it to implement
+    /// everything the interface's <em>bases</em> declare as well. Before this rule existed the
+    /// interface validated (its own member list is a single well-shaped method) and the generator
+    /// then emitted a class that did not compile, CS0535.
+    /// </summary>
+    [Fact]
+    public async Task SSAL017_InheritedInterfaceWithMembers_ReportsError()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            public interface IExtra
+            {
+                void Extra();
+            }
+
+            [ServiceFactory]
+            public interface IInheritingFactory : IExtra
+            {
+                IFoo Create(Kind kind);
+            }
+            """;
+
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
+
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL017", DiagnosticSeverity.Error, exclusive: true);
+        Assert.Contains("it inherits 'global::TestNs.IExtra'", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains("1 member(s)", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains("('Extra')", diagnostic.GetMessage(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A property or an event costs the implementation just as much as a method does, and a base
+    /// interface reached through another base interface is inherited all the same.
+    /// </summary>
+    [Theory]
+    [InlineData("int Count { get; }", "Count")]
+    [InlineData("event Action Changed;", "Changed")]
+    public async Task SSAL017_InheritedNonMethodMember_ReportsError(string member, string expectedName)
+    {
+        var source = Usings + $$"""
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            public interface IExtra
+            {
+                {{member}}
+            }
+
+            public interface IMiddle : IExtra { }
+
+            [ServiceFactory]
+            public interface IInheritingFactory : IMiddle
+            {
+                IFoo Create(Kind kind);
+            }
+            """;
+
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
+
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL017", DiagnosticSeverity.Error, exclusive: true);
+        Assert.Contains("global::TestNs.IExtra", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains($"('{expectedName}')", diagnostic.GetMessage(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A marker base interface imposes no implementation burden at all, so it is allowed -- as is a
+    /// base whose every member is static, a nested type, or a default implementation.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("static int Shared => 1;")]
+    [InlineData("static void Helper() { }")]
+    [InlineData("public sealed class Options { }")]
+    [InlineData("void Defaulted() { }")]
+    public async Task SSAL017_InheritedMarkerOrNonImplementableMembers_ReportsNothing(string member)
+    {
+        var source = Usings + $$"""
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            public interface IMarker
+            {
+                {{member}}
+            }
+
+            [ServiceFactory]
+            public interface IMarkedFactory : IMarker
+            {
+                IFoo Create(Kind kind);
+            }
+            """;
+
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
+
+        Assert.Empty(diagnostics);
+    }
+
     [Theory]
     [InlineData("IFoo Create<T>(Kind kind);", "it is generic")]
     [InlineData("IFoo Create();", "it has no parameters")]

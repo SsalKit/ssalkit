@@ -39,6 +39,13 @@ internal static class ConventionImplementationMatcher
     /// "explicit beats convention" rule: a class carrying at least one <c>[Service]</c> is excluded
     /// from every scan, so its explicit registration is never duplicated or contradicted, which
     /// also makes <c>[Service]</c> the per-class opt-out.
+    /// <para>
+    /// This generator's own output is excluded too. It never reaches here from
+    /// <c>ConventionScanner</c> -- a generator runs against the pre-generation compilation and
+    /// cannot see it -- but it does reach here from <c>RegisterImplementationsOfAnalyzer</c>, which
+    /// analyzes generated code; excluding it at this one shared gate is what keeps the two from
+    /// disagreeing about what a scan found. See <see cref="GeneratedOutputRecognizer"/>.
+    /// </para>
     /// </remarks>
     public static bool IsCandidate(INamedTypeSymbol type, INamedTypeSymbol? serviceAttributeSymbol, Compilation compilation)
     {
@@ -48,6 +55,11 @@ internal static class ConventionImplementationMatcher
         }
 
         if (ServiceTypeResolver.IsNestedInGenericType(type))
+        {
+            return false;
+        }
+
+        if (GeneratedOutputRecognizer.IsGeneratorOutput(type))
         {
             return false;
         }
@@ -93,18 +105,34 @@ internal static class ConventionImplementationMatcher
             return ImmutableArray<ConventionServiceTypeMatch>.Empty;
         }
 
+        // Every candidate that implements nothing at all -- which, in a typical assembly, is most of
+        // them -- leaves here without touching the contract, the accessibility checker, or the
+        // builder. The scan runs once per (candidate, declaration) pair, so this is the cheapest
+        // place a whole pass can be skipped.
+        var allInterfaces = candidate.AllInterfaces;
+        if (allInterfaces.IsEmpty)
+        {
+            return ImmutableArray<ConventionServiceTypeMatch>.Empty;
+        }
+
         var contractDefinition = contract.OriginalDefinition;
         var candidateIsOpenGeneric = candidate.Arity > 0;
 
         ImmutableArray<ConventionServiceTypeMatch>.Builder? builder = null;
 
-        foreach (var iface in candidate.AllInterfaces)
+        foreach (var iface in allInterfaces)
         {
-            var matches = declaration.IsUnbound
-                ? SymbolEqualityComparer.Default.Equals(iface.OriginalDefinition, contractDefinition)
-                : SymbolEqualityComparer.Default.Equals(iface, contract);
+            // First filter in both modes, not just the unbound one: an interface whose generic
+            // definition differs from the contract's can never match either way, and comparing two
+            // definitions is settled by symbol identity alone, whereas comparing two *constructed*
+            // types walks their type arguments. A bound match implies definition equality, so
+            // nothing that used to match stops matching.
+            if (!SymbolEqualityComparer.Default.Equals(iface.OriginalDefinition, contractDefinition))
+            {
+                continue;
+            }
 
-            if (!matches)
+            if (!declaration.IsUnbound && !SymbolEqualityComparer.Default.Equals(iface, contract))
             {
                 continue;
             }

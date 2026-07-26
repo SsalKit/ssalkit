@@ -12,8 +12,20 @@ namespace SsalKit.DependencyInjection.Generator.Analysis;
 
 /// <summary>
 /// Reports diagnostics SSAL001-SSAL015 for invalid or conflicting uses of
-/// <c>[SsalKit.DependencyInjection.Service]</c>.
+/// <c>[SsalKit.DependencyInjection.Service]</c>, plus the two rules that span <c>[Service]</c> and
+/// the convention scan: SSAL027 (both bind the same service type) and SSAL028 (a registered class
+/// has no public constructor).
 /// </summary>
+/// <remarks>
+/// SSAL027 and SSAL028 live here rather than in <see cref="RegisterImplementationsOfAnalyzer"/>
+/// because both are questions about a <em>registration</em>, and this is the analyzer that already
+/// knows what a <c>[Service]</c> registers: which service types it resolves to, under which key, at
+/// which location. The convention half of each rule needs only the match set, which comes from the
+/// same <see cref="ConventionImplementationMatcher"/> the scanner and the other analyzer use, so the
+/// three still cannot disagree about what a contract matched. The alternative -- splitting one rule
+/// across two analyzers -- would have meant lifting <c>[Service]</c>'s whole service-type resolution
+/// into shared code for a single caller.
+/// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 {
@@ -41,11 +53,19 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.FactoryMethodInvalid,
         DiagnosticDescriptors.FactoryOnOpenGenericNotSupported,
         DiagnosticDescriptors.FactoryMethodInaccessible,
-        DiagnosticDescriptors.ConflictingImplementations);
+        DiagnosticDescriptors.ConflictingImplementations,
+        DiagnosticDescriptors.ServiceAndConventionOverlap,
+        DiagnosticDescriptors.NoPublicConstructor);
 
     public override void Initialize(AnalysisContext context)
     {
-        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        // Generated code is analyzed and reported on: a [Service] emitted by another generator
+        // produces exactly the same registration a hand-written one does, so every rule from SSAL001
+        // to SSAL015 applies to it, and leaving it out of the SSAL004/SSAL015 tallies made those two
+        // report on an incomplete picture of the compilation. This generator's own output is
+        // excluded by name instead (see GeneratedOutputRecognizer).
+        context.ConfigureGeneratedCodeAnalysis(
+            GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
         context.EnableConcurrentExecution();
 
         context.RegisterCompilationStartAction(compilationStartContext =>
@@ -59,21 +79,64 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
             var records = new ConcurrentBag<RegistrationRecord>();
 
+            // Only read when the compilation declares at least one usable contract, which is the
+            // fast path for every assembly that does not use the feature: with no declarations there
+            // is no convention block to collide with, so SSAL027 has nothing to say and the
+            // per-symbol matching below is skipped entirely.
+            var contracts = ReadValidContracts(compilationStartContext.Compilation);
+            var conventionRecords = contracts.IsEmpty ? null : new ConcurrentBag<ConventionRecord>();
+
             compilationStartContext.RegisterSymbolAction(
-                symbolContext => AnalyzeNamedType(symbolContext, serviceAttributeSymbol, records),
+                symbolContext => AnalyzeNamedType(
+                    symbolContext, serviceAttributeSymbol, records, contracts, conventionRecords),
                 SymbolKind.NamedType);
 
             compilationStartContext.RegisterCompilationEndAction(
-                endContext => ReportCrossRegistrationDiagnostics(endContext, records));
+                endContext => ReportCrossRegistrationDiagnostics(endContext, records, conventionRecords));
         });
+    }
+
+    /// <summary>
+    /// Every usable <c>[assembly: RegisterImplementationsOf]</c> declaration in the compilation, via
+    /// the same <see cref="ContractDeclarationReader"/> the scanner and
+    /// <see cref="RegisterImplementationsOfAnalyzer"/> use. Rejected declarations are dropped without
+    /// a word here -- reporting them is the other analyzer's job, and this one must not double it.
+    /// </summary>
+    private static ImmutableArray<ContractDeclaration> ReadValidContracts(Compilation compilation)
+    {
+        var declarations = ContractDeclarationReader.Read(compilation);
+        if (declarations.IsEmpty)
+        {
+            return ImmutableArray<ContractDeclaration>.Empty;
+        }
+
+        var builder = ImmutableArray.CreateBuilder<ContractDeclaration>();
+        foreach (var declaration in declarations)
+        {
+            if (declaration.Kind == ContractValidationKind.Valid)
+            {
+                builder.Add(declaration);
+            }
+        }
+
+        return builder.ToImmutable();
     }
 
     private static void AnalyzeNamedType(
         SymbolAnalysisContext context,
         INamedTypeSymbol serviceAttributeSymbol,
-        ConcurrentBag<RegistrationRecord> records)
+        ConcurrentBag<RegistrationRecord> records,
+        ImmutableArray<ContractDeclaration> contracts,
+        ConcurrentBag<ConventionRecord>? conventionRecords)
     {
         if (context.Symbol is not INamedTypeSymbol { TypeKind: TypeKind.Class } classSymbol)
+        {
+            return;
+        }
+
+        // This generator's own factory implementations are not consumer registrations, and the
+        // generator itself never sees them; see GeneratedOutputRecognizer.
+        if (GeneratedOutputRecognizer.IsGeneratorOutput(classSymbol))
         {
             return;
         }
@@ -81,6 +144,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         var serviceAttributes = GetServiceAttributes(classSymbol, serviceAttributeSymbol);
         if (serviceAttributes.Count == 0)
         {
+            AnalyzeConventionCandidate(context, classSymbol, serviceAttributeSymbol, contracts, conventionRecords);
             return;
         }
 
@@ -91,6 +155,110 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
             context.CancellationToken.ThrowIfCancellationRequested();
             AnalyzeAttribute(context, classSymbol, attributeData, implementationTypeFqn, records);
         }
+    }
+
+    /// <summary>
+    /// Records what the convention scan registers for a class that carries no <c>[Service]</c> of
+    /// its own, for SSAL027 to compare against at compilation end, and reports SSAL028 for it.
+    /// </summary>
+    /// <remarks>
+    /// A class carrying <c>[Service]</c> never reaches here, because it is excluded from every scan
+    /// (<see cref="ConventionImplementationMatcher.IsCandidate"/>) -- which is exactly why SSAL027 is
+    /// a cross-<em>class</em> rule: the explicit and the convention registration always come from two
+    /// different classes binding the same service type.
+    /// </remarks>
+    private static void AnalyzeConventionCandidate(
+        SymbolAnalysisContext context,
+        INamedTypeSymbol classSymbol,
+        INamedTypeSymbol serviceAttributeSymbol,
+        ImmutableArray<ContractDeclaration> contracts,
+        ConcurrentBag<ConventionRecord>? conventionRecords)
+    {
+        if (conventionRecords is null
+            || !ConventionImplementationMatcher.IsCandidate(classSymbol, serviceAttributeSymbol, context.Compilation))
+        {
+            return;
+        }
+
+        var matched = false;
+
+        foreach (var contract in contracts)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var match in ConventionImplementationMatcher.Match(classSymbol, contract, context.Compilation))
+            {
+                matched = true;
+                conventionRecords.Add(new ConventionRecord(match.ServiceTypeFqn, contract.ContractFqn, contract.Mode));
+            }
+        }
+
+        // SSAL028: reported once for the class rather than once per contract that matched it -- the
+        // missing constructor is a property of the class, and every contract would say the same
+        // thing about it.
+        if (matched && HasNoPublicConstructor(classSymbol))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.NoPublicConstructor,
+                GetDeclarationLocation(classSymbol),
+                SymbolFacts.ToFqn(classSymbol)));
+        }
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when Microsoft.Extensions.DependencyInjection could not
+    /// activate <paramref name="classSymbol"/>, i.e. when none of its instance constructors is
+    /// <see langword="public"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The container's constructor selection enumerates public constructors only, so this is a
+    /// decidable, exact rule rather than a heuristic -- including for an open generic class, whose
+    /// closed instantiations inherit the accessibility of the constructors declared on the open
+    /// definition, so no carve-out is warranted there either.
+    /// </para>
+    /// <para>
+    /// The two cases the rule deliberately stays silent about are the ones where it cannot see the
+    /// whole picture: a registration that names a <c>Factory</c> (the generated code calls the method
+    /// and never a constructor, so constructor accessibility is irrelevant -- checked by the caller),
+    /// and a type reporting no instance constructor at all, which no source-declared class does and
+    /// which therefore signals a symbol this analyzer should not be drawing conclusions from.
+    /// </para>
+    /// </remarks>
+    private static bool HasNoPublicConstructor(INamedTypeSymbol classSymbol)
+    {
+        var constructors = classSymbol.InstanceConstructors;
+        if (constructors.IsDefaultOrEmpty)
+        {
+            return false;
+        }
+
+        foreach (var constructor in constructors)
+        {
+            if (constructor.DeclaredAccessibility == Accessibility.Public)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The class's own declaration site, for a diagnostic that has no attribute to point at. The
+    /// first <em>source</em> location, so a partial class is reported once, at its first part.
+    /// </summary>
+    private static Location GetDeclarationLocation(INamedTypeSymbol classSymbol)
+    {
+        foreach (var location in classSymbol.Locations)
+        {
+            if (location.IsInSource)
+            {
+                return location;
+            }
+        }
+
+        return Location.None;
     }
 
     private static List<AttributeData> GetServiceAttributes(INamedTypeSymbol classSymbol, INamedTypeSymbol serviceAttributeSymbol)
@@ -242,6 +410,15 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 location,
                 implementationTypeFqn,
                 serviceTypeFqns.Length.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        // SSAL028: with no 'Factory' to call, the generated registration hands the class to the
+        // container's own constructor-based activation, which only considers public constructors.
+        // A warning like SSAL010, so execution falls through to recording rather than returning.
+        if (factoryName is null && HasNoPublicConstructor(classSymbol))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.NoPublicConstructor, location, implementationTypeFqn));
         }
 
         var keyIdentity = hasKey
@@ -475,10 +652,14 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
     /// <summary>
     /// Runs the compilation-wide (CompilationEnd) checks that can only be decided once every
     /// <c>[Service]</c> application in the compilation has been seen: SSAL004 (the exact same
-    /// (service type, implementation type, key) triple registered more than once) and SSAL015
-    /// (one (service type, key) pair registered with two or more *different* implementation types).
+    /// (service type, implementation type, key) triple registered more than once), SSAL015
+    /// (one (service type, key) pair registered with two or more *different* implementation types),
+    /// and SSAL027 (a service type bound by both a <c>[Service]</c> and a convention scan).
     /// </summary>
-    private static void ReportCrossRegistrationDiagnostics(CompilationAnalysisContext context, ConcurrentBag<RegistrationRecord> records)
+    private static void ReportCrossRegistrationDiagnostics(
+        CompilationAnalysisContext context,
+        ConcurrentBag<RegistrationRecord> records,
+        ConcurrentBag<ConventionRecord>? conventionRecords)
     {
         if (records.IsEmpty)
         {
@@ -487,15 +668,89 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
         // Symbol actions may run concurrently, so the bag's enumeration order is not guaranteed;
         // sort deterministically before grouping so which occurrence is treated as "the first, ok"
-        // one (SSAL004) and the order diagnostics are reported in are stable across runs.
+        // one (SSAL004) and the order diagnostics are reported in are stable across runs. The file
+        // path is part of the sort because a source span offset alone is not unique across a
+        // multi-file compilation: two attributes at the same offset in two different files would
+        // otherwise be ordered by whichever symbol action happened to finish first.
         var ordered = records
             .OrderBy(r => r.Location.SourceSpan.Start)
+            .ThenBy(r => r.Location.SourceTree?.FilePath, StringComparer.Ordinal)
             .ThenBy(r => r.ServiceTypeFqn, StringComparer.Ordinal)
             .ThenBy(r => r.ImplementationTypeFqn, StringComparer.Ordinal)
             .ToList();
 
         ReportDuplicates(context, ordered);
         ReportConflictingImplementations(context, ordered);
+        ReportServiceConventionOverlaps(context, ordered, conventionRecords);
+    }
+
+    /// <summary>
+    /// SSAL027: a service type that a <c>[Service]</c> binds and that a convention scan binds too,
+    /// through some other class, under a mode that competes for the same resolution.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TryAddEnumerable</c> contracts are exempt: they are additive by construction (the mode
+    /// exists so that several implementations of one service type coexist as
+    /// <c>IEnumerable&lt;T&gt;</c>), and they are the default for this attribute, so the rule stays
+    /// quiet for the shape the feature is designed around. The other three modes each end up
+    /// deciding a single-instance resolution -- <c>Add</c> and <c>TryAdd</c> by being emitted last,
+    /// <c>Replace</c> by deleting the <c>[Service]</c> registration outright -- purely because
+    /// <c>ServiceRegistrationEmitter</c> writes the convention block after the <c>[Service]</c> one.
+    /// </para>
+    /// <para>
+    /// Only non-keyed <c>[Service]</c> records can collide, because a convention registration never
+    /// carries a key: a keyed explicit registration and a non-keyed convention one are resolved
+    /// through different lookups and never shadow one another.
+    /// </para>
+    /// </remarks>
+    private static void ReportServiceConventionOverlaps(
+        CompilationAnalysisContext context,
+        List<RegistrationRecord> ordered,
+        ConcurrentBag<ConventionRecord>? conventionRecords)
+    {
+        if (conventionRecords is null || conventionRecords.IsEmpty)
+        {
+            return;
+        }
+
+        var contractsByServiceType = new Dictionary<string, SortedSet<string>>(StringComparer.Ordinal);
+
+        foreach (var record in conventionRecords)
+        {
+            if (record.Mode == (int)WellKnownRegistrationMode.TryAddEnumerable)
+            {
+                continue;
+            }
+
+            if (!contractsByServiceType.TryGetValue(record.ServiceTypeFqn, out var contracts))
+            {
+                contracts = new SortedSet<string>(StringComparer.Ordinal);
+                contractsByServiceType.Add(record.ServiceTypeFqn, contracts);
+            }
+
+            contracts.Add(record.ContractFqn);
+        }
+
+        if (contractsByServiceType.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var record in ordered)
+        {
+            if (record.KeyIdentity != NoKeyIdentity
+                || !contractsByServiceType.TryGetValue(record.ServiceTypeFqn, out var contracts))
+            {
+                continue;
+            }
+
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.ServiceAndConventionOverlap,
+                record.Location,
+                record.ServiceTypeFqn,
+                string.Join(", ", contracts.Select(contract => $"'{contract}'"))));
+        }
     }
 
     private static void ReportDuplicates(CompilationAnalysisContext context, List<RegistrationRecord> ordered)
@@ -596,4 +851,10 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         string KeyIdentity,
         int Mode,
         Location Location);
+
+    /// <summary>
+    /// One registration a convention scan produces, reduced to what SSAL027 compares against: never
+    /// keyed, and identified by the contract that produced it so the message can name it.
+    /// </summary>
+    private readonly record struct ConventionRecord(string ServiceTypeFqn, string ContractFqn, int Mode);
 }

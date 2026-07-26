@@ -1,3 +1,4 @@
+using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
@@ -78,6 +79,194 @@ public class ServiceFactoryEmissionTests
     {
         var result = GeneratorTestSupport.RunGenerator(BasicFactory, GeneratorTestSupport.SampleAssembly);
 
+        Assert.Empty(result.GetCompilationErrors());
+    }
+
+    /// <summary>
+    /// SSAL017's inherited-member rule has to drop the interface here as well, or the generator
+    /// emits a class that does not implement <c>IExtra.Extra</c> (CS0535) -- and one broken factory
+    /// takes the whole registration file down with it.
+    /// </summary>
+    [Fact]
+    public void FactoryInheritingAnInterfaceWithMembers_IsNotGenerated()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            public interface IExtra
+            {
+                void Extra();
+            }
+
+            [ServiceFactory]
+            public interface IInheritingFactory : IExtra
+            {
+                IFoo Create(Kind kind);
+            }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    /// <summary>
+    /// A marker base interface is allowed, and the generated implementation picks it up for free by
+    /// implementing the factory interface -- so the emitted class satisfies both.
+    /// </summary>
+    [Fact]
+    public void FactoryInheritingAMarkerInterface_IsGeneratedAndCompiles()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            public interface IMarker { }
+
+            [ServiceFactory]
+            public interface IMarkedFactory : IMarker
+            {
+                IFoo Create(Kind kind);
+            }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+
+        Assert.Contains(
+            "internal sealed class IMarkedFactoryImplementation : global::TestNs.IMarkedFactory",
+            result.GetSource("TestNs.IMarkedFactory.ServiceFactory.g.cs"),
+            StringComparison.Ordinal);
+        Assert.Empty(result.GetCompilationErrors());
+    }
+
+    /// <summary>
+    /// The generated method's signature must reproduce the interface's nullable annotations
+    /// exactly; the plain fully-qualified format drops them, which the compiler reports as a
+    /// nullability mismatch (CS8613/CS8766) inside a file the consumer cannot edit -- and as an
+    /// error under <c>TreatWarningsAsErrors</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.IList<string?>",
+        "global::System.Collections.Generic.IList<string?>")]
+    [InlineData("IFoo?", "global::TestNs.IFoo?")]
+    public void NullableAnnotationsInTheFactorySignature_AreReproduced(string declared, string expected)
+    {
+        var source = Usings + $$"""
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            [ServiceFactory]
+            public interface INullableFactory
+            {
+                {{declared}} Create(Kind kind);
+            }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+        var generated = result.GetSource("TestNs.INullableFactory.ServiceFactory.g.cs");
+
+        Assert.Contains($"public {expected} Create(global::TestNs.Kind kind)", generated, StringComparison.Ordinal);
+        Assert.Empty(result.GetCompilationErrors());
+
+        // Nothing the generator emitted may warn either: the file is inside the consumer's
+        // compilation, so a nullability warning here becomes their build error.
+        Assert.Empty(result.OutputCompilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Warning
+                && diagnostic.Location.SourceTree?.FilePath.EndsWith("ServiceFactory.g.cs", StringComparison.Ordinal) == true));
+    }
+
+    /// <summary>
+    /// Two <c>[ServiceFactory]</c> applications on the parts of one <c>partial</c> interface are
+    /// matched twice and produce identical models. <c>AddSource</c> throws on a repeated hint name,
+    /// and that exception takes down the <em>whole</em> generator -- the registration extension
+    /// method included -- so the duplicate has to be collapsed before emission.
+    /// </summary>
+    /// <remarks>
+    /// The source is deliberately invalid C# (<c>[ServiceFactory]</c> is
+    /// <c>AllowMultiple = false</c>, so the second application is CS0579), which is exactly the
+    /// situation worth protecting: a mistake in one interface must not delete every other file the
+    /// generator produces.
+    /// </remarks>
+    [Fact]
+    public void PartialInterfaceDecoratedTwice_EmitsOneFilePerInterface()
+    {
+        const string source = Usings + """
+            namespace TestNs;
+
+            public enum Kind { A }
+
+            public interface IFoo { }
+
+            [ServiceFactory]
+            public partial interface IPartialFactory
+            {
+                IFoo Create(Kind kind);
+            }
+
+            [ServiceFactory]
+            public partial interface IPartialFactory { }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+
+        Assert.Null(result.RawResult.Results.Single().Exception);
+        Assert.Equal(
+            new[] { "SsalKitSampleServiceCollectionExtensions.g.cs", "TestNs.IPartialFactory.ServiceFactory.g.cs" },
+            result.GeneratedSources.Select(s => s.HintName));
+    }
+
+    /// <summary>
+    /// <c>HintNameSanitizer</c> caps a hint name at 200 characters by keeping its tail, so two
+    /// interfaces whose qualified names differ only near the front sanitize to the same name. They
+    /// are two genuinely different factories, so both must be emitted -- under names that differ.
+    /// </summary>
+    [Fact]
+    public void FactoriesWhoseHintNamesCollideAfterTruncation_AreBothEmitted()
+    {
+        var longSegment = new string('x', 200);
+
+        var source = Usings + $$"""
+            namespace Aaa.{{longSegment}}
+            {
+                public enum Kind { A }
+
+                public interface IFoo { }
+
+                [ServiceFactory]
+                public interface ILongFactory
+                {
+                    IFoo Create(Kind kind);
+                }
+            }
+
+            namespace Bbb.{{longSegment}}
+            {
+                [ServiceFactory]
+                public interface ILongFactory
+                {
+                    global::Aaa.{{longSegment}}.IFoo Create(global::Aaa.{{longSegment}}.Kind kind);
+                }
+            }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+
+        Assert.Null(result.RawResult.Results.Single().Exception);
+        Assert.Equal(3, result.GeneratedSources.Length);
+        Assert.Equal(
+            result.GeneratedSources.Length,
+            result.GeneratedSources.Select(s => s.HintName).Distinct(StringComparer.Ordinal).Count());
         Assert.Empty(result.GetCompilationErrors());
     }
 

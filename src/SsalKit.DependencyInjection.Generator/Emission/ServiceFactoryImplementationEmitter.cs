@@ -91,7 +91,7 @@ internal static class ServiceFactoryImplementationEmitter
             using (writer.Indent())
             {
                 writer.WriteLine(
-                    "=> " + KeyedServiceExtensionsType + ".GetRequiredKeyedService<" + model.ReturnTypeFqn + ">(" +
+                    "=> " + KeyedServiceExtensionsType + ".GetRequiredKeyedService<" + model.LookupTypeFqn + ">(" +
                     "this." + ProviderField + ", " + model.ParameterName + ");");
             }
         }
