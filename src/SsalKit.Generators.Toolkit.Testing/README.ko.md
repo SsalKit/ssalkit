@@ -47,7 +47,7 @@ dotnet add package SsalKit.Generators.Toolkit.Testing
 ## 사전 요구사항
 
 - 테스트 프로젝트가 **`net10.0`** 이상을 대상으로 해야 합니다.
-- 패키지는 **`Microsoft.CodeAnalysis.CSharp`**를 함께 가져옵니다 — 이것이 유일한 의존성이며, 어떤 테스트 프레임워크에도 의도적으로 의존하지 않습니다.
+- 패키지는 `Microsoft.CodeAnalysis.CSharp`를 함께 가져옵니다 — 이것이 유일한 의존성이며, 어떤 테스트 프레임워크에도 의도적으로 의존하지 않습니다.
 
 ## 빠른 시작
 

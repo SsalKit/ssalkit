@@ -19,10 +19,10 @@
 
 SsalKit.Randomness는 접근 방식 자체가 다릅니다.
 
-- **`DeterministicRandom`**은 `System.Random`과 비슷한 모양의 sealed PRNG(`xoshiro256**`)로, 256bit 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
-- **`IRandomSource`**는 결정적/공유(`Random.Shared`)/암호학적 난수를 하나의 인터페이스로 통일하므로, 범위 생성·셔플·추첨 코드를 한 번만 작성해 셋 중 무엇에도 적용할 수 있습니다.
+- `DeterministicRandom`은 `System.Random`과 비슷한 모양의 sealed PRNG(`xoshiro256**`)로, 256bit 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
+- `IRandomSource`는 결정적/공유(`Random.Shared`)/암호학적 난수를 하나의 인터페이스로 통일하므로, 범위 생성·셔플·추첨 코드를 한 번만 작성해 셋 중 무엇에도 적용할 수 있습니다.
 - **가중치 랜덤 추첨**(`PickWeighted`, `PickManyWeighted(Distinct)`, `WeightedSampler<T>`)이 라이브러리에 함께 제공되며, 명확한 예외 계약과 반복 추첨용 `O(1)` alias method 샘플러를 갖추고 있습니다.
-- **`[RandomWeight]`**로 모델 타입의 가중치 멤버를 표시하면, 패키지에 동봉된 소스 생성기가 셀렉터를 대신 작성해 줍니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)` 대신 `lootTable.PickWeighted(random)`이면 됩니다. 순수하게 컴파일 타임 코드 생성이므로 리플렉션이 없고 AOT·트리밍에 안전합니다.
+- `[RandomWeight]`로 모델 타입의 가중치 멤버를 표시하면, 패키지에 동봉된 소스 생성기가 셀렉터를 대신 작성해 줍니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)` 대신 `lootTable.PickWeighted(random)`이면 됩니다. 순수하게 컴파일 타임 코드 생성이므로 리플렉션이 없고 AOT·트리밍에 안전합니다.
 - **의존성 0.** `PackageReference` 없이 BCL만 사용합니다.
 
 ## 설치

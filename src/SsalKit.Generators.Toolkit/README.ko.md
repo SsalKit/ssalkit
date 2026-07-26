@@ -37,7 +37,7 @@ dotnet add package SsalKit.Generators.Toolkit
 ## 전제 조건
 
 - 여러분의 프로젝트가 **Roslyn 컴포넌트**(소스 생성기 및/또는 analyzer)여야 합니다 — 이 패키지는 그 맥락 밖에서는 쓸모가 없습니다.
-- 프로젝트가 **`netstandard2.0`**을 대상으로 하거나 그와 호환되어야 합니다 (Roslyn 컴포넌트의 표준 TFM).
+- 프로젝트가 `netstandard2.0`을 대상으로 하거나 그와 호환되어야 합니다 (Roslyn 컴포넌트의 표준 TFM).
 - 프로젝트의 `LangVersion`이 **C# 10 이상**이어야 합니다. 임베드된 소스 자체는 C# 10 문법만 사용하지만(아래 [임베드 소스 규약](#임베드-소스-규약) 참고), 이 패키지가 여러분 프로젝트의 언어 버전을 올리거나 내리려 하지는 않습니다.
 - 프로젝트가 이미 **`Microsoft.CodeAnalysis`**(또는 `Microsoft.CodeAnalysis.CSharp`)를 참조하고 있어야 합니다. `Microsoft.CodeAnalysis.DiagnosticDescriptor`를 직접 사용하는 `DiagnosticDescriptorFactory`의 하드 요구사항입니다 — 다만 모든 Roslyn 컴포넌트 프로젝트가 어차피 이를 참조하고 있으므로, SsalKit.Generators.Toolkit은 의도적으로 이를 패키지 의존성으로 선언하지 **않습니다**(선언하면 여러분에게 특정 Roslyn 최소 버전을 강제하게 되고, 하위 호환을 위한 여러분 자신의 버전 고정을 방해하게 됩니다).
 
