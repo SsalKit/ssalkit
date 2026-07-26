@@ -23,11 +23,18 @@ namespace SsalKit.Randomness;
 public readonly record struct RandomState(ulong S0, ulong S1, ulong S2, ulong S3)
 {
     /// <summary>
-    /// Gets a value indicating whether this state is usable by xoshiro256**. The all-zero state
-    /// is invalid: xoshiro256** never leaves the all-zero state once it enters it, so every
-    /// subsequent output would be zero.
+    /// Determines whether this state is usable by xoshiro256**. The all-zero state is invalid:
+    /// xoshiro256** never leaves the all-zero state once it enters it, so every subsequent output
+    /// would be zero.
     /// </summary>
-    public bool IsValid => (S0 | S1 | S2 | S3) != 0;
+    /// <returns><see langword="true"/> when any state word is non-zero; otherwise, <see langword="false"/>.</returns>
+    /// <remarks>
+    /// This is a method rather than a computed property on purpose: serializers emit public
+    /// properties, and a derived <c>IsValid</c> field has no business inside a persisted state
+    /// payload. A method keeps the serialized document exactly the four state words under every
+    /// serializer, with no serializer-specific ignore attribute.
+    /// </remarks>
+    public bool IsValid() => (S0 | S1 | S2 | S3) != 0;
 
     /// <summary>
     /// Copies this state into a new four-element array, in <c>[S0, S1, S2, S3]</c> order. Provided
@@ -75,7 +82,7 @@ public readonly record struct RandomState(ulong S0, ulong S1, ulong S2, ulong S3
         }
 
         var state = new RandomState(source[0], source[1], source[2], source[3]);
-        if (!state.IsValid)
+        if (!state.IsValid())
         {
             throw new ArgumentException("The all-zero state is not a valid xoshiro256** state.", nameof(source));
         }

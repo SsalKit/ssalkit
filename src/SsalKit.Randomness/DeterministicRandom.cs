@@ -86,7 +86,7 @@ public sealed class DeterministicRandom : IRandomSource
     /// </exception>
     public static DeterministicRandom FromState(RandomState state)
     {
-        if (!state.IsValid)
+        if (!state.IsValid())
         {
             throw new ArgumentException("The all-zero state is not a valid xoshiro256** state.", nameof(state));
         }

@@ -71,7 +71,7 @@ var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 |---|---|
 | `IRandomSource` | 모든 소스가 공유하는 최소 계약(`NextUInt64()` + `NextBytes(Span<byte>)`). 그 위의 모든 상위 연산은 이 두 멤버로부터 확장 메서드로 파생됩니다. |
 | `DeterministicRandom` | 시드 지정·상태 export·fork가 가능한 PRNG. `System.Random`과 비슷한 인스턴스 API(`Next`, `NextInt64`, `NextDouble`, `NextSingle`, `NextBoolean`, `NextBytes`)에 더해 `ExportState()`/`FromState(...)`/`Fork()`, 그리고 시드 자체를 예측 불가능하게 뽑는 `CreateRandomlySeeded()`를 제공합니다. |
-| `RandomState` | 256bit 상태(`S0`..`S3`)를 담는 `readonly record struct`. 값 동등성과 손쉬운 JSON 직렬화를 제공하며, `IsValid`(all-zero 상태에서만 false)와 `ulong[4]` 상호운용을 위한 `ToArray()`/`FromSpan(...)`/`CopyTo(...)`가 있습니다. |
+| `RandomState` | 256bit 상태(`S0`..`S3`)를 담는 `readonly record struct`. 값 동등성과 손쉬운 JSON 직렬화를 제공하며, `IsValid()`(all-zero 상태에서만 false)와 `ulong[4]` 상호운용을 위한 `ToArray()`/`FromSpan(...)`/`CopyTo(...)`가 있습니다. |
 | `CryptoRandomSource` | `RandomNumberGenerator` 기반 `IRandomSource`. 예측 불가능하며 스레드 안전하고, `CryptoRandomSource.Instance`로 제공됩니다. |
 | `SharedRandomSource` | `Random.Shared` 기반 `IRandomSource`. 스레드 안전하며, `SharedRandomSource.Instance`로 제공됩니다. |
 | `SystemRandomSource` | 임의의 `Random` 인스턴스를 감싸는 `IRandomSource` 어댑터로, interop과 테스트용입니다. |

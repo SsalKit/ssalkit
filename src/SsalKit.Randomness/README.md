@@ -71,7 +71,7 @@ var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 |---|---|
 | `IRandomSource` | Minimal contract (`NextUInt64()` + `NextBytes(Span<byte>)`) shared by every source. All higher-level operations are derived from these two members via extension methods. |
 | `DeterministicRandom` | Seedable, state-exportable, forkable PRNG. `System.Random`-shaped instance API (`Next`, `NextInt64`, `NextDouble`, `NextSingle`, `NextBoolean`, `NextBytes`) plus `ExportState()`/`FromState(...)`/`Fork()`, and `CreateRandomlySeeded()` for a reproducible generator whose seed itself is unpredictable. |
-| `RandomState` | `readonly record struct` holding the 256-bit state (`S0`..`S3`). Value-equatable, trivially JSON-serializable, with `IsValid` (false only for the all-zero state) and `ToArray()`/`FromSpan(...)`/`CopyTo(...)` for `ulong[4]` interop. |
+| `RandomState` | `readonly record struct` holding the 256-bit state (`S0`..`S3`). Value-equatable, trivially JSON-serializable, with `IsValid()` (false only for the all-zero state) and `ToArray()`/`FromSpan(...)`/`CopyTo(...)` for `ulong[4]` interop. |
 | `CryptoRandomSource` | `IRandomSource` backed by `RandomNumberGenerator`. Unpredictable, thread-safe, exposed as `CryptoRandomSource.Instance`. |
 | `SharedRandomSource` | `IRandomSource` backed by `Random.Shared`. Thread-safe, exposed as `SharedRandomSource.Instance`. |
 | `SystemRandomSource` | `IRandomSource` adapter over any `Random` instance, for interop and tests. |

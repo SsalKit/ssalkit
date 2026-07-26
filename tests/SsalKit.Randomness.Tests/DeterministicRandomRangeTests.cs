@@ -228,7 +228,7 @@ public class DeterministicRandomRangeTests
 
         // CreateRandomlySeeded expands its crypto-random seed through the same SplitMix64
         // path as the ulong-seed constructor, which can never produce the all-zero state.
-        Assert.True(state.IsValid);
+        Assert.True(state.IsValid());
 
         // The exported state must be immediately usable to resume the exact same sequence.
         DeterministicRandom resumed = DeterministicRandom.FromState(state);

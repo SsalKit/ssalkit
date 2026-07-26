@@ -87,7 +87,7 @@ public class RandomStateTests
     {
         var state = new RandomState(0UL, 0UL, 0UL, 0UL);
 
-        Assert.False(state.IsValid);
+        Assert.False(state.IsValid());
     }
 
     [Theory]
@@ -99,7 +99,7 @@ public class RandomStateTests
     {
         var state = new RandomState(s0, s1, s2, s3);
 
-        Assert.True(state.IsValid);
+        Assert.True(state.IsValid());
     }
 
     [Fact]
@@ -160,21 +160,23 @@ public class RandomStateTests
     public void SystemTextJson_SerializesTheFourWordsAsJsonNumbers()
     {
         // The four state words are written as plain JSON numbers -- which is exactly why the
-        // JavaScript 2^53 caveat applies to them. The computed IsValid property comes along as a
-        // redundant field (it has no setter, so it is simply ignored when reading back); pinning
-        // the whole document here means a change to that shape cannot slip out unnoticed, since
-        // the payload is something consumers persist.
+        // JavaScript 2^53 caveat applies to them. IsValid is a method precisely so that no
+        // serializer adds a derived fifth field; pinning the whole document here means a change
+        // to that shape cannot slip out unnoticed, since the payload is something consumers
+        // persist.
         string json = JsonSerializer.Serialize(new RandomState(1UL, 2UL, 3UL, 4UL));
 
-        Assert.Equal("""{"S0":1,"S1":2,"S2":3,"S3":4,"IsValid":true}""", json);
+        Assert.Equal("""{"S0":1,"S1":2,"S2":3,"S3":4}""", json);
     }
 
     [Fact]
-    public void SystemTextJson_ExtraIsValidField_IsIgnoredWhenReadingBack()
+    public void SystemTextJson_UnknownExtraField_IsIgnoredWhenReadingBack()
     {
+        // A payload written by an older build (which serialized a derived IsValid property) or by
+        // a hand-rolled producer still round-trips: unknown members are skipped by default.
         RandomState state = JsonSerializer.Deserialize<RandomState>("""{"S0":1,"S1":2,"S2":3,"S3":4,"IsValid":false}""");
 
         Assert.Equal(new RandomState(1UL, 2UL, 3UL, 4UL), state);
-        Assert.True(state.IsValid);
+        Assert.True(state.IsValid());
     }
 }
