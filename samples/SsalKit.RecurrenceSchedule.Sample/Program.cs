@@ -220,7 +220,7 @@ static string Elapsed(TimeSpan value) => (value.TotalHours, value.Hours, value.M
 // as well and can also advance time.
 sealed class FixedTimeProvider(DateTimeOffset instant) : TimeProvider
 {
-    private readonly DateTimeOffset utcNow = instant.ToUniversalTime();
+    private readonly DateTimeOffset _utcNow = instant.ToUniversalTime();
 
-    public override DateTimeOffset GetUtcNow() => utcNow;
+    public override DateTimeOffset GetUtcNow() => _utcNow;
 }

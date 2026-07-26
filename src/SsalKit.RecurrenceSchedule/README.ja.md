@@ -196,9 +196,9 @@ today.Clamp(overrunInstant);           // == today.End: 「このウィンドウ
 // Microsoft.Extensions.TimeProvider.Testing でも、自前の数行でも構いません。
 sealed class FixedTimeProvider(DateTimeOffset instant) : TimeProvider
 {
-    private readonly DateTimeOffset utcNow = instant.ToUniversalTime();
+    private readonly DateTimeOffset _utcNow = instant.ToUniversalTime();
 
-    public override DateTimeOffset GetUtcNow() => utcNow;
+    public override DateTimeOffset GetUtcNow() => _utcNow;
 }
 
 var clock = new FixedTimeProvider(new DateTimeOffset(2026, 7, 25, 9, 15, 0, TimeSpan.FromHours(9)));

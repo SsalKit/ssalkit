@@ -59,18 +59,22 @@ namespace SsalKit.RecurrenceSchedule;
 /// </example>
 public sealed class RecurrenceSchedule
 {
-    private readonly RecurrenceKind kind;
-    private readonly TimeOnly timeOfDay;
-    private readonly DayOfWeek dayOfWeek;
-    private readonly int dayOfMonth;
-    private readonly TimeZoneInfo timeZone;
+    private const int DaysPerWeek = 7;
+
+    private const int MonthsPerYear = 12;
+
+    private readonly RecurrenceKind _kind;
+    private readonly TimeOnly _timeOfDay;
+    private readonly DayOfWeek _dayOfWeek;
+    private readonly int _dayOfMonth;
+    private readonly TimeZoneInfo _timeZone;
 
     /// <summary>
     /// The distance between two consecutive occurrence keys: 1 day number for a daily schedule,
     /// 7 for a weekly one, 1 month index for a monthly one. See <see cref="OccurrenceOnOrBefore"/>
     /// for what a key is.
     /// </summary>
-    private readonly int occurrenceStep;
+    private readonly int _occurrenceStep;
 
     private RecurrenceSchedule(
         RecurrenceKind kind,
@@ -79,17 +83,13 @@ public sealed class RecurrenceSchedule
         int dayOfMonth,
         TimeZoneInfo timeZone)
     {
-        this.kind = kind;
-        this.timeOfDay = timeOfDay;
-        this.dayOfWeek = dayOfWeek;
-        this.dayOfMonth = dayOfMonth;
-        this.timeZone = timeZone;
-        occurrenceStep = kind == RecurrenceKind.Weekly ? DaysPerWeek : 1;
+        _kind = kind;
+        _timeOfDay = timeOfDay;
+        _dayOfWeek = dayOfWeek;
+        _dayOfMonth = dayOfMonth;
+        _timeZone = timeZone;
+        _occurrenceStep = kind == RecurrenceKind.Weekly ? DaysPerWeek : 1;
     }
-
-    private const int DaysPerWeek = 7;
-
-    private const int MonthsPerYear = 12;
 
     /// <summary>
     /// Creates a schedule that recurs once every calendar day at the given wall-clock time.
@@ -226,7 +226,7 @@ public sealed class RecurrenceSchedule
     /// daylight-saving rules documented on <see cref="PreviousBoundary(DateTimeOffset)"/> apply
     /// identically.</returns>
     public DateTimeOffset NextBoundary(DateTimeOffset asOf) =>
-        ResolveBoundary(OccurrenceDate(PreviousCore(asOf).Key + occurrenceStep));
+        ResolveBoundary(OccurrenceDate(PreviousCore(asOf).Key + _occurrenceStep));
 
     /// <summary>
     /// Returns the half-open window <c>[PreviousBoundary(asOf), NextBoundary(asOf))</c> that
@@ -239,7 +239,7 @@ public sealed class RecurrenceSchedule
     public TimeWindow CurrentWindow(DateTimeOffset asOf)
     {
         var (key, start) = PreviousCore(asOf);
-        return new TimeWindow(start, ResolveBoundary(OccurrenceDate(key + occurrenceStep)));
+        return new TimeWindow(start, ResolveBoundary(OccurrenceDate(key + _occurrenceStep)));
     }
 
     /// <summary>
@@ -282,7 +282,7 @@ public sealed class RecurrenceSchedule
             return 0;
         }
 
-        return (PreviousCore(now).Key - PreviousCore(lastSeen).Key) / occurrenceStep;
+        return (PreviousCore(now).Key - PreviousCore(lastSeen).Key) / _occurrenceStep;
     }
 
     /// <summary>
@@ -291,7 +291,7 @@ public sealed class RecurrenceSchedule
     /// </summary>
     private (int Key, DateTimeOffset Boundary) PreviousCore(DateTimeOffset asOf)
     {
-        var wallClock = TimeZoneInfo.ConvertTime(asOf, timeZone).DateTime;
+        var wallClock = TimeZoneInfo.ConvertTime(asOf, _timeZone).DateTime;
         var key = OccurrenceOnOrBefore(DateOnly.FromDateTime(wallClock));
         var boundary = ResolveBoundary(OccurrenceDate(key));
 
@@ -301,12 +301,12 @@ public sealed class RecurrenceSchedule
         // shift can close.
         while (boundary > asOf)
         {
-            key -= occurrenceStep;
+            key -= _occurrenceStep;
             boundary = ResolveBoundary(OccurrenceDate(key));
         }
 
         Debug.Assert(
-            ResolveBoundary(OccurrenceDate(key + occurrenceStep)) > asOf,
+            ResolveBoundary(OccurrenceDate(key + _occurrenceStep)) > asOf,
             "The occurrence following the located one must resolve to an instant after asOf.");
 
         return (key, boundary);
@@ -319,16 +319,16 @@ public sealed class RecurrenceSchedule
     /// </summary>
     private DateTimeOffset ResolveBoundary(DateOnly date)
     {
-        var wallClock = date.ToDateTime(timeOfDay);
+        var wallClock = date.ToDateTime(_timeOfDay);
 
-        if (timeZone.IsInvalidTime(wallClock))
+        if (_timeZone.IsInvalidTime(wallClock))
         {
             // Rule 1: the scheduled wall-clock time was skipped by a forward transition. The
             // boundary moves to the transition instant itself, the first valid time after the gap.
             return FirstInstantAfterGap(wallClock);
         }
 
-        if (timeZone.IsAmbiguousTime(wallClock))
+        if (_timeZone.IsAmbiguousTime(wallClock))
         {
             // Rule 2: the scheduled wall-clock time happens twice. Take the first occurrence, which
             // is the one under the larger (pre-transition) offset — a larger offset means an
@@ -336,11 +336,11 @@ public sealed class RecurrenceSchedule
             // instead report the zone's standard-time offset here, which is the *second*
             // occurrence whenever standard time follows daylight saving time, so the ambiguous
             // offsets are resolved explicitly.
-            return new DateTimeOffset(wallClock, timeZone.GetAmbiguousTimeOffsets(wallClock).Max());
+            return new DateTimeOffset(wallClock, _timeZone.GetAmbiguousTimeOffsets(wallClock).Max());
         }
 
         // Rule 3: an ordinary wall-clock time, at the zone's offset for that date.
-        return new DateTimeOffset(wallClock, timeZone.GetUtcOffset(wallClock));
+        return new DateTimeOffset(wallClock, _timeZone.GetUtcOffset(wallClock));
     }
 
     /// <summary>
@@ -355,8 +355,8 @@ public sealed class RecurrenceSchedule
         // wall-clock time (read here as a UTC instant) is unambiguously on one side of the
         // transition or the other.
         var probe = DateTime.SpecifyKind(skippedWallClock, DateTimeKind.Utc);
-        var offsetBefore = timeZone.GetUtcOffset(probe.AddDays(-1));
-        var offsetAfter = timeZone.GetUtcOffset(probe.AddDays(1));
+        var offsetBefore = _timeZone.GetUtcOffset(probe.AddDays(-1));
+        var offsetAfter = _timeZone.GetUtcOffset(probe.AddDays(1));
 
         // The wall clock is invalid precisely because it falls inside [gapStart, gapStart + delta),
         // where the transition instant is gapStart - offsetBefore. Reading the skipped wall clock
@@ -368,7 +368,7 @@ public sealed class RecurrenceSchedule
         while (atOrAfterTransition - beforeTransition > TimeSpan.FromTicks(1))
         {
             var middle = beforeTransition.AddTicks((atOrAfterTransition - beforeTransition).Ticks / 2);
-            if (timeZone.GetUtcOffset(middle) == offsetAfter)
+            if (_timeZone.GetUtcOffset(middle) == offsetAfter)
             {
                 atOrAfterTransition = middle;
             }
@@ -384,20 +384,20 @@ public sealed class RecurrenceSchedule
     /// <summary>
     /// Returns the key of the latest occurrence whose calendar date is on or before
     /// <paramref name="date"/>. A key is a day number for daily and weekly schedules and a month
-    /// index for monthly ones; consecutive occurrences are <see cref="occurrenceStep"/> apart, so
+    /// index for monthly ones; consecutive occurrences are <see cref="_occurrenceStep"/> apart, so
     /// the count of occurrences between two keys is their difference divided by that step.
     /// </summary>
-    private int OccurrenceOnOrBefore(DateOnly date) => kind switch
+    private int OccurrenceOnOrBefore(DateOnly date) => _kind switch
     {
         RecurrenceKind.Daily => date.DayNumber,
-        RecurrenceKind.Weekly => date.DayNumber - (((int)date.DayOfWeek - (int)dayOfWeek + DaysPerWeek) % DaysPerWeek),
+        RecurrenceKind.Weekly => date.DayNumber - (((int)date.DayOfWeek - (int)_dayOfWeek + DaysPerWeek) % DaysPerWeek),
         _ => MonthlyOccurrenceOnOrBefore(date),
     };
 
     private int MonthlyOccurrenceOnOrBefore(DateOnly date)
     {
         var monthIndex = MonthIndex(date.Year, date.Month);
-        var scheduledDay = Math.Min(dayOfMonth, DateTime.DaysInMonth(date.Year, date.Month));
+        var scheduledDay = Math.Min(_dayOfMonth, DateTime.DaysInMonth(date.Year, date.Month));
         return scheduledDay <= date.Day ? monthIndex : monthIndex - 1;
     }
 
@@ -407,14 +407,14 @@ public sealed class RecurrenceSchedule
     /// </summary>
     private DateOnly OccurrenceDate(int key)
     {
-        if (kind != RecurrenceKind.Monthly)
+        if (_kind != RecurrenceKind.Monthly)
         {
             return DateOnly.FromDayNumber(key);
         }
 
         var year = (key / MonthsPerYear) + 1;
         var month = (key % MonthsPerYear) + 1;
-        return new DateOnly(year, month, Math.Min(dayOfMonth, DateTime.DaysInMonth(year, month)));
+        return new DateOnly(year, month, Math.Min(_dayOfMonth, DateTime.DaysInMonth(year, month)));
     }
 
     private static int MonthIndex(int year, int month) => ((year - 1) * MonthsPerYear) + (month - 1);
