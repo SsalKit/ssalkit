@@ -54,7 +54,18 @@ int missedRewards = dailyReset.CountBoundaries(player.LastLogin, now);
 
 // Which reset period are we in, and how long is left in it?
 TimeWindow today = dailyReset.CurrentWindow(now);
-TimeSpan remaining = dailyReset.NextBoundary(now) - now;
+TimeSpan remaining = dailyReset.UntilNext(now);   // always strictly positive
+```
+
+`WindowAt` reaches a neighbouring period by offset — `0` is today, `-1` is the one before it — which is what a "compared to yesterday" figure needs, and `EnumerateBoundaries` walks the boundaries of an interval lazily and in order:
+
+```csharp
+TimeWindow yesterday = dailyReset.WindowAt(now, -1);   // O(1); -30 costs the same
+
+foreach (var boundary in dailyReset.EnumerateBoundaries(player.LastLogin, now))
+{
+    // exactly CountBoundaries(player.LastLogin, now) of them, ascending, in (lastSeen, now]
+}
 ```
 
 Weekly and monthly cadences work the same way, and a monthly schedule anchored past the end of a short month clamps to its last day:
@@ -80,11 +91,21 @@ A runnable walkthrough of all of this, daylight saving included, is in [samples/
 | `Monthly(int dayOfMonth, TimeOnly atTimeOfDay, TimeZoneInfo? timeZone = null)` | Once every calendar month, on day `1`–`31`; shorter months clamp to their last day. |
 | `PreviousBoundary(DateTimeOffset asOf)` | The greatest boundary `b <= asOf`. Returns `asOf` itself when `asOf` is a boundary. |
 | `NextBoundary(DateTimeOffset asOf)` | The least boundary `b > asOf`. Strictly after, so a boundary returns the following one. |
+| `UntilNext(DateTimeOffset asOf)` | `NextBoundary(asOf) - asOf`. Always **strictly positive**, so a boundary reports a whole window rather than zero. |
 | `CurrentWindow(DateTimeOffset asOf)` | `[PreviousBoundary(asOf), NextBoundary(asOf))` — the reset period `asOf` belongs to. |
+| `WindowAt(DateTimeOffset asOf, int offset)` | The window `offset` periods away: `0` is `CurrentWindow(asOf)`, `-1` the previous one. O(1). |
 | `HasCrossed(DateTimeOffset lastSeen, DateTimeOffset now)` | Whether some boundary `b` satisfies `lastSeen < b <= now`. |
 | `CountBoundaries(DateTimeOffset lastSeen, DateTimeOffset now)` | How many such `b` there are; `0` when `now <= lastSeen`. |
+| `EnumerateBoundaries(DateTimeOffset from, DateTimeOffset to)` | Those same boundaries themselves, ascending and lazily. Exactly `CountBoundaries(from, to)` of them. |
+| `ToString()` | A diagnostic rendering — `Daily 04:30 @ UTC`, `Weekly Monday 09:00 @ Asia/Seoul`, `Monthly day 31 00:00 @ America/New_York`. |
 
 Boundaries always come back carrying **the schedule time zone's UTC offset for that date** — `+09:00` for a Seoul schedule, `-05:00` or `-04:00` for a New York one, `+00:00` for a UTC one. Comparisons are unaffected (`DateTimeOffset` compares instants), but formatting a boundary shows the local wall-clock time the schedule was written in.
+
+Three notes on the members added for convenience:
+
+- **`CountBoundaries` is O(1); `EnumerateBoundaries` is O(number of boundaries).** They cover the same half-open interval `(from, to]` and the sequence always has exactly as many elements as the count, but the count is closed-form calendar arithmetic while the sequence resolves each boundary in turn. Ask for the count when the count is all you need. The sequence is deferred — there are no arguments to validate, so nothing is checked early either — and it can be cut short with `Take` or bounded by a wide `to`.
+- **`WindowAt` never wraps.** An `offset` that would move the window outside the range of `DateTime` throws `ArgumentOutOfRangeException` rather than silently landing in some unrelated century; the arithmetic is done in 64 bits and range-checked.
+- **`ToString()` is for logs, not for parsing.** Unlike the daylight-saving rules below, the format carries no compatibility promise and may be improved in any release. It is rendered with the invariant culture and the zone's `TimeZoneInfo.Id`, and the time of day grows to `HH:mm:ss` (or full tick precision) only when the schedule is that precise.
 
 ### `TimeWindow`
 
@@ -101,14 +122,18 @@ A `readonly record struct` for the half-open interval `[Start, End)`.
 
 ### `TimeProvider` extensions
 
-`RecurrenceScheduleTimeProviderExtensions` mirrors four members, forwarding `TimeProvider.GetUtcNow()`:
+`RecurrenceScheduleTimeProviderExtensions` mirrors the six members whose whole argument is "now", forwarding `TimeProvider.GetUtcNow()` — read exactly once per call, so nothing can tear against a moving clock:
 
 | Extension | Equivalent to |
 |---|---|
-| `schedule.CurrentWindow(timeProvider)` | `schedule.CurrentWindow(timeProvider.GetUtcNow())` |
+| `schedule.PreviousBoundary(timeProvider)` | `schedule.PreviousBoundary(timeProvider.GetUtcNow())` |
 | `schedule.NextBoundary(timeProvider)` | `schedule.NextBoundary(timeProvider.GetUtcNow())` |
+| `schedule.UntilNext(timeProvider)` | `schedule.UntilNext(timeProvider.GetUtcNow())` |
+| `schedule.CurrentWindow(timeProvider)` | `schedule.CurrentWindow(timeProvider.GetUtcNow())` |
 | `schedule.HasCrossed(lastSeen, timeProvider)` | `schedule.HasCrossed(lastSeen, timeProvider.GetUtcNow())` |
 | `schedule.CountBoundaries(lastSeen, timeProvider)` | `schedule.CountBoundaries(lastSeen, timeProvider.GetUtcNow())` |
+
+`WindowAt` and `EnumerateBoundaries` have no provider overload: they take a reference instant *plus* an explicit range, so one would save nothing over passing `timeProvider.GetUtcNow()` yourself.
 
 `TimeProvider` is part of the BCL from .NET 8 onward, so these add no package dependency.
 
@@ -175,7 +200,7 @@ Time zone identifiers follow `TimeZoneInfo`'s own resolution. On .NET 6 and late
 Half-open `[Start, End)` is the only rule this type offers, and there is deliberately no inclusive variant. A codebase that mixes them gets double counting at the shared endpoint from one pair of methods and a hole at the same endpoint from another — which is precisely how the prototype ended up with two disagreeing answers.
 
 ```csharp
-var yesterday = dailyReset.CurrentWindow(today.Start.AddTicks(-1));
+var yesterday = dailyReset.WindowAt(now, -1);
 
 yesterday.End == today.Start;          // true  -- they meet exactly
 yesterday.Overlaps(today);             // false -- touching is not overlapping
@@ -239,7 +264,8 @@ Out of scope for v1, deliberately: cron expressions, RFC 5545 recurrence rules, 
 | `Monthly` with `dayOfMonth` outside 1–31 | `ArgumentOutOfRangeException` |
 | `new TimeWindow(start, end)` with `end` before `start` | `ArgumentException` |
 | `new TimeWindow(start, start)` | Legal. An empty window contains nothing and overlaps nothing. |
-| `CountBoundaries` / `HasCrossed` with `now <= lastSeen` | `0` / `false` — never negative |
+| `CountBoundaries` / `HasCrossed` / `EnumerateBoundaries` with `to <= from` | `0` / `false` / an empty sequence — never negative |
+| `WindowAt` with an `offset` that leaves the representable range | `ArgumentOutOfRangeException` — never a silently wrapped window |
 | `Monthly(31, ...)` in February | Clamps to the 28th or 29th; the month still gets exactly one boundary |
 | A `TimeProvider` extension called on a `null` schedule or provider | `ArgumentNullException` |
 

@@ -2,7 +2,11 @@ namespace SsalKit.RecurrenceSchedule;
 
 /// <summary>
 /// Convenience overloads that read the current instant from a <see cref="TimeProvider"/> instead of
-/// taking it as an argument.
+/// taking it as an argument. Only the members whose whole argument is "now" are mirrored;
+/// <see cref="RecurrenceSchedule.WindowAt"/> and
+/// <see cref="RecurrenceSchedule.EnumerateBoundaries"/> take a reference instant plus an explicit
+/// range, so a provider overload would save nothing over passing
+/// <see cref="TimeProvider.GetUtcNow"/> directly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -99,5 +103,40 @@ public static class RecurrenceScheduleTimeProviderExtensions
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         return schedule.NextBoundary(timeProvider.GetUtcNow());
+    }
+
+    /// <summary>
+    /// Returns the most recent boundary at or before the provider's current instant.
+    /// </summary>
+    /// <param name="schedule">The schedule.</param>
+    /// <param name="timeProvider">The clock to read the current instant from.</param>
+    /// <returns>The result of <see cref="RecurrenceSchedule.PreviousBoundary(DateTimeOffset)"/> at
+    /// <see cref="TimeProvider.GetUtcNow"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="schedule"/> or
+    /// <paramref name="timeProvider"/> is <see langword="null"/>.</exception>
+    public static DateTimeOffset PreviousBoundary(this RecurrenceSchedule schedule, TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        return schedule.PreviousBoundary(timeProvider.GetUtcNow());
+    }
+
+    /// <summary>
+    /// Returns how much time is left before the next boundary, measured from the provider's current
+    /// instant.
+    /// </summary>
+    /// <param name="schedule">The schedule.</param>
+    /// <param name="timeProvider">The clock to read the current instant from.</param>
+    /// <returns>The result of <see cref="RecurrenceSchedule.UntilNext(DateTimeOffset)"/> at
+    /// <see cref="TimeProvider.GetUtcNow"/>. Always strictly positive.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="schedule"/> or
+    /// <paramref name="timeProvider"/> is <see langword="null"/>.</exception>
+    public static TimeSpan UntilNext(this RecurrenceSchedule schedule, TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        return schedule.UntilNext(timeProvider.GetUtcNow());
     }
 }

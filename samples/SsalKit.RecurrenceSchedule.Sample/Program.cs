@@ -29,7 +29,7 @@ Console.WriteLine();
 // ---------------------------------------------------------------------------------------
 // 1. Daily quota reset: "has the 04:30 Seoul reset happened since the last time we looked?"
 //    HasCrossed answers exactly that -- it asks whether a boundary b satisfies
-//    lastSeen < b <= now -- and NextBoundary says how long the current allowance has left.
+//    lastSeen < b <= now -- and UntilNext says how long the current allowance has left.
 // ---------------------------------------------------------------------------------------
 var dailyReset = RecurrenceSchedule.Daily(new TimeOnly(4, 30), seoul);
 
@@ -40,12 +40,14 @@ var today = dailyReset.CurrentWindow(now);
 bool crossed = dailyReset.HasCrossed(lastReset, now);
 var nextReset = dailyReset.NextBoundary(now);
 
-Console.WriteLine("[Daily reset]    schedule: every day at 04:30 Asia/Seoul");
+// ToString() renders the schedule itself, for logs and debugger windows. It is a diagnostic
+// rendering, not a parsing contract -- unlike the daylight-saving rules, the format may improve.
+Console.WriteLine($"[Daily reset]    schedule: {dailyReset}  (ToString() is for logs, not for parsing)");
 Console.WriteLine($"                 now                  {Instant(now)}");
 Console.WriteLine($"                 last quota reset     {Instant(lastReset)}");
 Console.WriteLine($"                 current window       [{Instant(today.Start)}, {Instant(today.End)})");
 Console.WriteLine($"                 HasCrossed           {crossed}  -> {(crossed ? "refill the quota" : "leave the quota alone")}");
-Console.WriteLine($"                 next reset           {Instant(nextReset)}  (in {Elapsed(nextReset - now)})");
+Console.WriteLine($"                 next reset           {Instant(nextReset)}  (in {Elapsed(dailyReset.UntilNext(now))})");
 Console.WriteLine();
 
 // A last-seen instant that is already inside today's window has not crossed anything: a boundary
@@ -90,7 +92,7 @@ var weekly = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(9, 0));
 var weeklyAsOf = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero); // a Saturday
 var weeklyWindow = weekly.CurrentWindow(weeklyAsOf);
 
-Console.WriteLine("[Weekly]         schedule: every Monday at 09:00 UTC");
+Console.WriteLine($"[Weekly]         schedule: {weekly}");
 Console.WriteLine($"                 as of                {Instant(weeklyAsOf)}");
 Console.WriteLine($"                 current window       [{Instant(weeklyWindow.Start)}, {Instant(weeklyWindow.End)})  ({Elapsed(weeklyWindow.Duration)})");
 Console.WriteLine();
@@ -98,12 +100,13 @@ Console.WriteLine();
 var monthly = RecurrenceSchedule.Monthly(31, new TimeOnly(0, 0));
 var cursor = new DateTimeOffset(2026, 1, 15, 0, 0, 0, TimeSpan.Zero);
 
-Console.WriteLine("[Monthly]        schedule: the 31st of every month at 00:00 UTC");
+// EnumerateBoundaries walks (from, to] lazily and in ascending order, so Take cuts it short
+// without paying for the rest of the interval.
+Console.WriteLine($"[Monthly]        schedule: {monthly}");
 Console.WriteLine($"                 the next four boundaries after {Instant(cursor)}:");
-for (int i = 0; i < 4; i++)
+foreach (var boundary in monthly.EnumerateBoundaries(cursor, DateTimeOffset.MaxValue).Take(4))
 {
-    cursor = monthly.NextBoundary(cursor);
-    Console.WriteLine($"                   {Instant(cursor)}  ({cursor:MMMM} has {DateTime.DaysInMonth(cursor.Year, cursor.Month)} days)");
+    Console.WriteLine($"                   {Instant(boundary)}  ({boundary:MMMM} has {DateTime.DaysInMonth(boundary.Year, boundary.Month)} days)");
 }
 
 Console.WriteLine($"                 boundaries in 2026   {monthly.CountBoundaries(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2027, 1, 1, 0, 0, 0, TimeSpan.Zero))}  (never skips a short month)");
@@ -157,15 +160,18 @@ Console.WriteLine();
 // 5. TimeWindow arithmetic. Half-open [Start, End) is the only containment rule there is, which
 //    is what lets consecutive windows tile the timeline with neither overlap nor gap.
 // ---------------------------------------------------------------------------------------
-var yesterday = dailyReset.CurrentWindow(today.Start.AddTicks(-1));
+// WindowAt(now, -1) is the previous reset period -- the "compared to yesterday" window, reached by
+// occurrence arithmetic rather than by stepping, so WindowAt(now, -30) costs the same.
+var yesterday = dailyReset.WindowAt(now, -1);
 var maintenance = new TimeWindow(
     new DateTimeOffset(2026, 7, 25, 3, 0, 0, kst),
     new DateTimeOffset(2026, 7, 25, 6, 0, 0, kst));
 var overrun = new DateTimeOffset(2026, 7, 27, 0, 0, 0, kst);
 
 Console.WriteLine("[TimeWindow]     today's reset window and its neighbour");
-Console.WriteLine($"                 yesterday            [{Instant(yesterday.Start)}, {Instant(yesterday.End)})");
-Console.WriteLine($"                 today                [{Instant(today.Start)}, {Instant(today.End)})");
+Console.WriteLine($"                 yesterday            [{Instant(yesterday.Start)}, {Instant(yesterday.End)})   <- WindowAt(now, -1)");
+Console.WriteLine($"                 today                [{Instant(today.Start)}, {Instant(today.End)})   <- WindowAt(now, 0) == CurrentWindow(now)");
+Console.WriteLine($"                 a week ago           [{Instant(dailyReset.WindowAt(now, -7).Start)}, {Instant(dailyReset.WindowAt(now, -7).End)})");
 Console.WriteLine($"                 they meet exactly    yesterday.End == today.Start: {yesterday.End == today.Start}");
 Console.WriteLine($"                 and never overlap    Overlaps: {yesterday.Overlaps(today)}");
 Console.WriteLine($"                 the shared boundary belongs to today: yesterday.Contains {yesterday.Contains(today.Start)} / today.Contains {today.Contains(today.Start)}");
@@ -190,9 +196,11 @@ Console.WriteLine();
 // ---------------------------------------------------------------------------------------
 TimeProvider clock = new FixedTimeProvider(now);
 
-Console.WriteLine("[TimeProvider]   the same four questions, with 'now' read from an injected clock");
+Console.WriteLine("[TimeProvider]   the same questions again, with 'now' read from an injected clock");
 Console.WriteLine($"                 clock.GetUtcNow()    {Instant(clock.GetUtcNow())}");
+Console.WriteLine($"                 PreviousBoundary     {Instant(dailyReset.PreviousBoundary(clock))}");
 Console.WriteLine($"                 NextBoundary(clock)  {Instant(dailyReset.NextBoundary(clock))}");
+Console.WriteLine($"                 UntilNext(clock)     {Elapsed(dailyReset.UntilNext(clock))}  (always strictly positive)");
 Console.WriteLine($"                 CurrentWindow(clock) [{Instant(dailyReset.CurrentWindow(clock).Start)}, {Instant(dailyReset.CurrentWindow(clock).End)})");
 Console.WriteLine($"                 HasCrossed(clock)    {dailyReset.HasCrossed(lastReset, clock)}");
 Console.WriteLine($"                 CountBoundaries      {dailyReset.CountBoundaries(lastLogin, clock)}");

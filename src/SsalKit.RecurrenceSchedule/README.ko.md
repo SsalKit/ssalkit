@@ -54,7 +54,18 @@ int missedRewards = dailyReset.CountBoundaries(player.LastLogin, now);
 
 // 지금은 어느 리셋 기간이고, 얼마나 남았는가?
 TimeWindow today = dailyReset.CurrentWindow(now);
-TimeSpan remaining = dailyReset.NextBoundary(now) - now;
+TimeSpan remaining = dailyReset.UntilNext(now);   // 항상 0보다 큼
+```
+
+`WindowAt`은 오프셋으로 이웃 기간을 집어냅니다. `0`이 오늘, `-1`이 그 직전 기간이라 "전일 대비" 수치를 낼 때 쓰기 좋습니다. `EnumerateBoundaries`는 구간 안의 경계를 오름차순으로 지연 열거합니다.
+
+```csharp
+TimeWindow yesterday = dailyReset.WindowAt(now, -1);   // O(1). -30이어도 비용은 같음
+
+foreach (var boundary in dailyReset.EnumerateBoundaries(player.LastLogin, now))
+{
+    // (lastSeen, now] 안의 경계가 오름차순으로, 정확히 CountBoundaries(player.LastLogin, now)개
+}
 ```
 
 주간·월간 주기도 같은 방식이며, 짧은 달의 마지막 날을 넘어가는 월간 스케줄은 그 달의 말일로 클램프됩니다.
@@ -80,11 +91,21 @@ DST를 포함해 위 내용을 전부 실행해 볼 수 있는 예제는 [sample
 | `Monthly(int dayOfMonth, TimeOnly atTimeOfDay, TimeZoneInfo? timeZone = null)` | 매 달력월 1회, `1`~`31`일에. 짧은 달은 말일로 클램프. |
 | `PreviousBoundary(DateTimeOffset asOf)` | `b <= asOf`인 가장 큰 경계. `asOf` 자체가 경계면 그대로 반환. |
 | `NextBoundary(DateTimeOffset asOf)` | `b > asOf`인 가장 작은 경계. 엄격한 부등호이므로 경계를 넣으면 그 다음 경계가 나옴. |
+| `UntilNext(DateTimeOffset asOf)` | `NextBoundary(asOf) - asOf`. **항상 0보다 큼**. 경계를 넣으면 0이 아니라 창 하나 전체가 나옴. |
 | `CurrentWindow(DateTimeOffset asOf)` | `[PreviousBoundary(asOf), NextBoundary(asOf))` — `asOf`가 속한 리셋 기간. |
+| `WindowAt(DateTimeOffset asOf, int offset)` | `offset`칸 떨어진 창. `0`은 `CurrentWindow(asOf)`, `-1`은 그 직전 창. O(1). |
 | `HasCrossed(DateTimeOffset lastSeen, DateTimeOffset now)` | `lastSeen < b <= now`를 만족하는 경계 `b`의 존재 여부. |
 | `CountBoundaries(DateTimeOffset lastSeen, DateTimeOffset now)` | 그런 `b`의 개수. `now <= lastSeen`이면 `0`. |
+| `EnumerateBoundaries(DateTimeOffset from, DateTimeOffset to)` | 바로 그 경계들 자체를 오름차순으로 지연 열거. 개수는 언제나 `CountBoundaries(from, to)`와 같음. |
+| `ToString()` | 진단용 표기. `Daily 04:30 @ UTC`, `Weekly Monday 09:00 @ Asia/Seoul`, `Monthly day 31 00:00 @ America/New_York`. |
 
 경계는 항상 **해당 날짜에 대한 스케줄 타임존의 UTC 오프셋**을 달고 돌아옵니다. 서울 스케줄이면 `+09:00`, 뉴욕 스케줄이면 `-05:00` 또는 `-04:00`, UTC 스케줄이면 `+00:00`입니다. 비교에는 영향이 없지만(`DateTimeOffset`은 절대 시각을 비교합니다), 경계를 포맷하면 그 스케줄이 정의된 현지 벽시계 시각이 그대로 보입니다.
+
+편의를 위해 추가된 멤버에 대해 세 가지만 짚어 둡니다.
+
+- **`CountBoundaries`는 O(1)이고 `EnumerateBoundaries`는 O(경계 개수)입니다.** 둘은 같은 반개구간 `(from, to]`를 다루고 열거 결과의 개수는 언제나 `CountBoundaries`와 일치하지만, 개수는 닫힌 형태의 달력 산술인 반면 열거는 경계를 하나씩 실제로 계산합니다. 개수만 필요하면 개수를 물으세요. 열거는 지연 평가이며(검증할 인자가 없으므로 미리 확인되는 것도 없습니다), `Take`로 끊거나 `to`를 넓게 잡아 쓸 수 있습니다.
+- **`WindowAt`은 절대 오버플로로 감기지 않습니다.** `DateTime` 범위를 벗어나게 하는 `offset`은 엉뚱한 세기의 창을 조용히 돌려주는 대신 `ArgumentOutOfRangeException`을 던집니다. 산술은 64비트로 하고 결과를 범위 검사합니다.
+- **`ToString()`은 로그용이지 파싱 대상이 아닙니다.** 아래의 DST 규칙과 달리 이 포맷에는 호환성 약속이 없으며 어느 릴리스에서든 개선될 수 있습니다. 표기는 invariant culture와 타임존의 `TimeZoneInfo.Id`를 사용하고, 시각 부분은 스케줄이 그만큼 정밀할 때만 `HH:mm:ss`(또는 틱 정밀도)까지 늘어납니다.
 
 ### `TimeWindow`
 
@@ -101,14 +122,18 @@ DST를 포함해 위 내용을 전부 실행해 볼 수 있는 예제는 [sample
 
 ### `TimeProvider` 확장
 
-`RecurrenceScheduleTimeProviderExtensions`는 `TimeProvider.GetUtcNow()`를 전달하는 네 개의 오버로드를 제공합니다.
+`RecurrenceScheduleTimeProviderExtensions`는 인자 전체가 "지금"인 여섯 개 멤버에 대해 `TimeProvider.GetUtcNow()`를 전달하는 오버로드를 제공합니다. 호출당 정확히 한 번만 읽으므로, 움직이는 시계에서 값이 찢어질 일이 없습니다.
 
 | 확장 | 동등한 호출 |
 |---|---|
-| `schedule.CurrentWindow(timeProvider)` | `schedule.CurrentWindow(timeProvider.GetUtcNow())` |
+| `schedule.PreviousBoundary(timeProvider)` | `schedule.PreviousBoundary(timeProvider.GetUtcNow())` |
 | `schedule.NextBoundary(timeProvider)` | `schedule.NextBoundary(timeProvider.GetUtcNow())` |
+| `schedule.UntilNext(timeProvider)` | `schedule.UntilNext(timeProvider.GetUtcNow())` |
+| `schedule.CurrentWindow(timeProvider)` | `schedule.CurrentWindow(timeProvider.GetUtcNow())` |
 | `schedule.HasCrossed(lastSeen, timeProvider)` | `schedule.HasCrossed(lastSeen, timeProvider.GetUtcNow())` |
 | `schedule.CountBoundaries(lastSeen, timeProvider)` | `schedule.CountBoundaries(lastSeen, timeProvider.GetUtcNow())` |
+
+`WindowAt`과 `EnumerateBoundaries`에는 프로바이더 오버로드가 없습니다. 기준 시각 *과 함께* 명시적인 범위를 받는 API라, `timeProvider.GetUtcNow()`를 직접 넘기는 것과 비교해 얻는 것이 없기 때문입니다.
 
 `TimeProvider`는 .NET 8부터 BCL에 포함되므로, 이 오버로드를 써도 패키지 의존성은 늘지 않습니다.
 
@@ -175,7 +200,7 @@ autumn.CurrentWindow(second).Duration;                                    // 25:
 반개구간 `[Start, End)`가 이 타입이 제공하는 유일한 규칙이고, 포함 구간 변형은 의도적으로 없습니다. 두 규칙을 섞는 코드베이스는 어떤 메서드 쌍에서는 공유 끝점이 이중 계산되고, 다른 쌍에서는 같은 끝점에 구멍이 생깁니다. 원형이 서로 다른 두 답을 갖게 된 경위가 정확히 이것입니다.
 
 ```csharp
-var yesterday = dailyReset.CurrentWindow(today.Start.AddTicks(-1));
+var yesterday = dailyReset.WindowAt(now, -1);
 
 yesterday.End == today.Start;          // true  -- 정확히 맞닿는다
 yesterday.Overlaps(today);             // false -- 맞닿는 것은 겹치는 것이 아니다
@@ -239,7 +264,8 @@ v1에서 의도적으로 제외한 범위는 cron 식, RFC 5545 반복 규칙, �
 | `dayOfMonth`가 1~31 밖인 `Monthly` 호출 | `ArgumentOutOfRangeException` |
 | `end`가 `start`보다 이른 `new TimeWindow(start, end)` | `ArgumentException` |
 | `new TimeWindow(start, start)` | 합법. 빈 창은 아무것도 포함하지 않고 아무것과도 겹치지 않음 |
-| `now <= lastSeen`인 `CountBoundaries` / `HasCrossed` | `0` / `false` — 음수가 되지 않음 |
+| `to <= from`인 `CountBoundaries` / `HasCrossed` / `EnumerateBoundaries` | `0` / `false` / 빈 시퀀스 — 음수가 되지 않음 |
+| 표현 가능 범위를 벗어나는 `offset`으로 `WindowAt` 호출 | `ArgumentOutOfRangeException` — 조용히 감긴 창이 나오지 않음 |
 | 2월의 `Monthly(31, ...)` | 28일 또는 29일로 클램프. 그 달도 정확히 하나의 경계를 가짐 |
 | `null` 스케줄 또는 `null` 프로바이더로 `TimeProvider` 확장 호출 | `ArgumentNullException` |
 

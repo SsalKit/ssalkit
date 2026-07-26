@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 
 namespace SsalKit.RecurrenceSchedule;
 
@@ -229,6 +230,22 @@ public sealed class RecurrenceSchedule
         ResolveBoundary(OccurrenceDate(PreviousCore(asOf).Key + _occurrenceStep));
 
     /// <summary>
+    /// Returns how much time is left before the next boundary — exactly
+    /// <c>NextBoundary(asOf) - asOf</c>.
+    /// </summary>
+    /// <param name="asOf">The instant to measure from.</param>
+    /// <returns>The time remaining in the window <paramref name="asOf"/> belongs to. <b>Always
+    /// strictly positive</b>, never zero and never negative: <see cref="NextBoundary"/> is strict
+    /// (<c>b &gt; asOf</c>), so an <paramref name="asOf"/> that is itself a boundary reports the
+    /// full length of the window it just opened rather than <see cref="TimeSpan.Zero"/>.</returns>
+    /// <remarks>
+    /// The duration is measured between absolute instants, so a window shortened or lengthened by a
+    /// daylight-saving transition reports its real elapsed length (23 or 25 hours for a daily
+    /// schedule in a one-hour zone), not a nominal 24.
+    /// </remarks>
+    public TimeSpan UntilNext(DateTimeOffset asOf) => NextBoundary(asOf) - asOf;
+
+    /// <summary>
     /// Returns the half-open window <c>[PreviousBoundary(asOf), NextBoundary(asOf))</c> that
     /// <paramref name="asOf"/> belongs to — the current "reset period".
     /// </summary>
@@ -240,6 +257,56 @@ public sealed class RecurrenceSchedule
     {
         var (key, start) = PreviousCore(asOf);
         return new TimeWindow(start, ResolveBoundary(OccurrenceDate(key + _occurrenceStep)));
+    }
+
+    /// <summary>
+    /// Returns the window <paramref name="offset"/> steps away from the one containing
+    /// <paramref name="asOf"/> — the previous reset period, the one before that, or a future one.
+    /// </summary>
+    /// <param name="asOf">The instant whose window the offset is counted from.</param>
+    /// <param name="offset">How many windows to move: <c>0</c> is the window containing
+    /// <paramref name="asOf"/> and is identical to <see cref="CurrentWindow"/>, negative values
+    /// move into the past, positive values into the future.</param>
+    /// <returns>The half-open window, computed in constant time from occurrence arithmetic rather
+    /// than by stepping — a thousand windows back costs what one costs.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="offset"/> moves the window
+    /// outside the range of <see cref="DateTime"/>. The arithmetic is done in 64 bits and the
+    /// result range-checked, so an extreme offset such as <see cref="int.MinValue"/> throws rather
+    /// than silently wrapping around to a nearby window.</exception>
+    /// <remarks>
+    /// <para>
+    /// Consecutive offsets tile the timeline exactly, as consecutive windows do:
+    /// <c>WindowAt(asOf, n).End == WindowAt(asOf, n + 1).Start</c> for every <c>n</c>.
+    /// </para>
+    /// <para>
+    /// The obvious use is a "compared to the previous period" figure — yesterday's numbers against
+    /// today's, last week's against this week's:
+    /// </para>
+    /// <code>
+    /// var today = schedule.CurrentWindow(now);
+    /// var yesterday = schedule.WindowAt(now, -1);
+    /// </code>
+    /// <para>
+    /// Windows either side of a daylight-saving transition keep their real elapsed length, so
+    /// <c>yesterday.Duration</c> may legitimately differ from <c>today.Duration</c>.
+    /// </para>
+    /// </remarks>
+    public TimeWindow WindowAt(DateTimeOffset asOf, int offset)
+    {
+        var shifted = PreviousCore(asOf).Key + ((long)offset * _occurrenceStep);
+
+        if (shifted is < int.MinValue or > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(offset),
+                offset,
+                "The offset moves the window outside the range of representable dates.");
+        }
+
+        var key = (int)shifted;
+        return new TimeWindow(
+            ResolveBoundary(OccurrenceDate(key)),
+            ResolveBoundary(OccurrenceDate(key + _occurrenceStep)));
     }
 
     /// <summary>
@@ -283,6 +350,99 @@ public sealed class RecurrenceSchedule
         }
 
         return (PreviousCore(now).Key - PreviousCore(lastSeen).Key) / _occurrenceStep;
+    }
+
+    /// <summary>
+    /// Enumerates, in ascending order, every boundary in the half-open interval
+    /// <c>(<paramref name="from"/>, <paramref name="to"/>]</c> — the same interval
+    /// <see cref="CountBoundaries(DateTimeOffset, DateTimeOffset)"/> counts, so the sequence always
+    /// has exactly <c>CountBoundaries(from, to)</c> elements.
+    /// </summary>
+    /// <param name="from">The lower bound, <b>exclusive</b>: a boundary exactly at
+    /// <paramref name="from"/> is not yielded.</param>
+    /// <param name="to">The upper bound, <b>inclusive</b>: a boundary exactly at
+    /// <paramref name="to"/> is yielded.</param>
+    /// <returns>The boundaries, each carrying the schedule time zone's UTC offset for its date. An
+    /// empty sequence when <paramref name="to"/> is at or before <paramref name="from"/>. The
+    /// sequence can be enumerated more than once; each pass recomputes the boundaries.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Lazily evaluated, and O(number of boundaries).</b> Nothing is computed until the sequence
+    /// is enumerated, and each boundary costs one time-zone resolution — unlike
+    /// <see cref="CountBoundaries(DateTimeOffset, DateTimeOffset)"/>, which answers "how many" in
+    /// constant time. Enumerating a decade of a daily schedule really does resolve 3,653 instants,
+    /// so reach for the count when the count is all that is wanted, and bound the interval (or
+    /// <c>Take</c>) before enumerating a wide one.
+    /// </para>
+    /// <para>
+    /// <b>There are no arguments to validate</b> — every pair of instants is meaningful, reversed
+    /// ones included — so the usual deferred-execution caveat about arguments being checked late
+    /// does not apply here. An interval at the very edge of the representable range still throws
+    /// <see cref="ArgumentOutOfRangeException"/> from the underlying date arithmetic, and, because
+    /// execution is deferred, it does so from the first
+    /// <see cref="System.Collections.IEnumerator.MoveNext"/> rather than from the call to this
+    /// method.
+    /// </para>
+    /// </remarks>
+    public IEnumerable<DateTimeOffset> EnumerateBoundaries(DateTimeOffset from, DateTimeOffset to)
+    {
+        var key = PreviousCore(from).Key;
+
+        while (true)
+        {
+            key += _occurrenceStep;
+            var boundary = ResolveBoundary(OccurrenceDate(key));
+
+            if (boundary > to)
+            {
+                yield break;
+            }
+
+            yield return boundary;
+        }
+    }
+
+    /// <summary>
+    /// Returns a human-readable description of the cadence, such as <c>Daily 04:30 @ UTC</c>,
+    /// <c>Weekly Monday 09:00 @ Asia/Seoul</c>, or <c>Monthly day 31 00:00 @ America/New_York</c>.
+    /// </summary>
+    /// <returns>The description, always rendered with the invariant culture and the time zone's
+    /// <see cref="TimeZoneInfo.Id"/> so that it does not vary with the ambient culture. The time of
+    /// day is shown as <c>HH:mm</c>, extended to <c>HH:mm:ss</c> or <c>HH:mm:ss.fffffff</c> only
+    /// when the schedule carries seconds or a fraction of one.</returns>
+    /// <remarks>
+    /// <b>For diagnostics — logs, debugger windows, error messages — and not a parsing contract.</b>
+    /// Unlike the daylight-saving rules documented on
+    /// <see cref="PreviousBoundary(DateTimeOffset)"/>, this format is free to be improved in any
+    /// release. Do not persist it, parse it, or assert on it outside of tests you own.
+    /// </remarks>
+    public override string ToString()
+    {
+        var timeOfDay = FormatTimeOfDay();
+
+        return _kind switch
+        {
+            RecurrenceKind.Daily => $"Daily {timeOfDay} @ {_timeZone.Id}",
+            RecurrenceKind.Weekly => $"Weekly {_dayOfWeek} {timeOfDay} @ {_timeZone.Id}",
+            _ => $"Monthly day {_dayOfMonth} {timeOfDay} @ {_timeZone.Id}",
+        };
+    }
+
+    /// <summary>
+    /// Renders the scheduled time of day at the shortest resolution that loses nothing: whole
+    /// minutes as <c>HH:mm</c>, whole seconds as <c>HH:mm:ss</c>, and anything finer with its full
+    /// tick precision.
+    /// </summary>
+    private string FormatTimeOfDay()
+    {
+        if (_timeOfDay.Ticks % TimeSpan.TicksPerMinute == 0)
+        {
+            return _timeOfDay.ToString(@"HH\:mm", CultureInfo.InvariantCulture);
+        }
+
+        return _timeOfDay.Ticks % TimeSpan.TicksPerSecond == 0
+            ? _timeOfDay.ToString(@"HH\:mm\:ss", CultureInfo.InvariantCulture)
+            : _timeOfDay.ToString(@"HH\:mm\:ss\.fffffff", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

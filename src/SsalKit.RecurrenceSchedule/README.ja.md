@@ -54,7 +54,18 @@ int missedRewards = dailyReset.CountBoundaries(player.LastLogin, now);
 
 // 今はどのリセット期間で、あとどれだけ残っているか？
 TimeWindow today = dailyReset.CurrentWindow(now);
-TimeSpan remaining = dailyReset.NextBoundary(now) - now;
+TimeSpan remaining = dailyReset.UntilNext(now);   // 常に正
+```
+
+`WindowAt` はオフセットで隣の期間を取り出します。`0` が今日、`-1` がその 1 つ前なので、「前日比」の数値を出すときに向いています。`EnumerateBoundaries` は区間内の境界を昇順に遅延列挙します。
+
+```csharp
+TimeWindow yesterday = dailyReset.WindowAt(now, -1);   // O(1)。-30 でもコストは同じ
+
+foreach (var boundary in dailyReset.EnumerateBoundaries(player.LastLogin, now))
+{
+    // (lastSeen, now] 内の境界が昇順で、ちょうど CountBoundaries(player.LastLogin, now) 個
+}
 ```
 
 週次・月次の周期も同じ形で、短い月の末日を超える月次スケジュールはその月の末日にクランプされます。
@@ -80,11 +91,21 @@ DST を含めて以上をすべて実行できるサンプルは [samples/SsalKi
 | `Monthly(int dayOfMonth, TimeOnly atTimeOfDay, TimeZoneInfo? timeZone = null)` | 暦月ごとに 1 回、`1`〜`31` 日に。短い月は末日にクランプ。 |
 | `PreviousBoundary(DateTimeOffset asOf)` | `b <= asOf` を満たす最大の境界。`asOf` 自体が境界ならそのまま返す。 |
 | `NextBoundary(DateTimeOffset asOf)` | `b > asOf` を満たす最小の境界。厳密な不等号なので、境界を渡すと次の境界が返る。 |
+| `UntilNext(DateTimeOffset asOf)` | `NextBoundary(asOf) - asOf`。**常に正**。境界を渡すと 0 ではなくウィンドウ 1 つ分が返る。 |
 | `CurrentWindow(DateTimeOffset asOf)` | `[PreviousBoundary(asOf), NextBoundary(asOf))` — `asOf` が属するリセット期間。 |
+| `WindowAt(DateTimeOffset asOf, int offset)` | `offset` 個ずれたウィンドウ。`0` は `CurrentWindow(asOf)`、`-1` はその 1 つ前。O(1)。 |
 | `HasCrossed(DateTimeOffset lastSeen, DateTimeOffset now)` | `lastSeen < b <= now` を満たす境界 `b` が存在するか。 |
 | `CountBoundaries(DateTimeOffset lastSeen, DateTimeOffset now)` | その `b` の個数。`now <= lastSeen` なら `0`。 |
+| `EnumerateBoundaries(DateTimeOffset from, DateTimeOffset to)` | その境界そのものを昇順に遅延列挙。個数は常に `CountBoundaries(from, to)` と一致。 |
+| `ToString()` | 診断用の表記。`Daily 04:30 @ UTC`、`Weekly Monday 09:00 @ Asia/Seoul`、`Monthly day 31 00:00 @ America/New_York`。 |
 
 境界は常に **その日付におけるスケジュールのタイムゾーンの UTC オフセット** を伴って返ります。ソウルのスケジュールなら `+09:00`、ニューヨークなら `-05:00` または `-04:00`、UTC なら `+00:00` です。比較には影響しません（`DateTimeOffset` は絶対時刻を比較します）が、境界を書式化すると、そのスケジュールが定義された現地の壁時計時刻がそのまま表示されます。
+
+利便性のために追加されたメンバーについて、3 点だけ補足します。
+
+- **`CountBoundaries` は O(1)、`EnumerateBoundaries` は O(境界の個数)です。** 両者は同じ半開区間 `(from, to]` を扱い、列挙結果の個数は常に `CountBoundaries` と一致しますが、個数のほうは閉形式の暦演算であるのに対し、列挙は境界を 1 つずつ実際に解決します。個数だけが必要なら個数を尋ねてください。列挙は遅延評価で（検証すべき引数がないので、先に検査されるものもありません）、`Take` で打ち切ったり `to` を広く取ったりできます。
+- **`WindowAt` は決してラップしません。** `DateTime` の範囲外へ移動させる `offset` は、無関係な世紀のウィンドウを黙って返す代わりに `ArgumentOutOfRangeException` を投げます。演算は 64 ビットで行い、結果を範囲検査します。
+- **`ToString()` はログ用であって、パース対象ではありません。** 後述の DST 規則とは違い、この書式には互換性の約束がなく、どのリリースでも改善される可能性があります。表記には invariant culture とタイムゾーンの `TimeZoneInfo.Id` を用い、時刻部分はスケジュールがその精度を持つときにだけ `HH:mm:ss`（あるいはティック精度）まで伸びます。
 
 ### `TimeWindow`
 
@@ -101,14 +122,18 @@ DST を含めて以上をすべて実行できるサンプルは [samples/SsalKi
 
 ### `TimeProvider` 拡張
 
-`RecurrenceScheduleTimeProviderExtensions` は `TimeProvider.GetUtcNow()` を転送する 4 つのオーバーロードを提供します。
+`RecurrenceScheduleTimeProviderExtensions` は、引数の全体が「今」であるメンバー 6 つについて `TimeProvider.GetUtcNow()` を転送するオーバーロードを提供します。1 回の呼び出しでちょうど 1 回だけ読むので、動いている時計に対して値が食い違うことはありません。
 
 | 拡張 | 等価な呼び出し |
 |---|---|
-| `schedule.CurrentWindow(timeProvider)` | `schedule.CurrentWindow(timeProvider.GetUtcNow())` |
+| `schedule.PreviousBoundary(timeProvider)` | `schedule.PreviousBoundary(timeProvider.GetUtcNow())` |
 | `schedule.NextBoundary(timeProvider)` | `schedule.NextBoundary(timeProvider.GetUtcNow())` |
+| `schedule.UntilNext(timeProvider)` | `schedule.UntilNext(timeProvider.GetUtcNow())` |
+| `schedule.CurrentWindow(timeProvider)` | `schedule.CurrentWindow(timeProvider.GetUtcNow())` |
 | `schedule.HasCrossed(lastSeen, timeProvider)` | `schedule.HasCrossed(lastSeen, timeProvider.GetUtcNow())` |
 | `schedule.CountBoundaries(lastSeen, timeProvider)` | `schedule.CountBoundaries(lastSeen, timeProvider.GetUtcNow())` |
+
+`WindowAt` と `EnumerateBoundaries` にはプロバイダー版がありません。基準となる時刻 *に加えて* 明示的な範囲を取る API なので、`timeProvider.GetUtcNow()` を自分で渡すのと比べて得るものがないからです。
 
 `TimeProvider` は .NET 8 以降 BCL の一部なので、これらを使ってもパッケージ依存は増えません。
 
@@ -175,7 +200,7 @@ autumn.CurrentWindow(second).Duration;                                    // 25:
 半開区間 `[Start, End)` がこの型の提供する唯一のルールで、閉区間の亜種は意図的にありません。両者を混ぜるコードベースでは、あるメソッドの組では共有された端点が二重にカウントされ、別の組では同じ端点に穴が空きます。原型が食い違う 2 つの答えを抱えることになった経緯が、まさにこれです。
 
 ```csharp
-var yesterday = dailyReset.CurrentWindow(today.Start.AddTicks(-1));
+var yesterday = dailyReset.WindowAt(now, -1);
 
 yesterday.End == today.Start;          // true  -- ちょうど接する
 yesterday.Overlaps(today);             // false -- 接することは重なることではない
@@ -239,7 +264,8 @@ v1 で意図的に対象外としたのは、cron 式、RFC 5545 の繰り返し
 | `dayOfMonth` が 1〜31 の外の `Monthly` | `ArgumentOutOfRangeException` |
 | `end` が `start` より前の `new TimeWindow(start, end)` | `ArgumentException` |
 | `new TimeWindow(start, start)` | 合法。空ウィンドウは何も含まず、何とも重ならない |
-| `now <= lastSeen` での `CountBoundaries` / `HasCrossed` | `0` / `false` — 負にはならない |
+| `to <= from` での `CountBoundaries` / `HasCrossed` / `EnumerateBoundaries` | `0` / `false` / 空のシーケンス — 負にはならない |
+| 表現可能な範囲を外れる `offset` での `WindowAt` | `ArgumentOutOfRangeException` — 黙ってラップしたウィンドウは返らない |
 | 2 月における `Monthly(31, ...)` | 28 日または 29 日にクランプ。その月もちょうど 1 つの境界を持つ |
 | `null` のスケジュールまたはプロバイダーでの `TimeProvider` 拡張の呼び出し | `ArgumentNullException` |
 
