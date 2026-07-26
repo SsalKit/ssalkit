@@ -194,22 +194,22 @@ GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); 
 
 SsalKit.Randomness는 순수 처리량 극대화가 아닌 다른 목표를 최적화합니다. 결정성·상태 직렬화·무할당을 성능 비용 없이 얻는 것입니다 — 실제로 `DeterministicRandom`의 스칼라 연산은 BCL의 모든 범용 대안보다 오히려 더 빠릅니다.
 
-BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에서 측정했습니다(SsalKit.Randomness 0.0.3 기준). 수치는 하드웨어에 따라 달라질 수 있으며, [벤치마크 프로젝트](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks)로 직접 재현할 수 있습니다.
+BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에서 측정했습니다(SsalKit.Randomness 0.0.4 기준). 수치는 하드웨어에 따라 달라질 수 있으며, [벤치마크 프로젝트](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks)로 직접 재현할 수 있습니다.
 
 ### 균등 생성
 
 | 연산 | DeterministicRandom | `new Random(seed)` | `Random.Shared` | CryptoRandomSource |
 |---|---:|---:|---:|---:|
-| NextUInt64 상당 | 1.5 ns / 0 B | 24.6 ns / 0 B | 3.0 ns / 0 B | 59.9 ns / 0 B |
-| Next(1000) | 2.1 ns / 0 B | 3.8 ns / 0 B | 2.9 ns / 0 B | 61.5 ns / 0 B |
-| NextInt64(범위 지정) | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
-| NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
+| NextUInt64 상당 | 1.6 ns / 0 B | 24.5 ns / 0 B | 3.5 ns / 0 B | 63.8 ns / 0 B |
+| Next(1000) | 2.4 ns / 0 B | 4.2 ns / 0 B | 3.2 ns / 0 B | 68.8 ns / 0 B |
+| NextInt64(범위 지정) | 1.8 ns / 0 B | 14.6 ns / 0 B | 3.3 ns / 0 B | 67.2 ns / 0 B |
+| NextDouble | 1.8 ns / 0 B | 3.4 ns / 0 B | 3.4 ns / 0 B | 67.4 ns / 0 B |
 
-`DeterministicRandom`은 측정된 모든 스칼라 연산에서 가장 빠릅니다(1.5~2.2 ns, 위 표에 없는 `NextRange`도 동일하게 2.2 ns). 시드를 지정한 레거시 `Random` 대비 최대 약 16.6배, `Random.Shared` 대비 약 1.4~2배 빠릅니다. 네 소스 모두 스칼라 생성에서 할당이 0바이트입니다.
+`DeterministicRandom`은 측정된 모든 스칼라 연산에서 가장 빠릅니다(1.6~2.4 ns, 위 표에 없는 `NextRange`는 2.3 ns). 시드를 지정한 레거시 `Random` 대비 최대 약 15.3배, `Random.Shared` 대비 약 1.3~2.2배 빠릅니다. 네 소스 모두 스칼라 생성에서 할당이 0바이트입니다.
 
 참고:
 - `Random.Shared`는 스레드 안전 래퍼이므로, 위의 단일 스레드 소스들과 완전히 동일한 조건의 비교는 아닙니다.
-- 유일한 예외는 64바이트 버퍼에 대한 `NextBytes`로, 이 경우에는 `Random.Shared`(14.4 ns)가 `DeterministicRandom`(15.8 ns)보다 근소하게 더 빠릅니다.
+- 유일한 예외는 64바이트 버퍼에 대한 `NextBytes`로, 이 경우에는 `Random.Shared`(15.3 ns)가 `DeterministicRandom`(17.8 ns)보다 근소하게 더 빠릅니다.
 - `CryptoRandomSource`는 위 표의 스칼라 연산에서 `DeterministicRandom`보다 약 29~40배 느리고, 64바이트 `NextBytes` 채우기에서는 호출당 고정 비용이 더 많은 바이트에 분산되어 약 8배 차이로 줄어듭니다. 어느 쪽이든 `RandomNumberGenerator` 기반이라 암호학적 예측 불가능성을 제공하는 대가이며, 다른 소스들은 이 보장을 제공하지 않으므로 당연한 결과입니다.
 
 ### 디스패치 비용
@@ -217,21 +217,21 @@ BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에�
 | 호출 방식 | Mean |
 |---|---:|
 | `DeterministicRandom` 인스턴스 직접 호출 | 2.2 ns |
-| `IRandomSource` 확장 메서드 경유 | 2.3 ns |
+| `IRandomSource` 확장 메서드 경유 | 2.6 ns |
 
-`IRandomSource` 추상화를 거치는 비용은 약 0.16 ns — 측정 노이즈와 거의 구분되지 않는 수준입니다. 서브나노초에도 한참 못 미치는 오버헤드이므로, 유연성(결정적/공유/암호학적 소스 교체)을 위해 `IRandomSource`를 대상으로 코드를 작성해도 사실상 공짜입니다. 핫루프에서 항상 하나의 구체 타입만 쓴다면, `DeterministicRandom`을 직접 호출해 이 비용마저 없앨 수 있습니다.
+`IRandomSource` 추상화를 거치는 비용은 약 0.44 ns — 이 측정들의 실행 간 편차와 비슷한 수준입니다. 여전히 서브나노초에 못 미치는 오버헤드이므로, 유연성(결정적/공유/암호학적 소스 교체)을 위해 `IRandomSource`를 대상으로 코드를 작성해도 사실상 공짜입니다. 핫루프에서 항상 하나의 구체 타입만 쓴다면, `DeterministicRandom`을 직접 호출해 이 비용마저 없앨 수 있습니다.
 
 ### 가중치 추첨
 
 | 메서드 | N=10 | N=100 | N=1000 |
 |---|---:|---:|---:|
-| `PickWeighted`(리스트/델리게이트) | 37.8 ns / 104 B | 157.7 ns / 824 B | 1,150.2 ns / 8,024 B |
-| `PickWeighted`(span) | 31.6 ns / 0 B | 124.8 ns / 0 B | 975.2 ns / 8,024 B |
-| `WeightedSampler<T>.Pick` | 9.6 ns / 0 B | 9.7 ns / 0 B | 10.0 ns / 0 B |
+| `PickWeighted`(리스트/델리게이트) | 43.6 ns / 104 B | 190.2 ns / 824 B | 1,417.4 ns / 8,024 B |
+| `PickWeighted`(span) | 35.0 ns / 0 B | 132.7 ns / 0 B | 1,269.9 ns / 8,024 B |
+| `WeightedSampler<T>.Pick` | 10.5 ns / 0 B | 10.4 ns / 0 B | 10.3 ns / 0 B |
 
 `WeightedSampler<T>.Pick`은 `N`과 무관하게 ~10 ns로 평탄합니다 — alias method 테이블 덕분에 매 추첨이 실제로 `O(1)`이라는 뜻입니다. span 기반 `PickWeighted` 오버로드는 항목 256개까지는 할당이 없으며, 그 이상에서는 힙 버퍼로 폴백합니다(위 N=1000의 8KB는 이 문서화된 폴백이지 누수가 아닙니다).
 
-`WeightedSampler<T>`를 빌드하는 비용은 공짜가 아닙니다 — `Create(...)`는 N=10에서 190 ns, N=100에서 1.3 μs, N=1000에서 11.6 μs가 걸립니다. 하지만 이는 일회성 비용입니다. N=1000 기준으로, 반복적인 단발 `PickWeighted`(span) 호출과 비교했을 때 샘플러를 빌드하는 비용은 약 **12회 추첨**이면 상환됩니다 — 같은 테이블에서 몇 번 이상 뽑을 계획이라면 샘플러 쪽이 이득입니다.
+`WeightedSampler<T>`를 빌드하는 비용은 공짜가 아닙니다 — `Create(...)`는 N=10에서 223 ns, N=100에서 1.6 μs, N=1000에서 15.5 μs가 걸립니다. 하지만 이는 일회성 비용입니다. N=1000 기준으로, 반복적인 단발 `PickWeighted`(span) 호출과 비교했을 때 샘플러를 빌드하는 비용은 약 **12회 추첨**이면 상환됩니다 — 같은 테이블에서 몇 번 이상 뽑을 계획이라면 샘플러 쪽이 이득입니다.
 
 ## 알고리즘 및 상태 계약 (v1)
 

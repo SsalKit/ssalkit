@@ -194,22 +194,22 @@ All six are errors, and when one fires for a type, nothing at all is generated f
 
 SsalKit.Randomness is optimized around a different goal than raw throughput: get determinism, state export, and zero allocation without paying for them — and in fact, `DeterministicRandom`'s scalar operations come out *faster* than every general-purpose alternative in the BCL.
 
-Measured with BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 (SsalKit.Randomness 0.0.3). Numbers vary by hardware; reproduce them with the [benchmark project](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks).
+Measured with BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 (SsalKit.Randomness 0.0.4). Numbers vary by hardware; reproduce them with the [benchmark project](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks).
 
 ### Uniform generation
 
 | Operation | DeterministicRandom | `new Random(seed)` | `Random.Shared` | CryptoRandomSource |
 |---|---:|---:|---:|---:|
-| NextUInt64-equivalent | 1.5 ns / 0 B | 24.6 ns / 0 B | 3.0 ns / 0 B | 59.9 ns / 0 B |
-| Next(1000) | 2.1 ns / 0 B | 3.8 ns / 0 B | 2.9 ns / 0 B | 61.5 ns / 0 B |
-| NextInt64 (bounded) | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
-| NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
+| NextUInt64-equivalent | 1.6 ns / 0 B | 24.5 ns / 0 B | 3.5 ns / 0 B | 63.8 ns / 0 B |
+| Next(1000) | 2.4 ns / 0 B | 4.2 ns / 0 B | 3.2 ns / 0 B | 68.8 ns / 0 B |
+| NextInt64 (bounded) | 1.8 ns / 0 B | 14.6 ns / 0 B | 3.3 ns / 0 B | 67.2 ns / 0 B |
+| NextDouble | 1.8 ns / 0 B | 3.4 ns / 0 B | 3.4 ns / 0 B | 67.4 ns / 0 B |
 
-`DeterministicRandom` is the fastest option for every scalar operation measured (1.5–2.2 ns, including `NextRange` at 2.2 ns which isn't shown above), up to ~16.6x faster than a seeded legacy `Random` and ~1.4–2x faster than `Random.Shared`. All four sources allocate zero bytes for scalar generation.
+`DeterministicRandom` is the fastest option for every scalar operation measured (1.6–2.4 ns, including `NextRange` at 2.3 ns which isn't shown above), up to ~15.3x faster than a seeded legacy `Random` and ~1.3–2.2x faster than `Random.Shared`. All four sources allocate zero bytes for scalar generation.
 
 Notes:
 - `Random.Shared` is a thread-safe wrapper, so it isn't an apples-to-apples comparison with the single-threaded sources above.
-- The one exception is `NextBytes` on a 64-byte buffer, where `Random.Shared` (14.4 ns) edges out `DeterministicRandom` (15.8 ns).
+- The one exception is `NextBytes` on a 64-byte buffer, where `Random.Shared` (15.3 ns) edges out `DeterministicRandom` (17.8 ns).
 - `CryptoRandomSource` is ~29–40x slower than `DeterministicRandom` on the scalar operations in the table above, and ~8x slower on the 64-byte `NextBytes` fill, where its fixed per-call cost is spread over more bytes. Expected either way, since it's backed by `RandomNumberGenerator` and buys cryptographic unpredictability that the other sources don't provide.
 
 ### Dispatch cost
@@ -217,21 +217,21 @@ Notes:
 | Call site | Mean |
 |---|---:|
 | Direct `DeterministicRandom` instance call | 2.2 ns |
-| Through `IRandomSource` extension method | 2.3 ns |
+| Through `IRandomSource` extension method | 2.6 ns |
 
-Going through the `IRandomSource` abstraction costs about 0.16 ns — barely more than measurement noise. That's deep sub-nanosecond overhead, so writing against `IRandomSource` for flexibility (swapping deterministic/shared/crypto sources) is effectively free. If you're in a hot loop and only ever use one concrete type, calling `DeterministicRandom` directly avoids even that.
+Going through the `IRandomSource` abstraction costs about 0.44 ns — the same order as the run-to-run spread of these measurements. That's still sub-nanosecond overhead, so writing against `IRandomSource` for flexibility (swapping deterministic/shared/crypto sources) is effectively free. If you're in a hot loop and only ever use one concrete type, calling `DeterministicRandom` directly avoids even that.
 
 ### Weighted picking
 
 | Method | N=10 | N=100 | N=1000 |
 |---|---:|---:|---:|
-| `PickWeighted` (list/delegate) | 37.8 ns / 104 B | 157.7 ns / 824 B | 1,150.2 ns / 8,024 B |
-| `PickWeighted` (span) | 31.6 ns / 0 B | 124.8 ns / 0 B | 975.2 ns / 8,024 B |
-| `WeightedSampler<T>.Pick` | 9.6 ns / 0 B | 9.7 ns / 0 B | 10.0 ns / 0 B |
+| `PickWeighted` (list/delegate) | 43.6 ns / 104 B | 190.2 ns / 824 B | 1,417.4 ns / 8,024 B |
+| `PickWeighted` (span) | 35.0 ns / 0 B | 132.7 ns / 0 B | 1,269.9 ns / 8,024 B |
+| `WeightedSampler<T>.Pick` | 10.5 ns / 0 B | 10.4 ns / 0 B | 10.3 ns / 0 B |
 
 `WeightedSampler<T>.Pick` stays flat at ~10 ns regardless of `N` — the alias-method table makes each draw genuinely `O(1)`. The span-based `PickWeighted` overload is allocation-free up to 256 items; past that it falls back to a heap buffer (the 8 KB at N=1000 above is that documented fallback, not a leak).
 
-Building a `WeightedSampler<T>` isn't free — `Create(...)` takes 190 ns at N=10, 1.3 μs at N=100, and 11.6 μs at N=1000. But it's a one-time cost: at N=1000, building the sampler pays for itself after roughly **12 picks** compared to repeated single-shot `PickWeighted` (span) calls — worthwhile as soon as you're drawing more than a handful of times from the same table.
+Building a `WeightedSampler<T>` isn't free — `Create(...)` takes 223 ns at N=10, 1.6 μs at N=100, and 15.5 μs at N=1000. But it's a one-time cost: at N=1000, building the sampler pays for itself after roughly **12 picks** compared to repeated single-shot `PickWeighted` (span) calls — worthwhile as soon as you're drawing more than a handful of times from the same table.
 
 ## Algorithm & state contract (v1)
 
