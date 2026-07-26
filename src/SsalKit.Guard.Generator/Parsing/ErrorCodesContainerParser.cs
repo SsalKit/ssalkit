@@ -113,7 +113,7 @@ internal static class ErrorCodesContainerParser
             ContainerDisplayName: containerDisplayName,
             Namespace: namespaceName,
             ContainingTypeDeclarations: GetContainingTypeDeclarations(container),
-            ContainerDeclaration: SymbolFacts.ToPartialDeclaration(container),
+            ContainerDeclaration: GuardSymbolFacts.ToPartialDeclaration(container),
             HintName: BuildHintName(container, codeEnum),
             ExternalRegistrations: GetExternalRegistrations(
                 container, containerDisplayName, codeEnum, exceptionBase, externalAttribute),
@@ -166,7 +166,7 @@ internal static class ErrorCodesContainerParser
             reasons.Add("not static");
         }
 
-        if (!SymbolFacts.IsPartial(container))
+        if (!GuardSymbolFacts.IsPartial(container))
         {
             reasons.Add("not partial");
         }
@@ -179,7 +179,7 @@ internal static class ErrorCodesContainerParser
         var declarations = new List<string>();
         for (var current = container.ContainingType; current is not null; current = current.ContainingType)
         {
-            declarations.Add(SymbolFacts.ToPartialDeclaration(current));
+            declarations.Add(GuardSymbolFacts.ToPartialDeclaration(current));
         }
 
         declarations.Reverse();
@@ -237,7 +237,7 @@ internal static class ErrorCodesContainerParser
         LocationInfo? location)
     {
         var registeredDisplayName = registered.ToDisplayString();
-        var depth = SymbolFacts.GetExceptionDepth(registered, exceptionBase);
+        var depth = GuardSymbolFacts.GetExceptionDepth(registered, exceptionBase);
 
         var reason = registered.IsUnboundGenericType
             ? "it is an unbound generic type"
@@ -266,7 +266,7 @@ internal static class ErrorCodesContainerParser
             IsValid: true,
             ExceptionFqn: SymbolFacts.ToFqn(registered),
             ExceptionDisplayName: registeredDisplayName,
-            CodeExpression: SymbolFacts.ToCodeExpression(attribute.ConstructorArguments[1], codeEnum),
+            CodeExpression: GuardSymbolFacts.ToCodeExpression(attribute.ConstructorArguments[1], codeEnum),
             InheritanceDepth: depth!.Value,
             Location: location,
             Diagnostic: null);

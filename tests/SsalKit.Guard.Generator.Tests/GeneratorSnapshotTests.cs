@@ -41,7 +41,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -83,7 +83,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         Assert.True(
             generated.IndexOf("is global::Game.UserNotFoundException", StringComparison.Ordinal)
@@ -131,7 +131,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         Assert.True(
             generated.IndexOf("is global::System.ObjectDisposedException", StringComparison.Ordinal)
@@ -205,7 +205,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -240,7 +240,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -290,11 +290,11 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Equal(2, result.GeneratedSources.Length);
 
-        return Verifier.Verify(result.AssertCompilesCleanlyWithAllSources()).UseDirectory("Snapshots");
+        return Verifier.Verify(result.AssertCompilesCleanly().ToSnapshotText()).UseDirectory("Snapshots");
     }
 
     /// <summary>
@@ -333,7 +333,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -361,7 +361,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -398,7 +398,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -426,7 +426,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -467,7 +467,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }

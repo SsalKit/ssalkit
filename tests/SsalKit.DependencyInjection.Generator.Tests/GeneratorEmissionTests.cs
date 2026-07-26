@@ -19,7 +19,7 @@ public class GeneratorEmissionTests
             public class Foo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -39,7 +39,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         var generated = result.GetSingleSource();
         Assert.Contains($"services.{expectedMethod}<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
@@ -57,7 +57,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
@@ -75,7 +75,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddTransient<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
         Assert.DoesNotContain("IBar", generated);
@@ -91,7 +91,7 @@ public class GeneratorEmissionTests
             public class Foo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddScoped<global::TestNs.Foo, global::TestNs.Foo>();", generated);
     }
@@ -110,7 +110,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddTransient<global::TestNs.IBar, global::TestNs.Foo>();", generated);
         Assert.Contains("services.AddTransient<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
@@ -130,7 +130,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.Foo, global::TestNs.Foo>();", generated);
         Assert.Contains(
@@ -154,7 +154,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddScoped<global::TestNs.Foo, global::TestNs.Foo>();", generated);
         Assert.Contains(
@@ -184,7 +184,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         // Only IFoo (directly implemented, not IDisposable/IAsyncDisposable, not base-inherited).
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
@@ -204,7 +204,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.TryAddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
@@ -221,7 +221,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IFoo, global::TestNs.Foo>());",
@@ -246,7 +246,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IBar, global::TestNs.Foo>());",
@@ -269,7 +269,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.Replace(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IFoo, global::TestNs.Foo>());",
@@ -288,7 +288,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
@@ -305,7 +305,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(\"my-key\");", generated);
     }
@@ -322,7 +322,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.TryAddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(42);", generated);
     }
@@ -339,7 +339,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.Replace(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.KeyedScoped<global::TestNs.IFoo, global::TestNs.Foo>(\"k\"));",
@@ -359,7 +359,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.Foo, global::TestNs.Foo>(\"my-key\");", generated);
         Assert.Contains(
@@ -384,7 +384,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("global::TestNs.Color.Blue", generated);
     }
@@ -402,7 +402,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         // First attribute: no As, one interface -> direct singleton registration as IFoo.
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
@@ -428,7 +428,8 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, assemblyName);
+        var result = GeneratorTestSupport.RunGenerator(
+            source, GeneratorTestSupport.Options with { AssemblyName = assemblyName });
         var generated = result.GetSingleSource();
 
         Assert.Contains($"public static class {expectedPrefix}ServiceCollectionExtensions", generated);
@@ -447,7 +448,7 @@ public class GeneratorEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.StartsWith("// <auto-generated/>", generated);
         Assert.Contains("#nullable enable", generated);
@@ -518,9 +519,9 @@ public class GeneratorEmissionTests
             public class SelfRegistered { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        var errors = result.GetOutputCompilationErrors();
+        var errors = result.GetCompilationErrors();
         Assert.True(errors.IsEmpty, "Generated code failed to compile:\n" + string.Join('\n', errors) + "\n\n" + result.GetSingleSource());
     }
 
@@ -539,7 +540,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("global::TestNs.Outer.Inner", generated);
     }
@@ -559,7 +560,7 @@ public class GeneratorEmissionTests
             public record class Foo : IFoo;
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
@@ -583,7 +584,7 @@ public class GeneratorEmissionTests
             public record class Foo : IFoo;
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
         Assert.DoesNotContain("IEquatable", generated);
@@ -613,11 +614,11 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::System.IEquatable<global::TestNs.Foo>, global::TestNs.Foo>();", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -633,7 +634,7 @@ public class GeneratorEmissionTests
             public record Foo : IFoo;
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }

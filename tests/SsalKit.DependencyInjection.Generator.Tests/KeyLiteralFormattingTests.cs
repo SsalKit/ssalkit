@@ -27,11 +27,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>('x');", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -46,11 +46,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(true);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -65,11 +65,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>((byte)5);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -84,11 +84,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>((sbyte)-5);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -103,11 +103,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>((short)-5);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -122,11 +122,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>((ushort)5);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -141,11 +141,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(5U);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -160,11 +160,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(5L);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -179,11 +179,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(5UL);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -198,11 +198,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(5.5F);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -217,11 +217,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(5.5D);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -241,11 +241,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("(global::TestNs.Color)(3)", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -272,11 +272,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("(global::TestNs.BigFlags)(13835058055282163712UL)", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -299,11 +299,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("global::TestNs.Mode.@default", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -320,11 +320,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(global::System.Double.NaN);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -339,11 +339,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(global::System.Double.NegativeInfinity);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -360,11 +360,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(global::System.Single.PositiveInfinity);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -379,11 +379,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(global::System.Single.NaN);", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -399,13 +399,13 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains(
             "services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(typeof(global::TestNs.IMarker));",
             generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -422,11 +422,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("typeof(global::System.Collections.Generic.List<int>)", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -447,11 +447,11 @@ public class KeyLiteralFormattingTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
         var generated = result.GetSingleSource();
 
         Assert.Contains("typeof(global::System.Collections.Generic.List<>)", generated);
         Assert.Contains("AddKeyedSingleton", generated);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 }

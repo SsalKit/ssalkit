@@ -11,6 +11,7 @@
          themselves via CSharpGeneratorDriver, and need the real ErrorCodedException / [ErrorCode] /
          [ErrorCodes] / [ExternalErrorCode] metadata in the compilations they build. -->
     <ProjectReference Include="..\..\src\SsalKit.Guard\SsalKit.Guard.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Generators.Toolkit.Testing\SsalKit.Generators.Toolkit.Testing.csproj" />
   </ItemGroup>
 
 </Project>

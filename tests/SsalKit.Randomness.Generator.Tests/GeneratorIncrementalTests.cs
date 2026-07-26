@@ -1,6 +1,6 @@
-using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using SsalKit.Generators.Toolkit.Testing;
 using SsalKit.Randomness.Generator.Tests.TestSupport;
 
 namespace SsalKit.Randomness.Generator.Tests;
@@ -72,15 +72,9 @@ public class GeneratorIncrementalTests
     [Fact]
     public void UnrelatedSyntaxTreeAddition_ReusesEveryCollectedStage()
     {
-        var trackedSteps = RunTwice(
-            ValidSource,
-            compilation => compilation.AddSyntaxTrees(
-                CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(ValidSource);
 
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.CollectedMembers);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Analysis);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Types);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Diagnostics);
+        AssertEveryCollectedStageReused(second);
     }
 
     [Fact]
@@ -88,15 +82,9 @@ public class GeneratorIncrementalTests
     {
         // A DiagnosticInfo carries a LocationInfo, not a Location: if it held the real thing, the
         // pipeline would compare two runs' diagnostics by reference and never cache.
-        var trackedSteps = RunTwice(
-            DiagnosticSource,
-            compilation => compilation.AddSyntaxTrees(
-                CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(DiagnosticSource);
 
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.CollectedMembers);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Analysis);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Types);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Diagnostics);
+        AssertEveryCollectedStageReused(second);
     }
 
     [Fact]
@@ -104,16 +92,10 @@ public class GeneratorIncrementalTests
     {
         // The "Members" transform necessarily re-runs (the target's syntax tree changed), but the
         // model it produces is identical, so nothing downstream may recompute.
-        var trackedSteps = RunTwice(
-            ValidSource,
-            compilation => compilation.ReplaceSyntaxTree(
-                compilation.SyntaxTrees.Single(),
-                CSharpSyntaxTree.ParseText(ValidSourceWithEditedBody, new CSharpParseOptions(LanguageVersion.Latest))));
+        var (_, second) = GeneratorTest.RunTwice<RandomWeightGenerator>(
+            ValidSource, _ => ValidSourceWithEditedBody, GeneratorTestSupport.Options);
 
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.CollectedMembers);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Analysis);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Types);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, RandomWeightGenerator.TrackingNames.Diagnostics);
+        AssertEveryCollectedStageReused(second);
     }
 
     /// <summary>
@@ -125,66 +107,25 @@ public class GeneratorIncrementalTests
     [Fact]
     public void SharedSourceOverloadsFlagFlip_InvalidatesTheEmissionModel()
     {
-        var trackedSteps = RunTwice(
-            ValidSource,
-            compilation => compilation.ReplaceSyntaxTree(
-                compilation.SyntaxTrees.Single(),
-                CSharpSyntaxTree.ParseText(
-                    ValidSourceWithSharedSourceOverloads, new CSharpParseOptions(LanguageVersion.Latest))));
+        var (_, second) = GeneratorTest.RunTwice<RandomWeightGenerator>(
+            ValidSource, _ => ValidSourceWithSharedSourceOverloads, GeneratorTestSupport.Options);
 
-        AssertSomeOutputRecomputed(trackedSteps, RandomWeightGenerator.TrackingNames.Types);
+        IncrementalAssert.SomeOutputRecomputed(second, RandomWeightGenerator.TrackingNames.Types);
     }
 
-    private static ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> RunTwice(
-        string source, Func<Compilation, Compilation> change)
-    {
-        var generator = new RandomWeightGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(
-                IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+    private static (GeneratorTestResult First, GeneratorTestResult Second) RunWithUnrelatedSyntaxTreeAdded(
+        string source) =>
+        GeneratorTest.RunTwiceWithCompilationChange<RandomWeightGenerator>(
+            source,
+            compilation => compilation.AddSyntaxTrees(
+                CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))),
+            GeneratorTestSupport.Options);
 
-        var compilation = GeneratorTestHelper.CreateCompilation(source);
-        driver = driver.RunGenerators(compilation);
-        driver = driver.RunGenerators(change(compilation));
-
-        return driver.GetRunResult().Results.Single().TrackedSteps;
-    }
-
-    private static void AssertAllOutputsCachedOrUnchanged(
-        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps,
-        string stepName)
-    {
-        Assert.True(trackedSteps.TryGetValue(stepName, out var steps), $"No tracked steps found for '{stepName}'.");
-        Assert.NotEmpty(steps);
-
-        foreach (var step in steps)
-        {
-            Assert.NotEmpty(step.Outputs);
-
-            foreach (var (_, reason) in step.Outputs)
-            {
-                Assert.True(
-                    reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
-                    $"Expected step '{stepName}' output reason to be Cached or Unchanged after an unrelated " +
-                    $"compilation change, but was '{reason}'.");
-            }
-        }
-    }
-
-    private static void AssertSomeOutputRecomputed(
-        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps,
-        string stepName)
-    {
-        Assert.True(trackedSteps.TryGetValue(stepName, out var steps), $"No tracked steps found for '{stepName}'.");
-
-        var recomputed = steps
-            .SelectMany(step => step.Outputs)
-            .Any(output => output.Reason is IncrementalStepRunReason.Modified or IncrementalStepRunReason.New);
-
-        Assert.True(
-            recomputed,
-            $"Expected at least one '{stepName}' output to be Modified or New after a change the model captures, " +
-            "but every output was reused.");
-    }
+    private static void AssertEveryCollectedStageReused(GeneratorTestResult secondRun) =>
+        IncrementalAssert.AllCachedOrUnchanged(
+            secondRun,
+            RandomWeightGenerator.TrackingNames.CollectedMembers,
+            RandomWeightGenerator.TrackingNames.Analysis,
+            RandomWeightGenerator.TrackingNames.Types,
+            RandomWeightGenerator.TrackingNames.Diagnostics);
 }

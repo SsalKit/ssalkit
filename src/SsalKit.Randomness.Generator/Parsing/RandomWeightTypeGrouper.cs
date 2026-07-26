@@ -68,7 +68,7 @@ internal static class RandomWeightTypeGrouper
 
         return new RandomWeightAnalysisResult(
             EquatableArray.Create(types.ToImmutable()),
-            EquatableArray.Create(SortForDeterminism(diagnostics.ToImmutable())));
+            EquatableArray.Create(SymbolFacts.SortForDiagnosticDeterminism(diagnostics.ToImmutable())));
     }
 
     /// <summary>
@@ -89,17 +89,4 @@ internal static class RandomWeightTypeGrouper
                 DiagnosticDescriptors.DuplicateWeightMember, member.Location, member.TypeDisplayName, memberList));
         }
     }
-
-    /// <summary>
-    /// Orders diagnostics by source position (then id) so a run's diagnostic sequence is a function
-    /// of the compilation alone. Diagnostics without a source location sort last (<c>false</c>
-    /// orders before <c>true</c>).
-    /// </summary>
-    private static ImmutableArray<DiagnosticInfo> SortForDeterminism(ImmutableArray<DiagnosticInfo> diagnostics) =>
-        diagnostics
-            .OrderBy(diagnostic => diagnostic.Location is null)
-            .ThenBy(diagnostic => diagnostic.Location?.FilePath ?? string.Empty, StringComparer.Ordinal)
-            .ThenBy(diagnostic => diagnostic.Location?.TextSpan.Start ?? 0)
-            .ThenBy(diagnostic => diagnostic.Descriptor.Id, StringComparer.Ordinal)
-            .ToImmutableArray();
 }

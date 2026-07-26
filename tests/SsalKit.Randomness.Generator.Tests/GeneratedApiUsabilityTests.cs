@@ -46,10 +46,10 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.SsalrDiagnostics);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -79,9 +79,9 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -114,11 +114,11 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.SsalrDiagnostics);
+        Assert.Empty(result.Diagnostics);
 
-        var error = Assert.Single(result.GetOutputCompilationErrors());
+        var error = Assert.Single(result.GetCompilationErrors());
         Assert.Contains("PickManyWeighted", error.GetMessage(), StringComparison.Ordinal);
     }
 
@@ -138,9 +138,9 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
 
         var extensionClass = result.OutputCompilation.GetTypeByMetadataName("Game.Loot.LootEntryRandomWeightExtensions");
         Assert.NotNull(extensionClass);
@@ -162,7 +162,7 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         var extensionClass = result.OutputCompilation.GetTypeByMetadataName("Game.Loot.LootEntryRandomWeightExtensions");
         Assert.NotNull(extensionClass);
@@ -184,9 +184,9 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
 
         var extensionClass = result.OutputCompilation.GetTypeByMetadataName("Game.Loot.LootEntryRandomWeightExtensions");
         Assert.NotNull(extensionClass);
@@ -218,9 +218,9 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -243,8 +243,8 @@ public class GeneratedApiUsabilityTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 }

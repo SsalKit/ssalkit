@@ -1,4 +1,5 @@
 using Microsoft.CodeAnalysis;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Analysis;
 
@@ -33,7 +34,7 @@ internal static class KeyIdentityNormalizer
     /// its classic <c>IntPtr</c>/<c>UIntPtr</c> form.
     /// </summary>
     public static string GetNormalizedIdentity(ITypeSymbol type, Compilation compilation) =>
-        Normalize(type, compilation).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        SymbolFacts.ToFqn(Normalize(type, compilation));
 
     private static ITypeSymbol Normalize(ITypeSymbol type, Compilation compilation)
     {

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Parsing;
 
@@ -124,7 +125,7 @@ internal static class ConventionImplementationMatcher
             builder ??= ImmutableArray.CreateBuilder<ConventionServiceTypeMatch>();
             builder.Add(candidateIsOpenGeneric
                 ? new ConventionServiceTypeMatch(OpenGenericTypeofFormatter.Format(iface), IsOpenGeneric: true)
-                : new ConventionServiceTypeMatch(iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), IsOpenGeneric: false));
+                : new ConventionServiceTypeMatch(SymbolFacts.ToFqn(iface), IsOpenGeneric: false));
         }
 
         if (builder is null)
@@ -145,7 +146,7 @@ internal static class ConventionImplementationMatcher
     public static string GetImplementationTypeFqn(INamedTypeSymbol candidate) =>
         candidate.Arity > 0
             ? OpenGenericTypeofFormatter.Format(candidate)
-            : candidate.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            : SymbolFacts.ToFqn(candidate);
 
     private static bool HasServiceAttribute(INamedTypeSymbol type, INamedTypeSymbol? serviceAttributeSymbol)
     {

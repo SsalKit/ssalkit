@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.CodeAnalysis;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Parsing;
 
@@ -80,7 +81,7 @@ internal static class ServiceFactoryValidator
             {
                 return ServiceFactoryValidation.Failure(
                     ServiceFactoryValidationKind.Inaccessible,
-                    referenced.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+                    SymbolFacts.ToFqn(referenced));
             }
         }
 
@@ -117,7 +118,7 @@ internal static class ServiceFactoryValidator
 
         if (parameter.Type.TypeKind != TypeKind.Enum)
         {
-            return $"its parameter '{parameter.Name}' is of type '{parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}', which is not an enum type";
+            return $"its parameter '{parameter.Name}' is of type '{SymbolFacts.ToFqn(parameter.Type)}', which is not an enum type";
         }
 
         if (method.ReturnsVoid)

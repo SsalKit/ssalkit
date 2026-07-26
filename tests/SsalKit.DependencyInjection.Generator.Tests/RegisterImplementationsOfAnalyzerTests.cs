@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -31,7 +32,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Fact]
@@ -47,7 +48,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class Handler : IHandler<int, string> { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Fact]
@@ -61,7 +62,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Theory]
@@ -82,10 +83,8 @@ public class RegisterImplementationsOfAnalyzerTests
             public delegate void SomeDelegate();
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
-
-        Assert.Equal("SSAL021", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL021", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedDetail, diagnostic.GetMessage());
     }
 
@@ -100,7 +99,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public interface IStartupTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        var diagnostic = Assert.Single(await GeneratorTestSupport.RunAnalyzerAsync(source));
 
         Assert.Equal("SSAL021", diagnostic.Id);
         Assert.Contains("not an interface", diagnostic.GetMessage());
@@ -117,7 +116,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public interface IStartupTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        var diagnostic = Assert.Single(await GeneratorTestSupport.RunAnalyzerAsync(source));
 
         Assert.Equal("SSAL021", diagnostic.Id);
         Assert.Contains("null", diagnostic.GetMessage());
@@ -134,10 +133,8 @@ public class RegisterImplementationsOfAnalyzerTests
             public interface IStartupTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
-
-        Assert.Equal("SSAL022", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL022", DiagnosticSeverity.Warning, exclusive: true);
         Assert.Contains("global::TestNs.IStartupTask", diagnostic.GetMessage());
     }
 
@@ -159,7 +156,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class ExplicitTask : IStartupTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        var diagnostic = Assert.Single(await GeneratorTestSupport.RunAnalyzerAsync(source));
 
         Assert.Equal("SSAL022", diagnostic.Id);
     }
@@ -179,7 +176,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        var diagnostic = Assert.Single(await GeneratorTestSupport.RunAnalyzerAsync(source));
 
         Assert.Equal("SSAL022", diagnostic.Id);
         Assert.Contains("global::TestNs.IUnused", diagnostic.GetMessage());
@@ -188,7 +185,7 @@ public class RegisterImplementationsOfAnalyzerTests
     [Fact]
     public async Task ReferencedAssemblyOnlyImplementations_ReportSSAL022()
     {
-        var contractAssembly = GeneratorTestHelper.CompileToReference(
+        var contractAssembly = GeneratorTest.CompileToReference(
             """
             namespace Contracts;
 
@@ -196,7 +193,8 @@ public class RegisterImplementationsOfAnalyzerTests
 
             public class ExternalTask : IStartupTask { }
             """,
-            "Contracts");
+            "Contracts",
+            GeneratorTestSupport.Options);
 
         const string source = Usings + """
             [assembly: RegisterImplementationsOf(typeof(Contracts.IStartupTask))]
@@ -206,8 +204,8 @@ public class RegisterImplementationsOfAnalyzerTests
             public class Unrelated { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(
-            source, extraReferences: new[] { contractAssembly });
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(
+            source, GeneratorTestSupport.Referencing(contractAssembly));
 
         var diagnostic = Assert.Single(diagnostics);
 
@@ -230,7 +228,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d =>
@@ -255,7 +253,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class StringHandler : IHandler<string> { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Theory]
@@ -273,10 +271,8 @@ public class RegisterImplementationsOfAnalyzerTests
             public class MigrateDatabase : IStartupTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
-
-        Assert.Equal("SSAL024", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL024", DiagnosticSeverity.Error, exclusive: true);
         Assert.Contains(expectedValue, diagnostic.GetMessage());
         Assert.Contains(expectedEnum, diagnostic.GetMessage());
     }
@@ -294,10 +290,8 @@ public class RegisterImplementationsOfAnalyzerTests
             file class FileLocalTask : IFileLocalTask { }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
-
-        Assert.Equal("SSAL025", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        DiagnosticAssert.Single(
+            await GeneratorTestSupport.RunAnalyzerAsync(source), "SSAL025", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]
@@ -316,7 +310,7 @@ public class RegisterImplementationsOfAnalyzerTests
             }
             """;
 
-        var diagnostic = Assert.Single(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        var diagnostic = Assert.Single(await GeneratorTestSupport.RunAnalyzerAsync(source));
 
         Assert.Equal("SSAL025", diagnostic.Id);
     }
@@ -335,7 +329,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class IntHandler : IHandler<int> { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Fact]
@@ -352,7 +346,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class IntHandler : IHandler<int> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d =>
@@ -378,7 +372,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class IntHandler : IHandler<int> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d => Assert.Equal("SSAL026", d.Id));
@@ -399,7 +393,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public interface IUnused { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.Contains(diagnostics, d => d.Id == "SSAL021");
@@ -422,7 +416,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class TaskB : IStartupTask { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Fact]
@@ -442,7 +436,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class TaskB : IStartupTask { }
             """;
 
-        Assert.Empty(await GeneratorTestHelper.RunAnalyzerAsync(source));
+        Assert.Empty(await GeneratorTestSupport.RunAnalyzerAsync(source));
     }
 
     [Fact]
@@ -467,7 +461,7 @@ public class RegisterImplementationsOfAnalyzerTests
             public class OtherB : IOther { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));

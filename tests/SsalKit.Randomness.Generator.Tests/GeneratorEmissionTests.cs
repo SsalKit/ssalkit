@@ -37,9 +37,9 @@ public class GeneratorEmissionTests
     [InlineData("long")]
     public void IntegralWeightMember_GeneratesAllFourMethods(string weightType)
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source($"[RandomWeight] public {weightType} Weight {{ get; init; }}"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         foreach (var methodName in FullSurface.Split('\n').Select(name => name.Trim()))
         {
@@ -54,9 +54,9 @@ public class GeneratorEmissionTests
     [InlineData("double")]
     public void FloatingWeightMember_GeneratesPickWeightedOnly(string weightType)
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source($"[RandomWeight] public {weightType} Weight {{ get; init; }}"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(" PickWeighted(", generated, StringComparison.Ordinal);
         Assert.DoesNotContain(" PickManyWeighted(", generated, StringComparison.Ordinal);
@@ -68,9 +68,9 @@ public class GeneratorEmissionTests
     [Fact]
     public void GeneratedMethods_DelegateToTheSelectorBasedRuntimeOverloads()
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(
             "=> global::SsalKit.Randomness.WeightedRandomExtensions.PickWeighted(source, items, static x => (long)x.Weight);",
@@ -93,9 +93,9 @@ public class GeneratorEmissionTests
     [Fact]
     public void SharedSourceOverloads_AreNotGeneratedByDefault()
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.DoesNotContain("SharedRandomSource", generated, StringComparison.Ordinal);
     }
@@ -103,9 +103,9 @@ public class GeneratorEmissionTests
     [Fact]
     public void SharedSourceOverloads_DelegateToTheExplicitSourceOverloads()
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight(SharedSourceOverloads = true)] public long Weight { get; init; }"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         // The argument-less forms go through the explicit-source ones rather than repeating the
         // delegation to the runtime API, so there is a single place the selector is written.
@@ -128,9 +128,9 @@ public class GeneratorEmissionTests
     [InlineData("double")]
     public void SharedSourceOverloads_OnAFloatingWeight_AddPickWeightedOnly(string weightType)
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source($"[RandomWeight(SharedSourceOverloads = true)] public {weightType} Weight {{ get; init; }}"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(
             "=> PickWeighted(items, global::SsalKit.Randomness.SharedRandomSource.Instance);",
@@ -143,9 +143,9 @@ public class GeneratorEmissionTests
     [Fact]
     public void GeneratedReceiver_IsAnIReadOnlyListOfTheDecoratedType()
     {
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains(
             "this global::System.Collections.Generic.IReadOnlyList<global::Game.Loot.LootEntry> items",
@@ -157,7 +157,7 @@ public class GeneratorEmissionTests
     [Fact]
     public void HintName_IsDerivedFromTheDeclaringTypesFullyQualifiedName()
     {
-        var result = GeneratorTestHelper.RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"));
+        var result = GeneratorTestSupport.RunGenerator(Source("[RandomWeight] public long Weight { get; init; }"));
 
         Assert.Equal("Game.Loot.LootEntry.RandomWeight.g.cs", result.GeneratedSources.Single().HintName);
     }
@@ -180,7 +180,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Equal("Game.Loot.Tables.Entry.RandomWeight.g.cs", result.GeneratedSources.Single().HintName);
         Assert.Contains("static class Tables_EntryRandomWeightExtensions", result.GetSingleSource(), StringComparison.Ordinal);
@@ -203,7 +203,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains("static x => (long)x.Weight", generated, StringComparison.Ordinal);
     }
@@ -227,10 +227,10 @@ public class GeneratorEmissionTests
             public sealed record LootEntry(string ItemId, {{attribute}} long Weight);
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
-        Assert.Empty(result.SsalrDiagnostics);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
@@ -248,7 +248,7 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains("public static class LootEntryRandomWeightExtensions", generated, StringComparison.Ordinal);
     }
@@ -258,9 +258,9 @@ public class GeneratorEmissionTests
     {
         // Only the *type's* accessibility caps the generated class: the weight member is read from
         // inside the generated method body, in the same assembly, so an internal member is fine.
-        var generated = GeneratorTestHelper
+        var generated = GeneratorTestSupport
             .RunGenerator(Source("[RandomWeight] internal long Weight { get; init; }"))
-            .AssertCompilesCleanly();
+            .AssertCompilesCleanlyAndGetSource();
 
         Assert.Contains("public static class LootEntryRandomWeightExtensions", generated, StringComparison.Ordinal);
     }
@@ -285,10 +285,10 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Single(result.GeneratedSources);
-        Assert.Empty(result.SsalrDiagnostics);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
@@ -312,9 +312,9 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
         Assert.Equal(
             new[] { "Game.Loot.LootEntry.RandomWeight.g.cs", "Game.Loot.MobEntry.RandomWeight.g.cs" },
             result.GeneratedSources.Select(generated => generated.HintName).ToArray());
@@ -332,9 +332,9 @@ public class GeneratorEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
-        Assert.Empty(result.SsalrDiagnostics);
+        Assert.Empty(result.Diagnostics);
     }
 }

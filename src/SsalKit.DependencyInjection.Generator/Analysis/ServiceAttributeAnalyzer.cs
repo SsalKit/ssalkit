@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.Diagnostics;
 using SsalKit.DependencyInjection.Generator.Diagnostics;
 using SsalKit.DependencyInjection.Generator.Models;
 using SsalKit.DependencyInjection.Generator.Parsing;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Analysis;
 
@@ -83,7 +84,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var implementationTypeFqn = classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var implementationTypeFqn = SymbolFacts.ToFqn(classSymbol);
 
         foreach (var attributeData in serviceAttributes)
         {
@@ -118,7 +119,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         string implementationTypeFqn,
         ConcurrentBag<RegistrationRecord> records)
     {
-        var location = GetLocation(attributeData, classSymbol);
+        var location = AttributeLocations.GetLocation(attributeData, classSymbol);
 
         // SSAL001: abstract/static classes cannot be registered. This supersedes every other
         // check for this attribute application, since the class itself is not a valid target.
@@ -209,7 +210,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
             context.ReportDiagnostic(Diagnostic.Create(
                 DiagnosticDescriptors.InaccessibleType,
                 location,
-                keyTypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                SymbolFacts.ToFqn(keyTypeSymbol)));
             return;
         }
 
@@ -365,14 +366,14 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                     DiagnosticDescriptors.AsTypeNotImplemented,
                     location,
                     implementationTypeFqn,
-                    asType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                    SymbolFacts.ToFqn(asType)));
                 serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
                 serviceTypeFqns = ImmutableArray<string>.Empty;
                 return false;
             }
 
             serviceTypeSymbols = ImmutableArray.Create(asType);
-            serviceTypeFqns = ImmutableArray.Create(asType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            serviceTypeFqns = ImmutableArray.Create(SymbolFacts.ToFqn(asType));
             return true;
         }
 
@@ -398,7 +399,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                         DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
                         location,
                         implementationTypeFqn,
-                        iface.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                        SymbolFacts.ToFqn(iface)));
                     serviceTypeSymbols = ImmutableArray<ITypeSymbol>.Empty;
                     serviceTypeFqns = ImmutableArray<string>.Empty;
                     return false;
@@ -407,7 +408,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
         }
 
         serviceTypeSymbols = interfaces.Cast<ITypeSymbol>().ToImmutableArray();
-        serviceTypeFqns = interfaces.Select(i => i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToImmutableArray();
+        serviceTypeFqns = interfaces.Select(i => SymbolFacts.ToFqn(i)).ToImmutableArray();
         return true;
     }
 
@@ -439,7 +440,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
                 location,
                 implementationTypeFqn,
-                asType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                SymbolFacts.ToFqn(asType)));
             return false;
         }
 
@@ -451,7 +452,7 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 DiagnosticDescriptors.AsTypeNotImplemented,
                 location,
                 implementationTypeFqn,
-                unboundAsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                SymbolFacts.ToFqn(unboundAsType)));
             return false;
         }
 
@@ -462,12 +463,12 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
                 DiagnosticDescriptors.OpenGenericServiceTypeNotExactMatch,
                 location,
                 implementationTypeFqn,
-                instantiation.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)));
+                SymbolFacts.ToFqn(instantiation)));
             return false;
         }
 
         serviceTypeSymbols = ImmutableArray.Create<ITypeSymbol>(unboundAsType);
-        serviceTypeFqns = ImmutableArray.Create(unboundAsType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+        serviceTypeFqns = ImmutableArray.Create(SymbolFacts.ToFqn(unboundAsType));
         return true;
     }
 
@@ -588,17 +589,6 @@ public sealed class ServiceAttributeAnalyzer : DiagnosticAnalyzer
 
     private static string FormatKeySuffix(string keyIdentity) =>
         keyIdentity == NoKeyIdentity ? string.Empty : $" with key {keyIdentity}";
-
-    private static Location GetLocation(AttributeData attributeData, INamedTypeSymbol fallbackSymbol)
-    {
-        var syntaxReference = attributeData.ApplicationSyntaxReference;
-        if (syntaxReference is not null)
-        {
-            return syntaxReference.GetSyntax().GetLocation();
-        }
-
-        return fallbackSymbol.Locations.Length > 0 ? fallbackSymbol.Locations[0] : Location.None;
-    }
 
     private readonly record struct RegistrationRecord(
         string ServiceTypeFqn,

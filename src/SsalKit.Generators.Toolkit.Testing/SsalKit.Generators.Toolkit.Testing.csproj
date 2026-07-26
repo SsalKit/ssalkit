@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>SsalKit.Generators.Toolkit.Testing</PackageId>
+    <Description>A thin, framework-agnostic test harness for incremental source generators and analyzers: runs a generator over in-memory source, asserts the generated code recompiles cleanly, asserts diagnostics by id/severity/location, and -- the part no other package offers -- asserts incremental caching with trackIncrementalGeneratorSteps. Throws its own assertion exception, so it works under xunit, NUnit, MSTest, or TUnit alike.</Description>
+    <PackageDescription>$(Description)</PackageDescription>
+    <PackageTags>source-generator;roslyn;analyzer;testing;incremental;test-harness;codegen</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.CodeAnalysis.CSharp only: CompilationWithAnalyzers lives in
+         Microsoft.CodeAnalysis.Common, which comes in transitively, so the harness needs
+         nothing from Microsoft.CodeAnalysis.CSharp.Workspaces. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.Generators.Toolkit.Testing.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

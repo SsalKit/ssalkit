@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -28,10 +29,10 @@ public class TypeAccessibilityCrossAssemblyTests
         """;
 
     private static MetadataReference CreateAliasOnlyReference() =>
-        GeneratorTestHelper.CompileToReference(AliasLibrarySource, "AliasLib").WithAliases(new[] { "AliasNs" });
+        GeneratorTest.CompileToReference(AliasLibrarySource, "AliasLib", GeneratorTestSupport.Options).WithAliases(new[] { "AliasNs" });
 
     private static MetadataReference CreateGloballyReferencedAliasLibrary() =>
-        GeneratorTestHelper.CompileToReference(AliasLibrarySource, "AliasLib");
+        GeneratorTest.CompileToReference(AliasLibrarySource, "AliasLib", GeneratorTestSupport.Options);
 
     [Fact]
     public async Task SSAL007_AliasOnlyTypeofKey_ReportsError()
@@ -52,7 +53,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, extraReferences: new[] { CreateAliasOnlyReference() });
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Referencing(CreateAliasOnlyReference()));
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -73,7 +74,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, extraReferences: new[] { CreateAliasOnlyReference() });
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.Referencing(CreateAliasOnlyReference()));
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -93,7 +94,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : AliasNs::AliasLibNs.IMarker { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, extraReferences: new[] { CreateAliasOnlyReference() });
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Referencing(CreateAliasOnlyReference()));
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -114,7 +115,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, extraReferences: new[] { CreateGloballyReferencedAliasLibrary() });
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Referencing(CreateGloballyReferencedAliasLibrary()));
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -151,7 +152,7 @@ public class TypeAccessibilityCrossAssemblyTests
         // inheritance), but the generated top-level static class is not a class derived from
         // `Base`, and without [InternalsVisibleTo] the "internal" half isn't satisfied either, so
         // referencing `Nested` there fails with CS0122.
-        var libraryReference = GeneratorTestHelper.CompileToReference(ProtectedInternalLibrarySource, "ProtectedInternalLib");
+        var libraryReference = GeneratorTest.CompileToReference(ProtectedInternalLibrarySource, "ProtectedInternalLib", GeneratorTestSupport.Options);
 
         const string source = Usings + """
             namespace TestNs;
@@ -162,7 +163,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : LibNs.Base, IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, extraReferences: new[] { libraryReference });
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Referencing(libraryReference));
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -171,7 +172,7 @@ public class TypeAccessibilityCrossAssemblyTests
     [Fact]
     public void ProtectedInternalTypeFromOtherAssembly_WithoutIvt_IsExcludedEntirely()
     {
-        var libraryReference = GeneratorTestHelper.CompileToReference(ProtectedInternalLibrarySource, "ProtectedInternalLib");
+        var libraryReference = GeneratorTest.CompileToReference(ProtectedInternalLibrarySource, "ProtectedInternalLib", GeneratorTestSupport.Options);
 
         const string source = Usings + """
             namespace TestNs;
@@ -182,7 +183,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : LibNs.Base, IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, extraReferences: new[] { libraryReference });
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.Referencing(libraryReference));
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -190,7 +191,7 @@ public class TypeAccessibilityCrossAssemblyTests
     [Fact]
     public async Task SSAL007_ProtectedInternalTypeFromOtherAssembly_WithIvt_DoesNotReport()
     {
-        var libraryReference = GeneratorTestHelper.CompileToReference(ProtectedInternalLibraryWithIvtSource, "ProtectedInternalLibWithIvt");
+        var libraryReference = GeneratorTest.CompileToReference(ProtectedInternalLibraryWithIvtSource, "ProtectedInternalLibWithIvt", GeneratorTestSupport.Options);
 
         const string source = Usings + """
             namespace TestNs;
@@ -201,7 +202,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : LibNs.Base, IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, extraReferences: new[] { libraryReference });
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Referencing(libraryReference));
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -209,7 +210,7 @@ public class TypeAccessibilityCrossAssemblyTests
     [Fact]
     public void ProtectedInternalTypeFromOtherAssembly_WithIvt_IsGenerated()
     {
-        var libraryReference = GeneratorTestHelper.CompileToReference(ProtectedInternalLibraryWithIvtSource, "ProtectedInternalLibWithIvt");
+        var libraryReference = GeneratorTest.CompileToReference(ProtectedInternalLibraryWithIvtSource, "ProtectedInternalLibWithIvt", GeneratorTestSupport.Options);
 
         const string source = Usings + """
             namespace TestNs;
@@ -220,7 +221,7 @@ public class TypeAccessibilityCrossAssemblyTests
             public class Foo : LibNs.Base, IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, extraReferences: new[] { libraryReference }).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.Referencing(libraryReference)).GetSingleSource();
 
         Assert.Contains("typeof(global::LibNs.Base.Nested)", generated);
     }

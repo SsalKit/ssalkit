@@ -18,7 +18,7 @@ SsalKit.Generators.Toolkit はアプローチそのものが異なります。
 - **ランタイムアセンブリではなく source-only。** パッケージは普通の `.cs` ファイルを [`contentFiles`](https://learn.microsoft.com/nuget/reference/nuspec#including-content-files) として配布し、それらのファイルは*あなたの*ジェネレータープロジェクトに直接コンパイルされます。analyzer と一緒にパッケージ化すべき DLL はそもそも存在しません。
 - **パッケージ依存関係ゼロ。** 埋め込まれたソースは、あなたのジェネレータープロジェクトがすでに参照している Roslyn API しか必要としません — 新たに解決すべきものも、あなた自身の `Microsoft.CodeAnalysis.*` バージョン固定と衝突するものもありません。
 - **利用者からは見えない。** ヘルパーはあなたのジェネレーターアセンブリに `internal` 型として直接コンパイルされるため、このパッケージの存在は、あなたが出荷するジェネレーターの公開表面にはまったく現れません。
-- **フレームワークではなく、小さく独立した6つのコンポーネント**: `EquatableArray<T>`、`IndentedCodeWriter`、`CSharpNaming`、`HintNameSanitizer`、`DiagnosticInfo`/`LocationInfo`、`DiagnosticDescriptorFactory`。加えて、`netstandard2.0` のジェネレーターが `record` モデルを書くために必ず必要になる `IsExternalInit` ポリフィルも同梱しています。必要なものだけ使えばよく、使わない `internal` 型は参照されないままそこにあるだけです。
+- **フレームワークではなく、小さく独立した8つのコンポーネント**: `EquatableArray<T>`、`IndentedCodeWriter`、`CSharpNaming`、`HintNameSanitizer`、`DiagnosticInfo`/`LocationInfo`、`DiagnosticDescriptorFactory`、`SymbolFacts`、`AttributeLocations`。加えて、`netstandard2.0` のジェネレーターが `record` モデルを書くために必ず必要になる `IsExternalInit` ポリフィルも同梱しています。必要なものだけ使えばよく、使わない `internal` 型は参照されないままそこにあるだけです。
 
 ## インストール
 
@@ -229,6 +229,58 @@ internal static class DiagnosticDescriptors
 
 同じファクトリーインスタンスが生成するすべての descriptor は同じ id プレフィックス/category を共有し、`{idPrefix}{id:D3}` 形式(例: `"SSAL001"`)でフォーマットされ、`isEnabledByDefault: true` を持ちます。`Error(...)` と `Warning(...)` はどちらも、追加の descriptor タグ用に `params string[] customTags` を任意で受け取れます。
 
+**知っておくべきトレードオフが1つ。** id が `DiagnosticDescriptor` のコンストラクター呼び出し地点にリテラルとして書かれず実行時に組み立てられるため、Microsoft.CodeAnalysis.Analyzers の[リリース追跡ルール](https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.Analyzers/ReleaseTrackingAnalyzers.Help.md)(RS2000-RS2003)はあなたの id を1つも解決できなくなり、`AnalyzerReleases.Shipped.md`/`AnalyzerReleases.Unshipped.md` のすべてのエントリーを未対応として報告します。これらのファイルを維持しているなら、`RS2002`/`RS2003` を抑制し、同じ検査をテストで代替してください — 2つのリリースファイルを読んで `(id, category, severity)` の行を descriptor テーブルと突き合わせ、すべての descriptor がいずれかのアナライザーの `SupportedDiagnostics` に含まれることを表明すれば済みます。書くのは簡単で、しかもアナライザーがしていたことより多くを検証できます。
+
+### `SymbolFacts`
+
+ほとんどすべてのジェネレーターが結局は問うことになるシンボルレベルの問いであり、どれも `Compilation` を必要としません: 型を生成コードにどう書くか、生成されたファイルがその型を名指しできるか、ジェネリックか、そして1回の実行が出す診断をどう並べるか。
+
+```csharp
+using SsalKit.Generators.Toolkit;
+
+// global:: 修飾名 -- 生成コード中の型参照はこの形で書くべきです。
+string fqn = SymbolFacts.ToFqn(typeSymbol);          // "global::Game.Loot.LootEntry"
+
+// 名前空間名、グローバル名前空間なら "" -- 名前空間宣言を出すかどうかの判断に必要な値です。
+string ns = SymbolFacts.GetContainingNamespaceName(typeSymbol);
+
+// 生成メンバーを inconsistent-accessibility エラーなしに public として宣言できるか?
+bool canBePublic = SymbolFacts.IsEffectivelyPublic(typeSymbol);
+
+// 自身の型パラメーターを持つか、包含型から引き継いでいるか。
+bool isGeneric = SymbolFacts.IsGenericOrNestedInGeneric(typeSymbol);
+
+// 同じアセンブリ内の別の生成ファイルがこの型を名指しできるか?
+bool nameable = SymbolFacts.IsAccessibleFromGeneratedCode(typeSymbol);
+```
+
+`IsAccessibleFromGeneratedCode` は入れ子チェーン全体をたどります。`private` な型の中に入れ子になった `public` 型は private な型と同程度に到達不能ですし、`file`-local 型は `Accessibility.Internal` として報告されるため別途尋ねる必要があります。`protected internal` は通過し(生成ファイルは `internal` 側の半分を受け取ります)、`private protected` は通過しません(生成コードは何も継承しないため、`protected` 側の半分は決して受け取れません)。`IErrorTypeSymbol`(解決されなかった名前)は拒否されます -- 名指しすべき型がそもそも存在せず、それを参照するコードを出せばコンパイルエラーが1つから2つになります。
+
+アクセス不能な型を単に読み飛ばすのではなく*診断として報告*したい場合、`FindGeneratedCodeAccessBlocker` は素の `bool` ではなくチェーン中の問題となった環を返します。おかげでメッセージがその名前を直接指し、それが型自身なのか包含型なのかまで言えるようになります。
+
+```csharp
+var blocker = SymbolFacts.FindGeneratedCodeAccessBlocker(typeSymbol);
+if (blocker is not null)
+{
+    string reason = ReferenceEquals(blocker, typeSymbol)
+        ? "it is declared '" + blocker.DeclaredAccessibility + "'"
+        : "it is nested inside '" + blocker.ToDisplayString() + "'";
+    // ... 報告
+}
+```
+
+最後に `SortForDiagnosticDeterminism` は `ImmutableArray<DiagnosticInfo>` をソースファイル -> 位置 -> id の順に並べ、位置を持たない診断を最後に回します。パイプラインノードはホストが決めた順序で実行されるため、最後に並べ替えなければ同一のビルドを2回行っても診断の順序が変わりうる -- スナップショットテストが不安定になり、ビルドログが揺れる形で現れます。
+
+### `AttributeLocations`
+
+メソッド1つ。ジェネレーターがほぼ必ず少しだけ間違える、あの位置のためのものです。
+
+```csharp
+Location location = AttributeLocations.GetLocation(attributeData, decoratedSymbol);
+```
+
+attribute の適用に関する規則を報告するのに最も適した場所は、デコレートされた宣言全体ではなく attribute の適用そのもの -- ユーザーが自分で書き、削除できるトークン -- です。ところが `AttributeData.ApplicationSyntaxReference` は attribute がソース由来でない場合は常に `null` で、合成されたシンボルは位置をまったく持たないため、素朴な1行には穴が2つあります。このメソッドはその両方をフォールバックで埋めます: attribute 構文 -> デコレートされたシンボルの最初の位置 -> `Location.None`(`Diagnostic.Create` が受け付ける値で、診断を捨てる代わりにファイル位置なしで報告します)。
+
 ### `IsExternalInit`(コンパイラーポリフィル)
 
 `netstandard2.0` の参照アセンブリには `System.Runtime.CompilerServices.IsExternalInit` が含まれていません。C# コンパイラーは `init` アクセサーを出力する前にこの型を要求するため、この型がなければ `record` 宣言自体が通りません。パイプラインモデルは `record` を使いたくなる典型的な場所なので、結局どのジェネレータープロジェクトも同じ空の型を手書きすることになります。その手間を省くために、パッケージが同梱しています。
@@ -259,7 +311,7 @@ internal static class DiagnosticDescriptors
 - `#pragma warning disable` はファイル内のすべての警告を無条件に解除し、`TreatWarningsAsErrors` を含むあなたのプロジェクトの正確な警告設定の下でもクリーンにコンパイルされるようにします。
 - `#nullable enable` は、あなたのプロジェクトの nullable 設定とは無関係に、ファイル自身の nullable 契約を固定します。
 
-このヘッダーに加えて、6つのコンポーネントすべてで、すべての型は `internal` であり、すべてのファイルは固定された `SsalKit.Generators.Toolkit` 名前空間に属します — 型が `internal` であるため、このパッケージをそれぞれ埋め込んだ2つの異なるジェネレーターアセンブリが互いに衝突することはありません。(`IsExternalInit` ポリフィルだけは、上で述べた理由によりこの名前空間ルールから意図的に除外されています。)
+このヘッダーに加えて、8つのコンポーネントすべてで、すべての型は `internal` であり、すべてのファイルは固定された `SsalKit.Generators.Toolkit` 名前空間に属します — 型が `internal` であるため、このパッケージをそれぞれ埋め込んだ2つの異なるジェネレーターアセンブリが互いに衝突することはありません。(`IsExternalInit` ポリフィルだけは、上で述べた理由によりこの名前空間ルールから意図的に除外されています。)
 
 ポリフィルを同梱するようになった今も、ソース自身は意図的に `record` 型と `init` 専用プロパティを使いません。そうすることで、ポリフィルのオプトアウトが代償のない選択のままでいられるからです — ツールキット自身のコードが `init` を必要とするなら、ポリフィルを外した瞬間にパッケージの残りまで一緒に壊れてしまいます。そのため `DiagnosticInfo` と `LocationInfo` も `record` ではなく、`IEquatable<T>` を手書きで実装した普通のクラスです。条件付きコンパイルが許されるファイルも `IsExternalInit.cs` だけで、それ以外は利用者の `DefineConstants` が何であれ同一にコンパイルされます。
 

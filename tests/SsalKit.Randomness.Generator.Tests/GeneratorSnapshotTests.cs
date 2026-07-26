@@ -32,7 +32,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -52,7 +52,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -72,7 +72,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -92,7 +92,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -112,7 +112,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -132,7 +132,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -159,7 +159,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -183,7 +183,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -206,7 +206,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -247,8 +247,8 @@ public class GeneratorSnapshotTests
             """;
 
         Assert.Equal(
-            GeneratorTestHelper.RunGenerator(withoutFlag).AssertCompilesCleanly(),
-            GeneratorTestHelper.RunGenerator(withFlag).AssertCompilesCleanly());
+            GeneratorTestSupport.RunGenerator(withoutFlag).AssertCompilesCleanlyAndGetSource(),
+            GeneratorTestSupport.RunGenerator(withFlag).AssertCompilesCleanlyAndGetSource());
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -287,7 +287,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
@@ -307,7 +307,7 @@ public class GeneratorSnapshotTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).AssertCompilesCleanly();
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }

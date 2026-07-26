@@ -31,7 +31,7 @@ public class FactoryExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -53,7 +53,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -70,7 +70,7 @@ public class FactoryExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -90,7 +90,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -110,7 +110,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -132,7 +132,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -152,7 +152,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -172,7 +172,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -192,7 +192,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -212,7 +212,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -232,7 +232,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -252,7 +252,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -272,7 +272,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("global::TestNs.Foo.Create()", generated);
     }
@@ -292,7 +292,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -318,7 +318,7 @@ public class FactoryExclusionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -336,7 +336,7 @@ public class FactoryExclusionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.DoesNotContain("DoesNotExist", generated);
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);

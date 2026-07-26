@@ -46,7 +46,7 @@ internal static class ServiceAttributeParser
         // do not exist as symbols in the generated extension method's scope.
         var implementationTypeFqn = isOpenGeneric
             ? OpenGenericTypeofFormatter.Format(classSymbol)
-            : classSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            : SymbolFacts.ToFqn(classSymbol);
 
         // Only used transiently within this method (and methods it calls) to evaluate
         // accessibility -- never retained in the returned model, per the incremental-caching
@@ -219,7 +219,7 @@ internal static class ServiceAttributeParser
             }
 
             serviceTypeSymbols = ImmutableArray.Create(asType);
-            serviceTypeFqns = ImmutableArray.Create(asType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+            serviceTypeFqns = ImmutableArray.Create(SymbolFacts.ToFqn(asType));
             return true;
         }
 
@@ -262,7 +262,7 @@ internal static class ServiceAttributeParser
         // Sorted by FQN for deterministic emission order; both arrays must stay in lockstep, so
         // sort a single sequence of pairs rather than sorting the two projections independently.
         var ordered = interfaces
-            .Select(i => (Symbol: (ITypeSymbol)i, Fqn: i.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))
+            .Select(i => (Symbol: (ITypeSymbol)i, Fqn: SymbolFacts.ToFqn(i)))
             .OrderBy(pair => pair.Fqn, StringComparer.Ordinal)
             .ToImmutableArray();
 

@@ -1,7 +1,7 @@
-using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -105,25 +105,12 @@ public class GeneratorIncrementalTests
     [Fact]
     public void UnrelatedSyntaxTreeAddition_ReusesCollectedClassesAndCombinedSteps()
     {
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(Source);
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(Source);
-        driver = driver.RunGenerators(compilation1);
-
-        // A meaning-nothing change: add a brand new syntax tree with no [Service] attributes.
-        // The class-registration pipeline's output should be entirely unaffected.
-        var compilation2 = compilation1.AddSyntaxTrees(
-            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedClasses);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second,
+            ServiceRegistrationGenerator.TrackingNames.CollectedClasses,
+            ServiceRegistrationGenerator.TrackingNames.Combined);
     }
 
     [Fact]
@@ -133,23 +120,12 @@ public class GeneratorIncrementalTests
         // cacheable as the closed-class model: it is still strings/primitives only, so
         // EquatableArray/record value-equality should let the pipeline skip recomputation exactly
         // as it does for a closed class.
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(OpenGenericSource);
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(OpenGenericSource);
-        driver = driver.RunGenerators(compilation1);
-
-        var compilation2 = compilation1.AddSyntaxTrees(
-            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedClasses);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second,
+            ServiceRegistrationGenerator.TrackingNames.CollectedClasses,
+            ServiceRegistrationGenerator.TrackingNames.Combined);
     }
 
     [Fact]
@@ -159,46 +135,26 @@ public class GeneratorIncrementalTests
         // transform for this class -- the target syntax node changed -- but the resulting
         // FactoryModel (method name + AcceptsServiceProvider, both primitives) is unaffected by a
         // body-only edit, so record equality lets downstream stages skip recomputation entirely.
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = GeneratorTest.RunTwice<ServiceRegistrationGenerator>(
+            FactorySourceOriginalBody,
+            _ => FactorySourceEditedBody,
+            GeneratorTestSupport.Options);
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(FactorySourceOriginalBody);
-        driver = driver.RunGenerators(compilation1);
-
-        var oldTree = compilation1.SyntaxTrees.Single();
-        var newTree = CSharpSyntaxTree.ParseText(FactorySourceEditedBody, new CSharpParseOptions(LanguageVersion.Latest));
-        var compilation2 = compilation1.ReplaceSyntaxTree(oldTree, newTree);
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedClasses);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second,
+            ServiceRegistrationGenerator.TrackingNames.CollectedClasses,
+            ServiceRegistrationGenerator.TrackingNames.Combined);
     }
 
     [Fact]
     public void ServiceFactory_UnrelatedSyntaxTreeAdditionReusesCollectedFactoriesAndCombinedSteps()
     {
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(ServiceFactorySource);
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(ServiceFactorySource);
-        driver = driver.RunGenerators(compilation1);
-
-        var compilation2 = compilation1.AddSyntaxTrees(
-            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedFactories);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second,
+            ServiceRegistrationGenerator.TrackingNames.CollectedFactories,
+            ServiceRegistrationGenerator.TrackingNames.Combined);
     }
 
     [Fact]
@@ -207,32 +163,23 @@ public class GeneratorIncrementalTests
         // The factory implementation files come off CollectedFactories alone, so adding a new
         // [Service] class -- which necessarily re-runs CollectedClasses and Combined -- must leave
         // every already-emitted factory file untouched.
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = GeneratorTest.RunTwiceWithCompilationChange<ServiceRegistrationGenerator>(
+            ServiceFactorySource,
+            compilation => compilation.AddSyntaxTrees(Parse(
+                """
+                using SsalKit.DependencyInjection;
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(ServiceFactorySource);
-        driver = driver.RunGenerators(compilation1);
+                namespace TestNs;
 
-        var compilation2 = compilation1.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
-            """
-            using SsalKit.DependencyInjection;
+                public interface IUnrelated { }
 
-            namespace TestNs;
+                [Service]
+                public class Unrelated : IUnrelated { }
+                """)),
+            GeneratorTestSupport.Options);
 
-            public interface IUnrelated { }
-
-            [Service]
-            public class Unrelated : IUnrelated { }
-            """,
-            new CSharpParseOptions(LanguageVersion.Latest)));
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.CollectedFactories);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second, ServiceRegistrationGenerator.TrackingNames.CollectedFactories);
     }
 
     [Fact]
@@ -243,23 +190,12 @@ public class GeneratorIncrementalTests
         // input (CompilationProvider) is Modified by any edit at all and the scan itself always
         // re-runs. What must hold is that its *output* is value-equal when nothing it looked at
         // changed, so the combine/emit stages downstream are still skipped.
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(ConventionSource);
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(ConventionSource);
-        driver = driver.RunGenerators(compilation1);
-
-        var compilation2 = compilation1.AddSyntaxTrees(
-            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Conventions);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second,
+            ServiceRegistrationGenerator.TrackingNames.Conventions,
+            ServiceRegistrationGenerator.TrackingNames.Combined);
     }
 
     [Fact]
@@ -268,23 +204,12 @@ public class GeneratorIncrementalTests
         // The fast path every assembly that does not use the feature takes: the scan returns an
         // empty (and therefore always equal) array, so adding it to the pipeline cannot cost an
         // existing consumer a single regenerated file.
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(
-            new[] { generator.AsSourceGenerator() },
-            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(Source);
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(Source);
-        driver = driver.RunGenerators(compilation1);
-
-        var compilation2 = compilation1.AddSyntaxTrees(
-            CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest)));
-        driver = driver.RunGenerators(compilation2);
-
-        var runResult = driver.GetRunResult();
-        var trackedSteps = runResult.Results.Single().TrackedSteps;
-
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Conventions);
-        AssertAllOutputsCachedOrUnchanged(trackedSteps, ServiceRegistrationGenerator.TrackingNames.Combined);
+        IncrementalAssert.AllCachedOrUnchanged(
+            second,
+            ServiceRegistrationGenerator.TrackingNames.Conventions,
+            ServiceRegistrationGenerator.TrackingNames.Combined);
     }
 
     [Fact]
@@ -293,47 +218,33 @@ public class GeneratorIncrementalTests
         // The complement of the caching tests: when the scan's result genuinely does change, the
         // change must actually flow through -- a convention registration for a class added in a
         // brand new syntax tree, which no per-node provider of this generator ever saw.
-        var generator = new ServiceRegistrationGenerator();
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(new[] { generator.AsSourceGenerator() });
+        var (first, second) = GeneratorTest.RunTwiceWithCompilationChange<ServiceRegistrationGenerator>(
+            ConventionSource,
+            compilation => compilation.AddSyntaxTrees(Parse(
+                """
+                namespace TestNs;
 
-        var compilation1 = GeneratorTestHelper.CreateCompilation(ConventionSource);
-        driver = driver.RunGenerators(compilation1);
+                public class WarmCaches : IStartupTask { }
+                """)),
+            GeneratorTestSupport.Options);
 
-        Assert.DoesNotContain("WarmCaches", driver.GetRunResult().GeneratedTrees.Single().ToString());
-
-        var compilation2 = compilation1.AddSyntaxTrees(CSharpSyntaxTree.ParseText(
-            """
-            namespace TestNs;
-
-            public class WarmCaches : IStartupTask { }
-            """,
-            new CSharpParseOptions(LanguageVersion.Latest)));
-
-        driver = driver.RunGenerators(compilation2);
-
+        Assert.DoesNotContain("WarmCaches", first.GetSingleSource());
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IStartupTask, global::TestNs.WarmCaches>());",
-            driver.GetRunResult().GeneratedTrees.Single().ToString());
+            second.GetSingleSource());
     }
 
-    private static void AssertAllOutputsCachedOrUnchanged(
-        ImmutableDictionary<string, ImmutableArray<IncrementalGeneratorRunStep>> trackedSteps,
-        string stepName)
-    {
-        Assert.True(trackedSteps.TryGetValue(stepName, out var steps), $"No tracked steps found for '{stepName}'.");
-        Assert.NotEmpty(steps);
+    /// <summary>
+    /// The change every caching test above makes: a brand new syntax tree with nothing the
+    /// generator looks at in it.
+    /// </summary>
+    private static (GeneratorTestResult First, GeneratorTestResult Second) RunWithUnrelatedSyntaxTreeAdded(
+        string source) =>
+        GeneratorTest.RunTwiceWithCompilationChange<ServiceRegistrationGenerator>(
+            source,
+            compilation => compilation.AddSyntaxTrees(Parse("// unrelated comment")),
+            GeneratorTestSupport.Options);
 
-        foreach (var step in steps)
-        {
-            Assert.NotEmpty(step.Outputs);
-
-            foreach (var (_, reason) in step.Outputs)
-            {
-                Assert.True(
-                    reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
-                    $"Expected step '{stepName}' output reason to be Cached or Unchanged after an unrelated " +
-                    $"compilation change, but was '{reason}'.");
-            }
-        }
-    }
+    private static SyntaxTree Parse(string source) =>
+        CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest));
 }

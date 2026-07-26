@@ -32,7 +32,7 @@ public class ServiceFactoryEmissionTests
     [Fact]
     public void Factory_EmitsRegistrationFileAndOneImplementationFile()
     {
-        var result = GeneratorTestHelper.RunGenerator(BasicFactory, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(BasicFactory, GeneratorTestSupport.SampleAssembly);
 
         Assert.Equal(
             new[] { "SsalKitSampleServiceCollectionExtensions.g.cs", "TestNs.IPaymentProcessorFactory.ServiceFactory.g.cs" },
@@ -42,7 +42,8 @@ public class ServiceFactoryEmissionTests
     [Fact]
     public void Factory_RegistersImplementationAsSingletonAgainstTheInterface()
     {
-        var generated = GeneratorTestHelper.RunGenerator(BasicFactory, "SsalKit.Sample").GetRegistrationSource();
+        var generated = GeneratorTestSupport.RunGenerator(BasicFactory, GeneratorTestSupport.SampleAssembly)
+            .GetSource("ServiceCollectionExtensions.g.cs");
 
         Assert.Contains(
             "services.AddSingleton<global::TestNs.IPaymentProcessorFactory, global::SsalKit.DependencyInjection.Generated.TestNs.IPaymentProcessorFactoryImplementation>();",
@@ -53,8 +54,8 @@ public class ServiceFactoryEmissionTests
     [Fact]
     public void Factory_ImplementationDelegatesToGetRequiredKeyedService()
     {
-        var generated = GeneratorTestHelper
-            .RunGenerator(BasicFactory, "SsalKit.Sample")
+        var generated = GeneratorTestSupport
+            .RunGenerator(BasicFactory, GeneratorTestSupport.SampleAssembly)
             .GetSource("TestNs.IPaymentProcessorFactory.ServiceFactory.g.cs");
 
         Assert.Contains("namespace SsalKit.DependencyInjection.Generated.TestNs", generated, StringComparison.Ordinal);
@@ -75,9 +76,9 @@ public class ServiceFactoryEmissionTests
     [Fact]
     public void Factory_GeneratedCodeCompiles()
     {
-        var result = GeneratorTestHelper.RunGenerator(BasicFactory, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(BasicFactory, GeneratorTestSupport.SampleAssembly);
 
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -107,7 +108,8 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetRegistrationSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly)
+            .GetSource("ServiceCollectionExtensions.g.cs");
 
         var alphaIndex = generated.IndexOf("global::TestNs.IAlphaFactory,", StringComparison.Ordinal);
         var zebraIndex = generated.IndexOf("global::TestNs.IZebraFactory,", StringComparison.Ordinal);
@@ -119,7 +121,8 @@ public class ServiceFactoryEmissionTests
     [Fact]
     public void FactoryOnly_NoServiceAttribute_StillEmitsRegistrationMethod()
     {
-        var generated = GeneratorTestHelper.RunGenerator(BasicFactory, "SsalKit.Sample").GetRegistrationSource();
+        var generated = GeneratorTestSupport.RunGenerator(BasicFactory, GeneratorTestSupport.SampleAssembly)
+            .GetSource("ServiceCollectionExtensions.g.cs");
 
         Assert.Contains("public static class SsalKitSampleServiceCollectionExtensions", generated, StringComparison.Ordinal);
         Assert.Contains("AddSsalKitSampleServices(", generated, StringComparison.Ordinal);
@@ -140,7 +143,7 @@ public class ServiceFactoryEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -161,7 +164,7 @@ public class ServiceFactoryEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample").GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly).GetSingleSource();
 
         Assert.DoesNotContain("ServiceFactory", generated, StringComparison.Ordinal);
     }
@@ -189,7 +192,7 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
         var generated = result.GetSource("TestNs.Outer.Inner.INestedFactory.ServiceFactory.g.cs");
 
         Assert.Contains(
@@ -202,9 +205,9 @@ public class ServiceFactoryEmissionTests
             StringComparison.Ordinal);
         Assert.Contains(
             "services.AddSingleton<global::TestNs.Outer.Inner.INestedFactory, global::SsalKit.DependencyInjection.Generated.TestNs.Outer.Inner.INestedFactoryImplementation>();",
-            result.GetRegistrationSource(),
+            result.GetSource("ServiceCollectionExtensions.g.cs"),
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -238,8 +241,8 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
-        var registration = result.GetRegistrationSource();
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+        var registration = result.GetSource("ServiceCollectionExtensions.g.cs");
 
         Assert.Contains(
             "global::SsalKit.DependencyInjection.Generated.TestNs.Outer.IBarImplementation>();",
@@ -249,7 +252,7 @@ public class ServiceFactoryEmissionTests
             "global::SsalKit.DependencyInjection.Generated.TestNs.Outer_IBarImplementation>();",
             registration,
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -276,13 +279,13 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
 
         Assert.Contains(
             "namespace SsalKit.DependencyInjection.Generated.TestNs.@class",
             result.GetSource("TestNs._class.IKeywordNestedFactory.ServiceFactory.g.cs"),
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -300,16 +303,16 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
         var generated = result.GetSource("IRootFactory.ServiceFactory.g.cs");
 
         Assert.Contains("namespace SsalKit.DependencyInjection.Generated", generated, StringComparison.Ordinal);
         Assert.DoesNotContain("namespace SsalKit.DependencyInjection.Generated.", generated, StringComparison.Ordinal);
         Assert.Contains(
             "services.AddSingleton<global::IRootFactory, global::SsalKit.DependencyInjection.Generated.IRootFactoryImplementation>();",
-            result.GetRegistrationSource(),
+            result.GetSource("ServiceCollectionExtensions.g.cs"),
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -329,13 +332,13 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
 
         Assert.Contains(
             "internal sealed class IInternalFactoryImplementation : global::TestNs.IInternalFactory",
             result.GetSource("TestNs.IInternalFactory.ServiceFactory.g.cs"),
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -359,12 +362,12 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
         var generated = result.GetSource("TestNs.IKeywordFactory.ServiceFactory.g.cs");
 
         Assert.Contains("public global::TestNs.IFoo @new(global::TestNs.Kind @class)", generated, StringComparison.Ordinal);
         Assert.Contains("GetRequiredKeyedService<global::TestNs.IFoo>(this._provider, @class);", generated, StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     /// <summary>
@@ -388,14 +391,14 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
         var generated = result.GetSource("TestNs.IShadowingFactory.ServiceFactory.g.cs");
 
         Assert.Contains(
             "GetRequiredKeyedService<global::TestNs.IFoo>(this._provider, _provider);",
             generated,
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Fact]
@@ -417,14 +420,14 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
         var generated = result.GetSource("TestNs.IListFactory.ServiceFactory.g.cs");
 
         Assert.Contains(
             "public global::System.Collections.Generic.IReadOnlyList<global::TestNs.IFoo> Create(global::TestNs.Kind kind)",
             generated,
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 
     [Theory]
@@ -441,7 +444,7 @@ public class ServiceFactoryEmissionTests
             public interface {{declaration}}
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
 
         Assert.Empty(result.GeneratedSources);
     }
@@ -473,8 +476,8 @@ public class ServiceFactoryEmissionTests
             public interface IBadFactory { }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
-        var registration = result.GetRegistrationSource();
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
+        var registration = result.GetSource("ServiceCollectionExtensions.g.cs");
 
         Assert.Equal(2, result.GeneratedSources.Length);
         Assert.Contains("global::TestNs.IGoodFactory,", registration, StringComparison.Ordinal);
@@ -517,7 +520,7 @@ public class ServiceFactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source, "SsalKit.Sample");
+        var result = GeneratorTestSupport.RunGenerator(source, GeneratorTestSupport.SampleAssembly);
 
         Assert.Equal(3, result.GeneratedSources.Length);
         Assert.Contains(
@@ -528,6 +531,6 @@ public class ServiceFactoryEmissionTests
             "namespace SsalKit.DependencyInjection.Generated.B",
             result.GetSource("B.IFactory.ServiceFactory.g.cs"),
             StringComparison.Ordinal);
-        Assert.Empty(result.GetOutputCompilationErrors());
+        Assert.Empty(result.GetCompilationErrors());
     }
 }

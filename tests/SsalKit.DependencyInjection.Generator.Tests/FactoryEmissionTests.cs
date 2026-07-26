@@ -34,7 +34,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             $"services.{expectedMethod}<global::TestNs.IFoo, global::TestNs.Foo>(sp => global::TestNs.Foo.Create());",
@@ -56,7 +56,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>(sp => global::TestNs.Foo.Create(sp));",
@@ -83,7 +83,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>(sp => global::TestNs.Foo.Create(sp));",
@@ -113,7 +113,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(expectedStatement, generated);
     }
@@ -136,7 +136,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(expectedStatement, generated);
     }
@@ -156,7 +156,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddKeyedSingleton<global::TestNs.IFoo, global::TestNs.Foo>(\"k\", (sp, key) => global::TestNs.Foo.Create(sp));",
@@ -176,7 +176,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton<global::TestNs.Foo, global::TestNs.Foo>(sp => global::TestNs.Foo.Create());",
@@ -199,7 +199,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>(sp => global::TestNs.Foo.Create());",
@@ -223,7 +223,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         // Self-registration statement invokes the factory.
         Assert.Contains(
@@ -254,7 +254,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.AddKeyedSingleton<global::TestNs.Foo, global::TestNs.Foo>(\"k\", (sp, key) => global::TestNs.Foo.Create(sp));",
@@ -285,7 +285,7 @@ public class FactoryEmissionTests
             }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains(
             "services.TryAddEnumerable(global::Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<global::TestNs.IFoo, global::TestNs.Foo>(sp => global::TestNs.Foo.Create()));",
@@ -310,7 +310,7 @@ public class FactoryEmissionTests
             public class Foo : IFoo { }
             """;
 
-        var generated = GeneratorTestHelper.RunGenerator(source).GetSingleSource();
+        var generated = GeneratorTestSupport.RunGenerator(source).GetSingleSource();
 
         Assert.Contains("services.AddSingleton<global::TestNs.IFoo, global::TestNs.Foo>();", generated);
     }
@@ -419,9 +419,9 @@ public class FactoryEmissionTests
             }
             """;
 
-        var result = GeneratorTestHelper.RunGenerator(source);
+        var result = GeneratorTestSupport.RunGenerator(source);
 
-        var errors = result.GetOutputCompilationErrors();
+        var errors = result.GetCompilationErrors();
         Assert.True(errors.IsEmpty, "Generated code failed to compile:\n" + string.Join('\n', errors) + "\n\n" + result.GetSingleSource());
     }
 }

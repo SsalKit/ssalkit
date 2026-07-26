@@ -1,4 +1,6 @@
+using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Tests.TestSupport;
+using SsalKit.Generators.Toolkit.Testing;
 
 namespace SsalKit.DependencyInjection.Generator.Tests;
 
@@ -22,11 +24,9 @@ public class ServiceAttributeAnalyzerTests
             public abstract class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL001", diagnostic.Id);
-        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Error, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL001", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class ServiceAttributeAnalyzerTests
             public static class Foo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Contains(diagnostics, d => d.Id == "SSAL001");
     }
@@ -56,7 +56,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL001");
     }
@@ -74,7 +74,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL002", diagnostic.Id);
@@ -92,7 +92,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL002");
     }
@@ -109,7 +109,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : Base { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL002");
     }
@@ -129,7 +129,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL003", diagnostic.Id);
@@ -150,7 +150,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL003", diagnostic.Id);
@@ -166,7 +166,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL003");
     }
@@ -183,7 +183,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL003");
     }
@@ -201,11 +201,9 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL004", diagnostic.Id);
-        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Warning, diagnostic.Severity);
+        var diagnostic = DiagnosticAssert.Single(diagnostics, "SSAL004", DiagnosticSeverity.Warning, exclusive: true);
     }
 
     [Fact]
@@ -223,7 +221,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         // Different implementation types => not a duplicate (ServiceType, ImplementationType, Key)
         // triple. This shape is SSAL015's business instead (see SSAL015_* below).
@@ -244,7 +242,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
     }
@@ -262,7 +260,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
     }
@@ -285,7 +283,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL004", diagnostic.Id);
@@ -306,7 +304,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL004", diagnostic.Id);
@@ -325,7 +323,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL004", diagnostic.Id);
@@ -346,7 +344,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL004", diagnostic.Id);
@@ -369,7 +367,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL004");
     }
@@ -386,7 +384,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL005", diagnostic.Id);
@@ -404,7 +402,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL005");
     }
@@ -421,7 +419,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL005");
     }
@@ -435,7 +433,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Empty(diagnostics);
     }
@@ -450,11 +448,9 @@ public class ServiceAttributeAnalyzerTests
             public class Foo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
-        var diagnostic = Assert.Single(diagnostics);
-        Assert.Equal("SSAL006", diagnostic.Id);
-        Assert.Equal(Microsoft.CodeAnalysis.DiagnosticSeverity.Error, diagnostic.Severity);
+        DiagnosticAssert.Single(diagnostics, "SSAL006", DiagnosticSeverity.Error, exclusive: true);
     }
 
     [Fact]
@@ -467,7 +463,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL006", diagnostic.Id);
@@ -489,7 +485,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo, IBar { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL006");
     }
@@ -506,7 +502,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL006");
     }
@@ -526,7 +522,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -547,7 +543,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Contains(diagnostics, d => d.Id == "SSAL007");
     }
@@ -564,7 +560,7 @@ public class ServiceAttributeAnalyzerTests
             file class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -585,7 +581,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -606,7 +602,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -623,7 +619,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -649,7 +645,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -668,7 +664,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -694,7 +690,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -713,7 +709,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IHandler<Nested> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -738,7 +734,7 @@ public class ServiceAttributeAnalyzerTests
             }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, allowUnsafe: true);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Unsafe);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL007", diagnostic.Id);
@@ -757,7 +753,7 @@ public class ServiceAttributeAnalyzerTests
             public unsafe class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source, allowUnsafe: true);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source, GeneratorTestSupport.Unsafe);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL007");
     }
@@ -774,7 +770,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL008", diagnostic.Id);
@@ -792,7 +788,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL008", diagnostic.Id);
@@ -810,7 +806,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("SSAL008", diagnostic.Id);
@@ -834,7 +830,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo3 : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL008");
     }
@@ -854,7 +850,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         // Both registrations are equally responsible for the ambiguity, so both are reported --
         // unlike SSAL004, which spares the first occurrence.
@@ -892,7 +888,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));
@@ -916,7 +912,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));
@@ -940,7 +936,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d => Assert.Equal("SSAL015", d.Id));
@@ -961,7 +957,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d =>
@@ -991,7 +987,7 @@ public class ServiceAttributeAnalyzerTests
             public class ThirdFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(3, diagnostics.Length);
         Assert.All(diagnostics, d =>
@@ -1023,7 +1019,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Single(diagnostics, d => d.Id == "SSAL004");
         Assert.Equal(3, diagnostics.Count(d => d.Id == "SSAL015"));
@@ -1046,7 +1042,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
     }
@@ -1067,7 +1063,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
     }
@@ -1089,7 +1085,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
     }
@@ -1109,7 +1105,7 @@ public class ServiceAttributeAnalyzerTests
             public class Foo : IFoo { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Contains(diagnostics, d => d.Id == "SSAL004");
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
@@ -1131,7 +1127,7 @@ public class ServiceAttributeAnalyzerTests
             public class OtherFoo : IFoo, IBar { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
     }
@@ -1154,7 +1150,7 @@ public class ServiceAttributeAnalyzerTests
             public class ClosedRepo : IRepo<int> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Id == "SSAL015");
     }
@@ -1176,7 +1172,7 @@ public class ServiceAttributeAnalyzerTests
             public class RepoB<T> : IRepo<T> { }
             """;
 
-        var diagnostics = await GeneratorTestHelper.RunAnalyzerAsync(source);
+        var diagnostics = await GeneratorTestSupport.RunAnalyzerAsync(source);
 
         Assert.Equal(2, diagnostics.Length);
         Assert.All(diagnostics, d =>

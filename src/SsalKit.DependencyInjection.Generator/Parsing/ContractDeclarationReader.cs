@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Microsoft.CodeAnalysis;
 using SsalKit.DependencyInjection.Generator.Models;
+using SsalKit.Generators.Toolkit;
 
 namespace SsalKit.DependencyInjection.Generator.Parsing;
 
@@ -95,7 +96,7 @@ internal static class ContractDeclarationReader
             // An explicit `null`, or a type that is not a named type at all (an array or pointer
             // type -- `typeof(IFoo[])` is perfectly legal C# in an attribute argument).
             var (fqn, detail) = contractConstant.Value is ITypeSymbol otherType
-                ? (otherType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "not an interface")
+                ? (SymbolFacts.ToFqn(otherType), "not an interface")
                 : ("null", "null");
 
             return Invalid(attributeData, lifetime, mode, ContractValidationKind.NotAnInterface, detail, fqn);
@@ -104,7 +105,7 @@ internal static class ContractDeclarationReader
         var isUnbound = contract.IsUnboundGenericType;
         var contractFqn = isUnbound
             ? OpenGenericTypeofFormatter.Format(contract)
-            : contract.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            : SymbolFacts.ToFqn(contract);
 
         if (contract.TypeKind != TypeKind.Interface)
         {

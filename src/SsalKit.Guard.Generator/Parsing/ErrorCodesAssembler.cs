@@ -56,7 +56,7 @@ internal static class ErrorCodesAssembler
 
         return new ErrorCodesAnalysisResult(
             EquatableArray.Create(models.ToImmutable()),
-            EquatableArray.Create(SortForDeterminism(diagnostics.ToImmutable())));
+            EquatableArray.Create(SymbolFacts.SortForDiagnosticDeterminism(diagnostics.ToImmutable())));
     }
 
     private static ImmutableArray<T> Flatten<T>(ImmutableArray<EquatableArray<T>> groups)
@@ -288,17 +288,4 @@ internal static class ErrorCodesAssembler
 
         return name.Substring(0, name.Length - ExceptionSuffix.Length);
     }
-
-    /// <summary>
-    /// Orders diagnostics by source position (then id) so a run's diagnostic sequence is a function
-    /// of the compilation alone. Diagnostics without a source location sort last (<c>false</c>
-    /// orders before <c>true</c>).
-    /// </summary>
-    private static ImmutableArray<DiagnosticInfo> SortForDeterminism(ImmutableArray<DiagnosticInfo> diagnostics) =>
-        diagnostics
-            .OrderBy(diagnostic => diagnostic.Location is null)
-            .ThenBy(diagnostic => diagnostic.Location?.FilePath ?? string.Empty, StringComparer.Ordinal)
-            .ThenBy(diagnostic => diagnostic.Location?.TextSpan.Start ?? 0)
-            .ThenBy(diagnostic => diagnostic.Descriptor.Id, StringComparer.Ordinal)
-            .ToImmutableArray();
 }
