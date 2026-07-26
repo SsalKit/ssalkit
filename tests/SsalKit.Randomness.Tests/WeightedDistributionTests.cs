@@ -95,6 +95,31 @@ public class WeightedDistributionTests
         Assert.True(chiSquare < CriticalValue, $"chi-square statistic {chiSquare} exceeded critical value {CriticalValue}; counts=[{string.Join(", ", observed)}]");
     }
 
+    /// <summary>
+    /// The chi-square statistic for the homogeneity of two independent samples of equal size:
+    /// <c>sum (a[i] - b[i])^2 / (a[i] + b[i])</c>, which is asymptotically chi-square with
+    /// <c>k - 1</c> degrees of freedom.
+    /// </summary>
+    /// <remarks>
+    /// Not the same statistic as <see cref="ChiSquare"/>, which compares one observed sample
+    /// against a *known* expectation. Feeding one sample's counts in as the other's "expected"
+    /// would double-count the sampling noise — both sides fluctuate, so the resulting statistic is
+    /// roughly twice as large as a one-sample statistic and must not be compared against a
+    /// one-sample critical value. Dividing by <c>a[i] + b[i]</c> rather than <c>b[i]</c> is exactly
+    /// that factor-of-two correction, and keeps <see cref="CriticalValue"/> meaningful here.
+    /// </remarks>
+    private static double TwoSampleChiSquare(int[] a, int[] b)
+    {
+        double chiSquare = 0.0;
+        for (int i = 0; i < a.Length; i++)
+        {
+            double diff = a[i] - b[i];
+            chiSquare += (diff * diff) / (a[i] + b[i]);
+        }
+
+        return chiSquare;
+    }
+
     [Fact]
     public void PickWeighted_AndWeightedSampler_ApproximateEachOther_ChiSquareSmokeTest()
     {
@@ -112,17 +137,8 @@ public class WeightedDistributionTests
         var aliasRandom = new DeterministicRandom(2UL);
         int[] aliasCounts = CountSelections(() => Array.IndexOf(Items, sampler.Pick(aliasRandom)), SampleCount);
 
-        // Use the alias method's observed counts (scaled to the same sample size, trivially
-        // already equal here) as the "expected" distribution for the cumulative-sum method's
-        // chi-square test, and vice versa is unnecessary since the test is symmetric in spirit.
-        double[] aliasAsExpected = new double[aliasCounts.Length];
-        for (int i = 0; i < aliasCounts.Length; i++)
-        {
-            aliasAsExpected[i] = aliasCounts[i];
-        }
+        double chiSquare = TwoSampleChiSquare(cumulativeSumCounts, aliasCounts);
 
-        double chiSquare = ChiSquare(cumulativeSumCounts, aliasAsExpected);
-
-        Assert.True(chiSquare < CriticalValue, $"chi-square statistic {chiSquare} exceeded critical value {CriticalValue}; cumulativeSumCounts=[{string.Join(", ", cumulativeSumCounts)}], aliasCounts=[{string.Join(", ", aliasCounts)}]");
+        Assert.True(chiSquare < CriticalValue, $"two-sample chi-square statistic {chiSquare} exceeded critical value {CriticalValue}; cumulativeSumCounts=[{string.Join(", ", cumulativeSumCounts)}], aliasCounts=[{string.Join(", ", aliasCounts)}]");
     }
 }

@@ -7,6 +7,15 @@ namespace SsalKit.Randomness;
 /// and later used with <see cref="DeterministicRandom.FromState(RandomState)"/> to resume an
 /// identical output sequence.
 /// </summary>
+/// <remarks>
+/// <c>System.Text.Json</c> round-trips this type losslessly out of the box: the four words are
+/// written as JSON numbers and read back as exact <see cref="ulong"/> values. Note that JSON
+/// numbers are only guaranteed to survive a JavaScript consumer up to 2^53 — a state word above
+/// that (the common case, since state words are uniformly distributed over the whole
+/// <see cref="ulong"/> range) loses precision if it is parsed into a JavaScript <c>number</c>.
+/// Serialize the words as strings (or use <see cref="ToArray"/> with a binary format) when the
+/// state has to cross a JavaScript boundary.
+/// </remarks>
 /// <param name="S0">The first state word.</param>
 /// <param name="S1">The second state word.</param>
 /// <param name="S2">The third state word.</param>
@@ -14,11 +23,18 @@ namespace SsalKit.Randomness;
 public readonly record struct RandomState(ulong S0, ulong S1, ulong S2, ulong S3)
 {
     /// <summary>
-    /// Gets a value indicating whether this state is usable by xoshiro256**. The all-zero state
-    /// is invalid: xoshiro256** never leaves the all-zero state once it enters it, so every
-    /// subsequent output would be zero.
+    /// Determines whether this state is usable by xoshiro256**. The all-zero state is invalid:
+    /// xoshiro256** never leaves the all-zero state once it enters it, so every subsequent output
+    /// would be zero.
     /// </summary>
-    public bool IsValid => (S0 | S1 | S2 | S3) != 0;
+    /// <returns><see langword="true"/> when any state word is non-zero; otherwise, <see langword="false"/>.</returns>
+    /// <remarks>
+    /// This is a method rather than a computed property on purpose: serializers emit public
+    /// properties, and a derived <c>IsValid</c> field has no business inside a persisted state
+    /// payload. A method keeps the serialized document exactly the four state words under every
+    /// serializer, with no serializer-specific ignore attribute.
+    /// </remarks>
+    public bool IsValid() => (S0 | S1 | S2 | S3) != 0;
 
     /// <summary>
     /// Copies this state into a new four-element array, in <c>[S0, S1, S2, S3]</c> order. Provided
@@ -32,6 +48,9 @@ public readonly record struct RandomState(ulong S0, ulong S1, ulong S2, ulong S3
     /// without allocating.
     /// </summary>
     /// <param name="destination">The destination span. Must have a length of at least 4.</param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="destination"/> has a length less than 4.
+    /// </exception>
     public void CopyTo(Span<ulong> destination)
     {
         if (destination.Length < 4)
@@ -63,7 +82,7 @@ public readonly record struct RandomState(ulong S0, ulong S1, ulong S2, ulong S3
         }
 
         var state = new RandomState(source[0], source[1], source[2], source[3]);
-        if (!state.IsValid)
+        if (!state.IsValid())
         {
             throw new ArgumentException("The all-zero state is not a valid xoshiro256** state.", nameof(source));
         }

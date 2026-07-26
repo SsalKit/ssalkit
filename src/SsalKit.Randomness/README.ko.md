@@ -19,10 +19,10 @@
 
 SsalKit.Randomness는 접근 방식 자체가 다릅니다.
 
-- `DeterministicRandom`은 `System.Random`과 비슷한 모양의 sealed PRNG(`xoshiro256**`)로, 256bit 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
-- `IRandomSource`는 결정적/공유(`Random.Shared`)/암호학적 난수를 하나의 인터페이스로 통일하므로, 범위 생성·셔플·추첨 코드를 한 번만 작성해 셋 중 무엇에도 적용할 수 있습니다.
+- **256bit 상태를 통째로 저장하고 복원하는 PRNG.** `DeterministicRandom`은 `System.Random`과 비슷한 모양의 sealed PRNG(`xoshiro256**`)로, 전체 상태를 export하여 어디든(세이브 파일, DB 로우, 네트워크 패킷) 저장했다가 복원하면, 어떤 플랫폼에서든 영원히 정확히 같은 수열을 이어갈 수 있습니다.
+- **난수 소스를 하나의 인터페이스로 통일.** `IRandomSource`는 결정적/공유(`Random.Shared`)/암호학적 난수를 한데 묶으므로, 범위 생성·셔플·추첨 코드를 한 번만 작성해 셋 중 무엇에도 적용할 수 있습니다.
 - **가중치 랜덤 추첨**(`PickWeighted`, `PickManyWeighted(Distinct)`, `WeightedSampler<T>`)이 라이브러리에 함께 제공되며, 명확한 예외 계약과 반복 추첨용 `O(1)` alias method 샘플러를 갖추고 있습니다.
-- `[RandomWeight]`로 모델 타입의 가중치 멤버를 표시하면, 패키지에 동봉된 소스 생성기가 셀렉터를 대신 작성해 줍니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)` 대신 `lootTable.PickWeighted(random)`이면 됩니다. 순수하게 컴파일 타임 코드 생성이므로 리플렉션이 없고 AOT·트리밍에 안전합니다.
+- **셀렉터 없는 추첨을 컴파일 타임에 생성.** `[RandomWeight]`로 모델 타입의 가중치 멤버를 표시하면, 패키지에 동봉된 소스 생성기가 셀렉터를 대신 작성해 줍니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)` 대신 `lootTable.PickWeighted(random)`이면 됩니다. 순수하게 컴파일 타임 코드 생성이므로 리플렉션이 없고 AOT·트리밍에 안전합니다.
 - **의존성 0.** `PackageReference` 없이 BCL만 사용합니다.
 
 ## 설치
@@ -70,19 +70,24 @@ var lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 | 타입 | 역할 |
 |---|---|
 | `IRandomSource` | 모든 소스가 공유하는 최소 계약(`NextUInt64()` + `NextBytes(Span<byte>)`). 그 위의 모든 상위 연산은 이 두 멤버로부터 확장 메서드로 파생됩니다. |
-| `DeterministicRandom` | 시드 지정·상태 export·fork가 가능한 PRNG. `System.Random`과 비슷한 인스턴스 API(`Next`, `NextInt64`, `NextDouble`, `NextSingle`, `NextBoolean`, `NextBytes`)에 더해 `ExportState()`/`FromState(...)`/`Fork()`를 제공합니다. |
-| `RandomState` | 256bit 상태(`S0`..`S3`)를 담는 `readonly record struct`. 값 동등성과 손쉬운 JSON 직렬화를 제공하며, `ulong[4]` 상호운용을 위한 `ToArray()`/`FromSpan(...)`/`CopyTo(...)`가 있습니다. |
+| `DeterministicRandom` | 시드 지정·상태 export·fork가 가능한 PRNG. `System.Random`과 비슷한 인스턴스 API(`Next`, `NextInt64`, `NextDouble`, `NextSingle`, `NextBoolean`, `NextBytes`)에 더해 `ExportState()`/`FromState(...)`/`Fork()`, 그리고 시드 자체를 예측 불가능하게 뽑는 `CreateRandomlySeeded()`를 제공합니다. |
+| `RandomState` | 256bit 상태(`S0`..`S3`)를 담는 `readonly record struct`. 값 동등성과 손쉬운 JSON 직렬화를 제공하며, `IsValid()`(all-zero 상태에서만 false)와 `ulong[4]` 상호운용을 위한 `ToArray()`/`FromSpan(...)`/`CopyTo(...)`가 있습니다. |
 | `CryptoRandomSource` | `RandomNumberGenerator` 기반 `IRandomSource`. 예측 불가능하며 스레드 안전하고, `CryptoRandomSource.Instance`로 제공됩니다. |
 | `SharedRandomSource` | `Random.Shared` 기반 `IRandomSource`. 스레드 안전하며, `SharedRandomSource.Instance`로 제공됩니다. |
 | `SystemRandomSource` | 임의의 `Random` 인스턴스를 감싸는 `IRandomSource` 어댑터로, interop과 테스트용입니다. |
 | `RandomSourceExtensions` | `IRandomSource`용 균등 확장 메서드: `Next`/`NextInt64`/`NextDouble`/`NextSingle`/`NextBoolean`, `Shuffle`, `Pick`. `DeterministicRandom`의 인스턴스 메서드와 알고리즘·출력이 완전히 동일합니다. |
 | `WeightedRandomExtensions` | `PickWeighted`(단발, `long` 또는 `double` 가중치, 리스트 또는 span 형태), `PickManyWeighted`(복원 추출), `PickManyWeightedDistinct`(비복원 추출), 그리고 `ToWeightedSampler` — `items.ToWeightedSampler(x => x.Weight)` 형태로 리스트에서 바로 샘플러를 빌드하며, `WeightedSampler<T>.Create`처럼 타입 인자를 적을 필요 없이 항목 타입이 추론됩니다. |
-| `WeightedSampler<T>` | 고정된 `long` 가중치 항목 집합에서 반복 추첨할 때 쓰는, 불변·스레드 안전한 사전 빌드 alias method 샘플러. 빌드는 `O(n)`, `Pick`/`PickMany`는 호출당 `O(1)`. |
+| `WeightedSampler<T>` | 고정된 `long` 가중치 항목 집합에서 반복 추첨할 때 쓰는, 불변·스레드 안전한 사전 빌드 alias method 샘플러. 빌드는 `O(n)`, `Pick`/`PickMany`는 호출당 `O(1)`이며, 빌드에 쓰인 항목 수는 `Count`로 노출됩니다. |
 | `RandomWeightAttribute` | 모델 타입의 가중치 프로퍼티 또는 필드에 붙이는 특성. 패키지에 동봉된 소스 생성기가 해당 타입의 `IReadOnlyList<T>`에 대한 셀렉터 없는 `PickWeighted`/`PickManyWeighted`/`PickManyWeightedDistinct`/`ToWeightedSampler` 확장을 컴파일 타임에 생성합니다. |
+
+### 가중치 추첨에서 오해하기 쉬운 두 가지
+
+- **`PickManyWeightedDistinct`의 가중치는 매 추첨에 적용되지, 포함 확률에 적용되지 않습니다.** 가중치에 비례하는 것은 첫 추첨뿐이고, 이후의 추첨은 아직 뽑히지 않은 항목들 위에서 다시 정규화됩니다. 따라서 `count > 1`이면 어떤 항목이 결과에 *한 번이라도* 포함될 확률은 그 항목의 가중치에 비례하지 **않습니다** — 이미 뽑힌 무거운 항목은 더 이상 다른 항목을 밀어낼 수 없으므로, 가벼운 항목은 `count * weight / total`보다 많이 나오고 무거운 항목은 적게 나옵니다. 이것이 *비복원* 가중치 추출(successive sampling)의 정의 그대로이며 결함이 아니지만, 반대로 기대하기 쉬운 대표적인 지점입니다. 포함 확률 자체를 가중치에 비례시키려면 다른 설계(πps)가 필요하며, 이 라이브러리는 그것을 제공하지 않습니다.
+- **`double` 가중치의 해상도는 53bit입니다.** `double` 가중치 추첨은 위치를 `total * NextDouble()`로 뽑으므로, 가중치가 대략 `total / 2^53`보다 작은 항목은 표현 가능한 최소 간격보다 좁은 구간을 차지하게 되어 실제로는 절대 뽑히지 않을 수 있고, 누적합 계산의 반올림 오차도 여기에 더해집니다. `long` 가중치 오버로드(그리고 alias 테이블을 정확한 정수 연산으로 빌드하는 `WeightedSampler<T>`)에는 이런 한계가 없으니, 최대 가중치와 최소 양수 가중치의 비율이 극단적이라면 `long` 쪽을 쓰세요.
 
 ## `[RandomWeight]`로 셀렉터 없이 추첨하기
 
-위의 가중치 API는 모두 셀렉터를 받습니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)`처럼요. 모델 타입에 가중치 멤버가 딱 하나뿐인데도 호출할 때마다 이 셀렉터를 반복해서 적는 것은 군더더기입니다. 대신 멤버에 표시만 해 두세요.
+위의 가중치 API는 대부분 셀렉터를 받습니다. `random.PickWeighted(lootTable, static x => (long)x.Weight)`처럼요. (span 오버로드는 셀렉터 대신 가중치를 병렬 span으로 받습니다 — 위 빠른 시작에서 쓴 형태로, 가중치가 항목에 붙어 있지 않을 때 유용합니다.) 모델 타입에 가중치 멤버가 딱 하나뿐인데도 호출할 때마다 이 셀렉터를 반복해서 적는 것은 군더더기입니다. 대신 멤버에 표시만 해 두세요.
 
 ```csharp
 using SsalKit.Randomness;
@@ -200,12 +205,12 @@ BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에�
 | NextInt64(범위 지정) | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
 | NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
 
-`DeterministicRandom`은 측정된 모든 스칼라 연산에서 가장 빠릅니다(1.5~2.2 ns, 위 표에 없는 `NextRange`도 동일하게 2.2 ns). 시드를 지정한 레거시 `Random` 대비 최대 약 17배, `Random.Shared` 대비 약 1.4~2배 빠릅니다. 네 소스 모두 스칼라 생성에서 할당이 0바이트입니다.
+`DeterministicRandom`은 측정된 모든 스칼라 연산에서 가장 빠릅니다(1.5~2.2 ns, 위 표에 없는 `NextRange`도 동일하게 2.2 ns). 시드를 지정한 레거시 `Random` 대비 최대 약 16.6배, `Random.Shared` 대비 약 1.4~2배 빠릅니다. 네 소스 모두 스칼라 생성에서 할당이 0바이트입니다.
 
 참고:
 - `Random.Shared`는 스레드 안전 래퍼이므로, 위의 단일 스레드 소스들과 완전히 동일한 조건의 비교는 아닙니다.
 - 유일한 예외는 64바이트 버퍼에 대한 `NextBytes`로, 이 경우에는 `Random.Shared`(14.4 ns)가 `DeterministicRandom`(15.8 ns)보다 근소하게 더 빠릅니다.
-- `CryptoRandomSource`는 전반적으로 `DeterministicRandom`보다 약 28~40배 느립니다 — `RandomNumberGenerator` 기반이라 암호학적 예측 불가능성을 제공하는 대가이며, 다른 소스들은 이 보장을 제공하지 않으므로 당연한 결과입니다.
+- `CryptoRandomSource`는 위 표의 스칼라 연산에서 `DeterministicRandom`보다 약 29~40배 느리고, 64바이트 `NextBytes` 채우기에서는 호출당 고정 비용이 더 많은 바이트에 분산되어 약 8배 차이로 줄어듭니다. 어느 쪽이든 `RandomNumberGenerator` 기반이라 암호학적 예측 불가능성을 제공하는 대가이며, 다른 소스들은 이 보장을 제공하지 않으므로 당연한 결과입니다.
 
 ### 디스패치 비용
 
@@ -238,6 +243,7 @@ BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에�
 - `RandomState`가 세이브 데이터로 저장될 수 있으므로, 출력 수열을 바꾸면 모든 소비자의 세이브 데이터가 손상되는 것과 같습니다. 이런 변경은 패치/마이너 릴리스에서 **절대** 일어나지 않습니다.
 - 알고리즘을 언젠가 진화시켜야 한다면, `DeterministicRandom` 자체의 동작을 바꾸는 대신 **새로운 타입**(예: 가상의 `DeterministicRandomV2`)으로만 출시됩니다.
 - all-zero 상태는 무효한 상태입니다(`xoshiro256**`는 한 번 그 상태에 들어가면 절대 빠져나오지 못합니다). `FromState(...)`/`RandomState.FromSpan(...)`은 이를 `ArgumentException`으로 거부합니다.
+- `RandomState`는 별도 컨버터 없이 `System.Text.Json`으로 손실 없이 왕복합니다. JSON이 .NET 밖으로 나갈 때는 한 가지 주의가 필요합니다. 상태 워드는 `ulong` 전 범위에 균등하게 분포하므로 대부분 `2^53`을 넘고, 이런 값은 JavaScript `number`로 파싱되는 순간 정밀도를 잃습니다. JavaScript 경계를 넘겨야 한다면 워드를 문자열로 직렬화하거나 `ToArray()`와 바이너리 포맷을 사용하세요.
 
 파생 보장 사항:
 
@@ -274,7 +280,7 @@ BenchmarkDotNet v0.15.8, .NET 10.0.10, AMD Ryzen 9 3950X, Windows 11 환경에�
 | `long` 가중치 총합 오버플로 | `OverflowException` (checked 합산) |
 | `count <= 0` | `ArgumentOutOfRangeException` |
 | `PickManyWeightedDistinct`에서 `count`가 양수 가중치 항목 수를 초과 | `ArgumentOutOfRangeException` |
-| `RandomState.FromState(...)` / `RandomState.FromSpan(...)`에 all-zero 상태를 전달 | `ArgumentException` |
+| `DeterministicRandom.FromState(...)` / `RandomState.FromSpan(...)`에 all-zero 상태를 전달 | `ArgumentException` |
 | 범위 지정 `Next`/`NextInt64` 오버로드에서 `minValue > maxValue` | `ArgumentOutOfRangeException` |
 
 가중치 0인 항목은 **허용**되며 단지 절대 선택되지 않을 뿐입니다(총합만 양수면 됩니다). `PickManyWeightedDistinct`에서 `count`의 상한은 `items.Count`가 아니라 *양수* 가중치 항목의 수입니다 — 가중치 0인 항목은 절대 뽑힐 수 없으므로, 그 이상을 요구하면 무한 탐색이 되거나 가중치 0 항목을 잘못 반환하게 됩니다.
