@@ -59,6 +59,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SsalKit.RecurrenceSchedule"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SsalKit.RecurrenceSchedule.Tests", "tests\SsalKit.RecurrenceSchedule.Tests\SsalKit.RecurrenceSchedule.Tests.csproj", "{6832BE6E-C98E-4823-B42D-6CC3C4797FE4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SsalKit.RecurrenceSchedule.Sample", "samples\SsalKit.RecurrenceSchedule.Sample\SsalKit.RecurrenceSchedule.Sample.csproj", "{4CCE82AF-27AA-4C20-8207-37E370CF4960}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -357,6 +359,18 @@ Global
 		{6832BE6E-C98E-4823-B42D-6CC3C4797FE4}.Release|x64.Build.0 = Release|Any CPU
 		{6832BE6E-C98E-4823-B42D-6CC3C4797FE4}.Release|x86.ActiveCfg = Release|Any CPU
 		{6832BE6E-C98E-4823-B42D-6CC3C4797FE4}.Release|x86.Build.0 = Release|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Debug|x64.Build.0 = Debug|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Debug|x86.Build.0 = Debug|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Release|x64.ActiveCfg = Release|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Release|x64.Build.0 = Release|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Release|x86.ActiveCfg = Release|Any CPU
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -386,5 +400,6 @@ Global
 		{612B68EA-9836-4EB1-BF34-BF5436B9C401} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{9A9E4BB6-362D-42F7-A4C6-C24C521C21B3} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{6832BE6E-C98E-4823-B42D-6CC3C4797FE4} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{4CCE82AF-27AA-4C20-8207-37E370CF4960} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal

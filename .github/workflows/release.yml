@@ -46,7 +46,9 @@ jobs:
             src/SsalKit.DependencyInjection \
             src/SsalKit.Randomness \
             src/SsalKit.Generators.Toolkit \
-            src/SsalKit.Guard
+            src/SsalKit.Generators.Toolkit.Testing \
+            src/SsalKit.Guard \
+            src/SsalKit.RecurrenceSchedule
           do
             dotnet pack "$project" \
               --configuration Release \
