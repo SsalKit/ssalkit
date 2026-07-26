@@ -194,22 +194,22 @@ GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); 
 
 SsalKit.Randomness が最適化しているのは、生のスループットとは違うゴールです。決定性・状態のシリアライズ・無割り当てを、性能上の代償なしに得ること — 実際、`DeterministicRandom` のスカラー演算は BCL のあらゆる汎用的な代替手段よりもむしろ高速です。
 
-BenchmarkDotNet v0.15.8、.NET 10.0.10、AMD Ryzen 9 3950X、Windows 11 の環境で計測しました（SsalKit.Randomness 0.0.3 時点）。数値はハードウェアによって変わります。[ベンチマークプロジェクト](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks) で自分の環境でも再現できます。
+BenchmarkDotNet v0.15.8、.NET 10.0.10、AMD Ryzen 9 3950X、Windows 11 の環境で計測しました（SsalKit.Randomness 0.0.4 時点）。数値はハードウェアによって変わります。[ベンチマークプロジェクト](https://github.com/ssalkit/ssalkit/tree/main/benchmarks/SsalKit.Randomness.Benchmarks) で自分の環境でも再現できます。
 
 ### 均等生成
 
 | 演算 | DeterministicRandom | `new Random(seed)` | `Random.Shared` | CryptoRandomSource |
 |---|---:|---:|---:|---:|
-| NextUInt64 相当 | 1.5 ns / 0 B | 24.6 ns / 0 B | 3.0 ns / 0 B | 59.9 ns / 0 B |
-| Next(1000) | 2.1 ns / 0 B | 3.8 ns / 0 B | 2.9 ns / 0 B | 61.5 ns / 0 B |
-| NextInt64（範囲指定） | 1.6 ns / 0 B | 13.3 ns / 0 B | 3.0 ns / 0 B | 60.0 ns / 0 B |
-| NextDouble | 1.7 ns / 0 B | 3.2 ns / 0 B | 3.2 ns / 0 B | 64.2 ns / 0 B |
+| NextUInt64 相当 | 1.6 ns / 0 B | 24.5 ns / 0 B | 3.5 ns / 0 B | 63.8 ns / 0 B |
+| Next(1000) | 2.4 ns / 0 B | 4.2 ns / 0 B | 3.2 ns / 0 B | 68.8 ns / 0 B |
+| NextInt64（範囲指定） | 1.8 ns / 0 B | 14.6 ns / 0 B | 3.3 ns / 0 B | 67.2 ns / 0 B |
+| NextDouble | 1.8 ns / 0 B | 3.4 ns / 0 B | 3.4 ns / 0 B | 67.4 ns / 0 B |
 
-`DeterministicRandom` は計測したすべてのスカラー演算で最速です（1.5〜2.2 ns、上表にない `NextRange` も同じく 2.2 ns）。シード指定のレガシー `Random` に対して最大で約 16.6 倍、`Random.Shared` に対して約 1.4〜2 倍高速です。4 つのソースすべてで、スカラー生成の割り当ては 0 バイトです。
+`DeterministicRandom` は計測したすべてのスカラー演算で最速です（1.6〜2.4 ns、上表にない `NextRange` は 2.3 ns）。シード指定のレガシー `Random` に対して最大で約 15.3 倍、`Random.Shared` に対して約 1.3〜2.2 倍高速です。4 つのソースすべてで、スカラー生成の割り当ては 0 バイトです。
 
 注記:
 - `Random.Shared` はスレッドセーフなラッパーであるため、上記のシングルスレッド向けソースとの比較は厳密には同一条件ではありません。
-- 唯一の例外は 64 バイトバッファへの `NextBytes` で、この場合は `Random.Shared`（14.4 ns）が `DeterministicRandom`（15.8 ns）よりわずかに高速です。
+- 唯一の例外は 64 バイトバッファへの `NextBytes` で、この場合は `Random.Shared`（15.3 ns）が `DeterministicRandom`（17.8 ns）よりわずかに高速です。
 - `CryptoRandomSource` は上表のスカラー演算では `DeterministicRandom` より約 29〜40 倍遅く、64 バイトの `NextBytes` 充填では呼び出しごとの固定コストがより多くのバイトに分散されるため約 8 倍差まで縮まります。いずれにせよ `RandomNumberGenerator` を基盤としており、他のソースにはない暗号学的な予測不可能性の対価であるため、当然の結果です。
 
 ### ディスパッチコスト
@@ -217,21 +217,21 @@ BenchmarkDotNet v0.15.8、.NET 10.0.10、AMD Ryzen 9 3950X、Windows 11 の環�
 | 呼び出し方式 | Mean |
 |---|---:|
 | `DeterministicRandom` インスタンスの直接呼び出し | 2.2 ns |
-| `IRandomSource` 拡張メソッド経由 | 2.3 ns |
+| `IRandomSource` 拡張メソッド経由 | 2.6 ns |
 
-`IRandomSource` 抽象化を経由するコストは約 0.16 ns — 計測ノイズとほとんど区別がつかない水準です。サブナノ秒をさらに下回るオーバーヘッドなので、柔軟性（決定的・共有・暗号学的ソースの差し替え）のために `IRandomSource` を対象にコードを書いても、実質的にコストはかかりません。ホットループで常に単一の具象型しか使わない場合は、`DeterministicRandom` を直接呼び出せばこの分すら省けます。
+`IRandomSource` 抽象化を経由するコストは約 0.44 ns — これらの計測の実行間のばらつきと同程度の水準です。依然としてサブナノ秒を下回るオーバーヘッドなので、柔軟性（決定的・共有・暗号学的ソースの差し替え）のために `IRandomSource` を対象にコードを書いても、実質的にコストはかかりません。ホットループで常に単一の具象型しか使わない場合は、`DeterministicRandom` を直接呼び出せばこの分すら省けます。
 
 ### 重み付き抽選
 
 | メソッド | N=10 | N=100 | N=1000 |
 |---|---:|---:|---:|
-| `PickWeighted`（リスト/デリゲート） | 37.8 ns / 104 B | 157.7 ns / 824 B | 1,150.2 ns / 8,024 B |
-| `PickWeighted`（span） | 31.6 ns / 0 B | 124.8 ns / 0 B | 975.2 ns / 8,024 B |
-| `WeightedSampler<T>.Pick` | 9.6 ns / 0 B | 9.7 ns / 0 B | 10.0 ns / 0 B |
+| `PickWeighted`（リスト/デリゲート） | 43.6 ns / 104 B | 190.2 ns / 824 B | 1,417.4 ns / 8,024 B |
+| `PickWeighted`（span） | 35.0 ns / 0 B | 132.7 ns / 0 B | 1,269.9 ns / 8,024 B |
+| `WeightedSampler<T>.Pick` | 10.5 ns / 0 B | 10.4 ns / 0 B | 10.3 ns / 0 B |
 
 `WeightedSampler<T>.Pick` は `N` によらず ~10 ns で横ばいです — alias method テーブルにより、各抽選が実際に `O(1)` であることの実証です。span ベースの `PickWeighted` オーバーロードは項目数 256 個までは割り当てなしで、それを超えるとヒープバッファへフォールバックします（上表 N=1000 の 8KB はこの文書化されたフォールバックであり、リークではありません）。
 
-`WeightedSampler<T>` のビルドコストは無料ではありません — `Create(...)` は N=10 で 190 ns、N=100 で 1.3 μs、N=1000 で 11.6 μs かかります。ただしこれは一度きりのコストです。N=1000 の場合、反復的な単発 `PickWeighted`（span）呼び出しと比較すると、サンプラーのビルドコストは約 **12 回の抽選** で回収できます — 同じテーブルから何度も引く予定があるなら、サンプラーを使う方が得です。
+`WeightedSampler<T>` のビルドコストは無料ではありません — `Create(...)` は N=10 で 223 ns、N=100 で 1.6 μs、N=1000 で 15.5 μs かかります。ただしこれは一度きりのコストです。N=1000 の場合、反復的な単発 `PickWeighted`（span）呼び出しと比較すると、サンプラーのビルドコストは約 **12 回の抽選** で回収できます — 同じテーブルから何度も引く予定があるなら、サンプラーを使う方が得です。
 
 ## アルゴリズムと状態の契約（v1）
 
