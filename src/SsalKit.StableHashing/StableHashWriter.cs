@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace SsalKit.StableHashing;
@@ -80,6 +81,16 @@ namespace SsalKit.StableHashing;
 /// escape the stack (cannot be boxed, stored in a field of a non-ref-struct type, or captured by a
 /// lambda/async method), so instances are inherently single-threaded and never shared.
 /// </para>
+/// <para>
+/// <b>Implementation detail, not part of the contract:</b> individual <c>Append*</c> calls do not
+/// necessarily reach <see cref="XxHash64"/> immediately. Small values are batched into an inline
+/// staging buffer and flushed together, because the underlying XXH64 core processes input in
+/// 32-byte lanes — feeding it one 4-16 byte value at a time (as a naive per-field design would) pays
+/// the carry-buffer bookkeeping cost on nearly every call. Batching does not change a single byte of
+/// the logical stream <see cref="XxHash64"/> ultimately sees; it only changes how many times
+/// <see cref="XxHash64.Append"/> is called to deliver it. This is why the golden-vector tests are
+/// the real proof of correctness for any change here: they pin the final hash, not the call pattern.
+/// </para>
 /// </remarks>
 public ref struct StableHashWriter
 {
@@ -87,7 +98,25 @@ public ref struct StableHashWriter
     private const int CanonicalNaNSingleBits = 0x7FC00000;
     private const long CanonicalNaNDoubleBits = 0x7FF8000000000000L;
 
+    /// <summary>
+    /// Size of the inline staging buffer (see remarks). Chosen to equal
+    /// <see cref="StackAllocByteThreshold"/>: large enough to batch a realistic contract's worth of
+    /// scalar members (every fixed-width primitive this writer emits is at most 16 bytes) between
+    /// flushes, an exact multiple of the 32-byte XXH64 lane so a full buffer flushes without leaving
+    /// an odd remainder for the hasher's own carry buffer to absorb, and small enough to stay a
+    /// trivial stack allocation.
+    /// </summary>
+    private const int StagingBufferSize = 256;
+
+    [InlineArray(StagingBufferSize)]
+    private struct StagingBuffer
+    {
+        private byte _element0;
+    }
+
     private XxHash64 _hasher;
+    private StagingBuffer _staging;
+    private int _stagingLength;
 
     private StableHashWriter(XxHash64 hasher) => _hasher = hasher;
 
@@ -97,10 +126,50 @@ public ref struct StableHashWriter
     /// <returns>A new, ready-to-use writer.</returns>
     public static StableHashWriter Create()
     {
-        XxHash64 hasher = XxHash64.Create();
+        var writer = new StableHashWriter(XxHash64.Create());
         ReadOnlySpan<byte> marker = [0x01];
-        hasher.Append(marker);
-        return new StableHashWriter(hasher);
+        writer.WriteToStaging(marker);
+        return writer;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private Span<byte> StagingSpan() => MemoryMarshal.CreateSpan(ref _staging[0], StagingBufferSize);
+
+    /// <summary>
+    /// Copies <paramref name="bytes"/> into the staging buffer, flushing first if it does not
+    /// currently fit in the free space. This is the single choke point every raw <c>Append*</c>
+    /// method routes through, so the byte order the hasher ultimately observes is identical to
+    /// calling <see cref="XxHash64.Append"/> directly on every value in call order — batching only
+    /// changes when bytes cross into the hasher, never their order or content.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void WriteToStaging(scoped ReadOnlySpan<byte> bytes)
+    {
+        // WriteToStaging is only ever called with fixed-width primitives (at most 16 bytes, for
+        // Guid/Int128/UInt128 -- the widest values this writer emits), never with string/collection
+        // bodies (those go through AppendString's own staging-or-direct split). A single value
+        // that cannot possibly fit the staging buffer at all is therefore unreachable from any
+        // current call site; per repository policy this is asserted rather than given an untestable
+        // "handle it anyway" branch (see AppendString for the actual over-threshold code path).
+        Debug.Assert(bytes.Length < StagingBufferSize, "WriteToStaging is only used for small, fixed-width primitives.");
+
+        if (_stagingLength + bytes.Length > StagingBufferSize)
+        {
+            FlushStaging();
+        }
+
+        bytes.CopyTo(StagingSpan().Slice(_stagingLength));
+        _stagingLength += bytes.Length;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void FlushStaging()
+    {
+        if (_stagingLength > 0)
+        {
+            _hasher.Append(StagingSpan()[.._stagingLength]);
+            _stagingLength = 0;
+        }
     }
 
     /// <summary>
@@ -136,7 +205,7 @@ public ref struct StableHashWriter
     public void AppendNullMarker(bool hasValue)
     {
         ReadOnlySpan<byte> marker = [hasValue ? (byte)0x01 : (byte)0x00];
-        _hasher.Append(marker);
+        WriteToStaging(marker);
     }
 
     /// <summary>
@@ -153,7 +222,7 @@ public ref struct StableHashWriter
     public void AppendBoolean(bool value)
     {
         ReadOnlySpan<byte> b = [value ? (byte)0x01 : (byte)0x00];
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="char"/> as its UTF-16 code unit, little-endian <see langword="ushort"/>.</summary>
@@ -162,7 +231,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[2];
         BinaryPrimitives.WriteUInt16LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends an <see langword="sbyte"/> as its single raw byte.</summary>
@@ -170,7 +239,7 @@ public ref struct StableHashWriter
     public void AppendSByte(sbyte value)
     {
         ReadOnlySpan<byte> b = [unchecked((byte)value)];
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="byte"/> as its single raw byte.</summary>
@@ -178,7 +247,7 @@ public ref struct StableHashWriter
     public void AppendByte(byte value)
     {
         ReadOnlySpan<byte> b = [value];
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="short"/>, little-endian, fixed 2 bytes.</summary>
@@ -187,7 +256,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[2];
         BinaryPrimitives.WriteInt16LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="ushort"/>, little-endian, fixed 2 bytes.</summary>
@@ -196,7 +265,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[2];
         BinaryPrimitives.WriteUInt16LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends an <see langword="int"/>, little-endian, fixed 4 bytes.</summary>
@@ -205,7 +274,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="uint"/>, little-endian, fixed 4 bytes.</summary>
@@ -214,7 +283,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[4];
         BinaryPrimitives.WriteUInt32LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="long"/>, little-endian, fixed 8 bytes.</summary>
@@ -223,7 +292,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[8];
         BinaryPrimitives.WriteInt64LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see langword="ulong"/>, little-endian, fixed 8 bytes.</summary>
@@ -232,7 +301,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends an <see cref="Int128"/>, little-endian, fixed 16 bytes.</summary>
@@ -241,7 +310,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[16];
         BinaryPrimitives.WriteInt128LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see cref="UInt128"/>, little-endian, fixed 16 bytes.</summary>
@@ -250,7 +319,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[16];
         BinaryPrimitives.WriteUInt128LittleEndian(b, value);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>
@@ -273,7 +342,7 @@ public ref struct StableHashWriter
 
         Span<byte> b = stackalloc byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(b, BitConverter.SingleToInt32Bits(value));
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>
@@ -296,7 +365,7 @@ public ref struct StableHashWriter
 
         Span<byte> b = stackalloc byte[8];
         BinaryPrimitives.WriteInt64LittleEndian(b, BitConverter.DoubleToInt64Bits(value));
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>
@@ -347,7 +416,7 @@ public ref struct StableHashWriter
         BinaryPrimitives.WriteUInt128LittleEndian(mantissaBytes, mantissa);
         mantissaBytes[..12].CopyTo(encoded[2..]);
 
-        _hasher.Append(encoded);
+        WriteToStaging(encoded);
     }
 
     /// <summary>
@@ -364,6 +433,26 @@ public ref struct StableHashWriter
 
         int byteCount = Encoding.UTF8.GetByteCount(value);
         AppendInt32(byteCount);
+
+        int freeInStaging = StagingBufferSize - _stagingLength;
+        if (byteCount <= freeInStaging)
+        {
+            // Fits in whatever staging space is currently free -- encode straight into it, no
+            // temporary buffer or extra copy needed. Byte order is unaffected: this is exactly the
+            // bytes AppendString would otherwise hand to WriteToStaging, just written directly at
+            // their final staging offset instead of being copied there from a stackalloc buffer.
+            Span<byte> destination = StagingSpan().Slice(_stagingLength, byteCount);
+            int writtenToStaging = Encoding.UTF8.GetBytes(value, destination);
+            Debug.Assert(writtenToStaging == byteCount, "GetByteCount and GetBytes disagreed on UTF-8 length.");
+            _stagingLength += writtenToStaging;
+            return;
+        }
+
+        // Doesn't fit in what's currently free in staging. Flush first so the length prefix (and
+        // anything staged before it) reaches the hasher in order, then encode the body via the
+        // existing stackalloc/ArrayPool path and feed the hasher directly -- bypassing staging for
+        // this call rather than trying to re-fit the body into the now-empty buffer.
+        FlushStaging();
 
         if (byteCount <= StackAllocByteThreshold)
         {
@@ -396,7 +485,7 @@ public ref struct StableHashWriter
     {
         Span<byte> b = stackalloc byte[16];
         value.TryWriteBytes(b, bigEndian: true, out _);
-        _hasher.Append(b);
+        WriteToStaging(b);
     }
 
     /// <summary>Appends a <see cref="DateOnly"/> as its <see cref="DateOnly.DayNumber"/>, little-endian <see langword="int"/>.</summary>
@@ -420,9 +509,14 @@ public ref struct StableHashWriter
     public void AppendDateTimeOffset(DateTimeOffset value) => AppendInt64(value.UtcTicks);
 
     /// <summary>
-    /// Finalizes the writer and returns the resulting <see cref="StableHash64"/>. The writer must
-    /// not be used again after calling this.
+    /// Finalizes the writer and returns the resulting <see cref="StableHash64"/>. Flushes any bytes
+    /// still sitting in the internal staging buffer before digesting. The writer must not be used
+    /// again after calling this.
     /// </summary>
     /// <returns>The computed hash.</returns>
-    public StableHash64 Finish() => new(_hasher.Digest());
+    public StableHash64 Finish()
+    {
+        FlushStaging();
+        return new(_hasher.Digest());
+    }
 }

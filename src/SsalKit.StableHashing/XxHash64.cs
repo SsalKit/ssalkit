@@ -40,6 +40,10 @@ internal struct XxHash64
     private ulong _v4;
     private ulong _totalLength;
     private int _carryLength;
+    // Written only through the writable span over its elements (CarrySpan) — ReSharper's
+    // analysis does not recognize InlineArray element-ref writes as assignments (Roslyn does,
+    // hence no CS0649 from the actual build).
+    // ReSharper disable once UnassignedField.Compiler
     private CarryBuffer _carry;
 
     /// <summary>Creates a new streaming hasher state, seed fixed at 0.</summary>
