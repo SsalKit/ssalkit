@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>SsalKit.StableHashing</PackageId>
+    <Description>Platform- and process-independent 64-bit checksums via a version-locked canonical encoding contract (XxHash64). Zero dependencies.</Description>
+    <PackageDescription>Platform- and process-independent 64-bit checksums via a version-locked canonical encoding contract (XxHash64). Zero dependencies.</PackageDescription>
+    <PackageTags>stable-hash;checksum;xxhash;deterministic;fingerprint;source-generator;aot</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.StableHashing.Tests" />
+  </ItemGroup>
+
+</Project>

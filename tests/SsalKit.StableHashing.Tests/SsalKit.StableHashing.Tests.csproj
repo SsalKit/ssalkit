@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing\SsalKit.StableHashing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Test-only oracle for cross-checking the internal XxHash64 port; not a dependency of the
+         shipped SsalKit.StableHashing package. -->
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
+</Project>
