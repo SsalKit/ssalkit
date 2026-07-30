@@ -16,4 +16,22 @@
     <InternalsVisibleTo Include="SsalKit.StableHashing.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Build-order dependency only: the generator must not be added as a compile-time
+         reference or analyzer for this project itself. -->
+    <ProjectReference Include="..\SsalKit.StableHashing.Generator\SsalKit.StableHashing.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the generator assembly inside this package under analyzers/dotnet/cs so
+         consumers automatically get the source generator when they reference this package.
+         This is not a package dependency, so the "zero dependencies" contract still holds. -->
+    <None Include="..\SsalKit.StableHashing.Generator\bin\$(Configuration)\netstandard2.0\SsalKit.StableHashing.Generator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
 </Project>
