@@ -17,6 +17,7 @@ Source-generator-first utility libraries for modern .NET.
 | `SsalKit.Guard` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Guard.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Guard) | Error-code-based domain exceptions, static guard clauses, and a compile-time generated exception-to-code mapping table. | [README](src/SsalKit.Guard/README.md) |
 | `SsalKit.Generators.Toolkit.Testing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.Testing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit.Testing) | Test-framework-agnostic harness for incremental source generators and analyzers, including incremental caching assertions. | [README](src/SsalKit.Generators.Toolkit.Testing/README.md) |
 | `SsalKit.RecurrenceSchedule` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.RecurrenceSchedule.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.RecurrenceSchedule) | Time-zone-aware recurring reset boundaries (daily/weekly/monthly) with a fixed daylight-saving contract, plus half-open time-window arithmetic. | [README](src/SsalKit.RecurrenceSchedule/README.md) |
+| `SsalKit.StableHashing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.StableHashing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.StableHashing) | Platform- and process-independent 64-bit checksums via a version-locked canonical encoding contract, generated from `[StableHashContract]`/`[StableHashMember]`. | [README](src/SsalKit.StableHashing/README.md) |
 
 ## Why "SsalKit"?
 

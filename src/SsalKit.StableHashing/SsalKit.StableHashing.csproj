@@ -10,10 +10,17 @@
     <Description>Platform- and process-independent 64-bit checksums via a version-locked canonical encoding contract (XxHash64). Zero dependencies.</Description>
     <PackageDescription>Platform- and process-independent 64-bit checksums via a version-locked canonical encoding contract (XxHash64). Zero dependencies.</PackageDescription>
     <PackageTags>stable-hash;checksum;xxhash;deterministic;fingerprint;source-generator;aot</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="SsalKit.StableHashing.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <!-- Agent-facing contract sheet, shipped alongside the human README. -->
+    <None Include="AI.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
