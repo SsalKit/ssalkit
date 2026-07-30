@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing\SsalKit.StableHashing.csproj" />
+    <!-- Consume the generator the way a NuGet consumer would (as an analyzer), without
+         having to pack first: the tests below call the real generated extensions. -->
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing.Generator\SsalKit.StableHashing.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
