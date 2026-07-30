@@ -1,6 +1,6 @@
 # SsalKit
 
-> Source-generator-first utility libraries for modern .NET (net10.0+). Six packages, each shipping a per-package `AI.md` contract sheet: a signature-level API surface, the versioned/immutable contracts, the anti-patterns an agent is most likely to hit, the diagnostic table, and compiling snippets.
+> Source-generator-first utility libraries for modern .NET (net10.0+). Seven packages, each shipping a per-package `AI.md` contract sheet: a signature-level API surface, the versioned/immutable contracts, the anti-patterns an agent is most likely to hit, the diagnostic table, and compiling snippets.
 
 Each `AI.md` is the distilled, agent-facing counterpart of that package's human `README.md` (which also has `README.ko.md` / `README.ja.md` translations). When writing code against a package, load its `AI.md`; the code in `src/` is the source of truth for both.
 
@@ -10,6 +10,7 @@ Each `AI.md` is the distilled, agent-facing counterpart of that package's human 
 - [SsalKit.Randomness](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Randomness/AI.md): Deterministic, state-serializable PRNG (`xoshiro256**` + SplitMix64), the `IRandomSource` abstraction, weighted sampling, and `[RandomWeight]` selector-less picking. Diagnostics `SSALR001`–`SSALR006`.
 - [SsalKit.Guard](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Guard/AI.md): Side-effect-free `ErrorCodedException`, static `Guard.` clauses with `[CallerArgumentExpression]` capture, and a generated exception→code mapping table ordered derived-before-base. Diagnostics `SSALG001`–`SSALG011`.
 - [SsalKit.RecurrenceSchedule](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.RecurrenceSchedule/AI.md): Time-zone-aware daily/weekly/monthly reset boundaries and half-open `TimeWindow` arithmetic, with a permanently fixed daylight-saving contract. No diagnostics.
+- [SsalKit.StableHashing](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.StableHashing/AI.md): Platform- and process-independent 64-bit checksums via a version-locked canonical encoding contract (`[StableHashContract]`/`[StableHashMember]` → generated `ComputeStableHash()`), hashed with an internally ported `XxHash64`. Diagnostics `SSALH001`–`SSALH013`.
 - [SsalKit.Generators.Toolkit](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Generators.Toolkit/AI.md): Source-only (`contentFiles`, no DLL) toolkit for authoring Roslyn generators — `EquatableArray<T>`, `IndentedCodeWriter`, `CSharpNaming`, `HintNameSanitizer`, `DiagnosticInfo`/`LocationInfo`, `DiagnosticDescriptorFactory`, `SymbolFacts`, `AttributeLocations`, `IsExternalInit`. No diagnostics.
 - [SsalKit.Generators.Toolkit.Testing](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Generators.Toolkit.Testing/AI.md): Test-framework-agnostic harness for incremental generators and analyzers, including the incremental-caching assertions (`IncrementalAssert`) no other package offers. No diagnostics.
 
@@ -17,12 +18,12 @@ Each `AI.md` is the distilled, agent-facing counterpart of that package's human 
 
 - **Runtime packages target `net10.0`; every Roslyn component targets `netstandard2.0`** and is pinned to Microsoft.CodeAnalysis.CSharp 4.8.0 so older SDK/IDE hosts can still load it.
 - **Analyzers ship inside their runtime package**, under `analyzers/dotnet/cs` — there is never a separate analyzer package to install. `SsalKit.Generators.Toolkit` is the exception: it is source-only `contentFiles` with no assembly at all.
-- **Diagnostic id prefixes are per package**, all built by `DiagnosticDescriptorFactory` as `{prefix}{id:D3}` with `isEnabledByDefault: true`: `SSAL` (DependencyInjection), `SSALG` (Guard), `SSALR` (Randomness). Because the ids are composed at run time, RS2002/RS2003 release tracking is replaced by tests that read `AnalyzerReleases.*.md` and the `AI.md` diagnostics table and compare them against the descriptor table by reflection.
+- **Diagnostic id prefixes are per package**, all built by `DiagnosticDescriptorFactory` as `{prefix}{id:D3}` with `isEnabledByDefault: true`: `SSAL` (DependencyInjection), `SSALG` (Guard), `SSALR` (Randomness), `SSALH` (StableHashing). Because the ids are composed at run time, RS2002/RS2003 release tracking is replaced by tests that read `AnalyzerReleases.*.md` and the `AI.md` diagnostics table and compare them against the descriptor table by reflection.
 - **Test coverage target is 100% line and branch** on runtime packages; unreachable defensive code is converted to `Debug.Assert` rather than excluded from coverage.
 - **Zero package dependencies** wherever possible: only `SsalKit.DependencyInjection` (Microsoft.Extensions.DependencyInjection.Abstractions) and `SsalKit.Generators.Toolkit.Testing` (Microsoft.CodeAnalysis.CSharp) have any.
 - **Compile-time first, zero reflection, AOT/trimming safe.** Generated code is ordinary readable C#; misuse is a compile-time diagnostic rather than a production runtime failure.
 - **Warnings are errors** (`TreatWarningsAsErrors`), nullable and implicit usings are on, `LangVersion=latest`, all set once in the root `Directory.Build.props`.
-- **Versioned contracts never change in a patch or minor release**: `DeterministicRandom`'s xoshiro256\*\*/SplitMix64 algorithm and state layout, `RecurrenceSchedule`'s daylight-saving resolution rules, and `SsalKit.DependencyInjection`'s registration emission order. Evolution ships as a new type.
+- **Versioned contracts never change in a patch or minor release**: `DeterministicRandom`'s xoshiro256\*\*/SplitMix64 algorithm and state layout, `RecurrenceSchedule`'s daylight-saving resolution rules, `SsalKit.DependencyInjection`'s registration emission order, and `SsalKit.StableHashing`'s canonical encoding contract (byte order, field widths, normalization rules, hash algorithm). Evolution ships as a new type.
 
 ## Optional
 

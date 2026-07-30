@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Verify.Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing.Generator\SsalKit.StableHashing.Generator.csproj" />
+    <!-- Referenced as an ordinary assembly (not as an analyzer): these tests drive the generator
+         themselves via CSharpGeneratorDriver, and need the real StableHashContractAttribute /
+         StableHashMemberAttribute / StableHashWriter / StableHash64 metadata in the compilations
+         they build. -->
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing\SsalKit.StableHashing.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Generators.Toolkit.Testing\SsalKit.Generators.Toolkit.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

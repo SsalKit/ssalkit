@@ -44,7 +44,8 @@ $PackageNames = @(
     'SsalKit.Generators.Toolkit',
     'SsalKit.Generators.Toolkit.Testing',
     'SsalKit.Guard',
-    'SsalKit.RecurrenceSchedule'
+    'SsalKit.RecurrenceSchedule',
+    'SsalKit.StableHashing'
 )
 
 function Invoke-Step {

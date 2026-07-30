@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing\SsalKit.StableHashing.csproj" />
+    <!-- Referenced as an analyzer so the demo below runs against the real source generator
+         without having to pack and consume the NuGet package first. -->
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing.Generator\SsalKit.StableHashing.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <!-- Sample-only dependency, used solely to demonstrate the [Seed] section below (deriving a
+         DeterministicRandom seed from a StableHash64 value). SsalKit.StableHashing itself still
+         has zero dependencies; this is not a dependency between the two libraries, just
+         something this sample project happens to also reference. -->
+    <ProjectReference Include="..\..\src\SsalKit.Randomness\SsalKit.Randomness.csproj" />
+  </ItemGroup>
+
+</Project>
