@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using SsalKit.Generators.Toolkit;
@@ -87,10 +89,21 @@ public sealed class StableHashGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(types, static (spc, models) =>
         {
+            // Built once per run, from the final (post-disambiguation) type list: a
+            // TypeShapeKind.Contract member's ContractTypeFqn resolves through this table to the
+            // referenced contract's *actual* generated class name, which can carry a numeric
+            // disambiguation suffix (see ContractNameGrouper) that was not yet known when the
+            // referencing member's TypeShape was first built.
+            var extensionsFqnByTypeFqn = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var model in models)
+            {
+                extensionsFqnByTypeFqn[model.TypeFqn] = ContractNaming.BuildExtensionsFqn(model.Namespace, model.ExtensionClassName);
+            }
+
             foreach (var model in models)
             {
                 spc.CancellationToken.ThrowIfCancellationRequested();
-                spc.AddSource(model.HintName, StableHashEmitter.Emit(model));
+                spc.AddSource(model.HintName, StableHashEmitter.Emit(model, extensionsFqnByTypeFqn));
             }
         });
     }

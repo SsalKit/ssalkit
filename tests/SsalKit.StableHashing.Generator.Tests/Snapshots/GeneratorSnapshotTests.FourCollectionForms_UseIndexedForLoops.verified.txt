@@ -36,33 +36,49 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.collections", 1);
 
             writer.AppendMemberId(1);
-            writer.AppendCount((value.Array).Length);
-            for (int i0 = 0; i0 < (value.Array).Length; i0++)
+            var m1 = value.Array;
+            var m1_0c = m1;
+            var m1_0n = m1_0c.Length;
+            writer.AppendCount(m1_0n);
+            for (int m1_0i = 0; m1_0i < m1_0n; m1_0i++)
             {
-                writer.AppendInt32((value.Array)[i0]);
+                var m1_0e = m1_0c[m1_0i];
+                writer.AppendInt32(m1_0e);
             }
 
             writer.AppendMemberId(2);
-            writer.AppendCount((value.List).Count);
-            for (int i0 = 0; i0 < (value.List).Count; i0++)
+            var m2 = value.List;
+            var m2_0c = m2;
+            var m2_0n = m2_0c.Count;
+            writer.AppendCount(m2_0n);
+            for (int m2_0i = 0; m2_0i < m2_0n; m2_0i++)
             {
-                writer.AppendInt32((value.List)[i0]);
+                var m2_0e = m2_0c[m2_0i];
+                writer.AppendInt32(m2_0e);
             }
 
             writer.AppendMemberId(3);
-            writer.AppendCount((value.ReadOnlyList).Count);
-            for (int i0 = 0; i0 < (value.ReadOnlyList).Count; i0++)
+            var m3 = value.ReadOnlyList;
+            var m3_0c = m3;
+            var m3_0n = m3_0c.Count;
+            writer.AppendCount(m3_0n);
+            for (int m3_0i = 0; m3_0i < m3_0n; m3_0i++)
             {
-                writer.AppendInt32((value.ReadOnlyList)[i0]);
+                var m3_0e = m3_0c[m3_0i];
+                writer.AppendInt32(m3_0e);
             }
 
             writer.AppendMemberId(4);
-            writer.AppendCount((value.Immutable).IsDefault ? 0 : (value.Immutable).Length);
-            if (!(value.Immutable).IsDefault)
+            var m4 = value.Immutable;
+            var m4_0c = m4;
+            var m4_0n = m4_0c.IsDefault ? 0 : m4_0c.Length;
+            writer.AppendCount(m4_0n);
+            if (!m4_0c.IsDefault)
             {
-                for (int i0 = 0; i0 < (value.Immutable).Length; i0++)
+                for (int m4_0i = 0; m4_0i < m4_0n; m4_0i++)
                 {
-                    writer.AppendInt32((value.Immutable)[i0]);
+                    var m4_0e = m4_0c[m4_0i];
+                    writer.AppendInt32(m4_0e);
                 }
             }
         }

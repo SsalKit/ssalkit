@@ -37,6 +37,11 @@ internal static class ContractParser
         var extensionClassName = ContractNaming.BuildExtensionClassName(type);
         var hintName = ContractNaming.BuildHintName(typeFqn);
         var isClassContract = type.TypeKind == TypeKind.Class;
+        // Effectively public only when the type and every type containing it are public; anything
+        // else (internal, protected internal, or a nesting chain that dips below either) downgrades
+        // the generated extension class to internal rather than being rejected -- SSALH007 already
+        // owns the "truly inaccessible" case (private/protected/file-local).
+        var isPublic = SymbolFacts.IsEffectivelyPublic(type);
         var contractLocation = AttributeLocations.GetLocationInfo(contractAttribute, type);
 
         var (name, version) = ReadNameAndVersion(contractAttribute);
@@ -95,6 +100,7 @@ internal static class ContractParser
             extensionClassName,
             hintName,
             isClassContract,
+            isPublic,
             nameIsValid ? name : null,
             version,
             contractLocation,

@@ -130,7 +130,15 @@ internal static class TypeClassifier
             if (ContractAttributeInfo.HasContractAttribute(named))
             {
                 return TypeClassification.Ok(
-                    new TypeShape(TypeShapeKind.Contract, null, null, ContractNaming.BuildExtensionsFqn(named), null, null, null));
+                    new TypeShape(
+                        TypeShapeKind.Contract,
+                        null,
+                        null,
+                        ContractNaming.BuildExtensionsFqn(named),
+                        null,
+                        null,
+                        null,
+                        ContractTypeFqn: SsalKit.Generators.Toolkit.SymbolFacts.ToFqn(named)));
             }
 
             if (named.TypeKind is TypeKind.Delegate or TypeKind.Interface)

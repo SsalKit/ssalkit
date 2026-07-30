@@ -24,6 +24,17 @@ namespace SsalKit.StableHashing.Generator.Models;
 /// <see langword="struct"/>/<see langword="record struct"/>), which is what decides whether the
 /// generated <c>ComputeStableHash</c> null-checks its <c>value</c> parameter (design §3.4).
 /// </param>
+/// <param name="IsPublic">
+/// Whether the generated extension class and its two methods should be declared
+/// <see langword="public"/> (<see langword="true"/>) or <see langword="internal"/>
+/// (<see langword="false"/>) -- <see langword="true"/> only when the contract type and every type
+/// containing it are <see langword="public"/> (<see cref="SsalKit.Generators.Toolkit.SymbolFacts.IsEffectivelyPublic"/>).
+/// A contract type that is merely <see langword="internal"/>/<c>protected internal</c> (rather
+/// than inaccessible, which is SSALH007) still gets a fully usable, correctly-downgraded
+/// <see langword="internal"/> extension class: declaring it <see langword="public"/> unconditionally
+/// would fail to compile (CS0051, "inconsistent accessibility") the moment such a contract's own
+/// type is only <see langword="internal"/>.
+/// </param>
 /// <param name="ContractName">
 /// The contract's declared name (<c>StableHashContractAttribute.Name</c>), or
 /// <see langword="null"/> when it was null/whitespace (SSALH009).
@@ -35,9 +46,8 @@ namespace SsalKit.StableHashing.Generator.Models;
 /// </param>
 /// <param name="ReadyToEmit">
 /// Whether this contract has no <see cref="Microsoft.CodeAnalysis.DiagnosticSeverity.Error"/>
-/// diagnostic of its own (SSALH011, added later by the cross-type pass, can still suppress
-/// emission for a type that was otherwise ready -- see
-/// <see cref="Parsing.ContractNameGrouper"/>).
+/// diagnostic of its own. SSALH011 (duplicate contract name), added later by the cross-type pass,
+/// is a warning and never changes this -- see <see cref="Parsing.ContractNameGrouper"/>.
 /// </param>
 /// <param name="Members">
 /// The contract's successfully-validated members, in the order <see cref="Parsing.ContractParser"/>
@@ -56,6 +66,7 @@ internal sealed record ContractModel(
     string ExtensionClassName,
     string HintName,
     bool IsClassContract,
+    bool IsPublic,
     string? ContractName,
     int Version,
     LocationInfo? NameDeclarationLocation,

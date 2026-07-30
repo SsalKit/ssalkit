@@ -36,7 +36,8 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.keyword-member", 1);
 
             writer.AppendMemberId(1);
-            writer.AppendInt32(value.@class);
+            var m1 = value.@class;
+            writer.AppendInt32(m1);
         }
     }
 }

@@ -36,13 +36,18 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.nested-collection", 1);
 
             writer.AppendMemberId(1);
-            writer.AppendCount((value.Values).Count);
-            for (int i0 = 0; i0 < (value.Values).Count; i0++)
+            var m1 = value.Values;
+            var m1_0c = m1;
+            var m1_0n = m1_0c.Count;
+            writer.AppendCount(m1_0n);
+            for (int m1_0i = 0; m1_0i < m1_0n; m1_0i++)
             {
-                writer.AppendNullMarker(((value.Values)[i0]).HasValue);
-                if (((value.Values)[i0]).HasValue)
+                var m1_0e = m1_0c[m1_0i];
+                var m1_1 = m1_0e;
+                writer.AppendNullMarker(m1_1.HasValue);
+                if (m1_1.HasValue)
                 {
-                    writer.AppendInt32(((value.Values)[i0]).Value);
+                    writer.AppendInt32(m1_1.Value);
                 }
             }
         }

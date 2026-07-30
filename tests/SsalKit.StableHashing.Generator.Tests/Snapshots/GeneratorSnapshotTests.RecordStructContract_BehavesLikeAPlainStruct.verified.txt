@@ -32,10 +32,12 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.coordinate", 1);
 
             writer.AppendMemberId(1);
-            writer.AppendInt32(value.X);
+            var m1 = value.X;
+            writer.AppendInt32(m1);
 
             writer.AppendMemberId(2);
-            writer.AppendInt32(value.Y);
+            var m2 = value.Y;
+            writer.AppendInt32(m2);
         }
     }
 }

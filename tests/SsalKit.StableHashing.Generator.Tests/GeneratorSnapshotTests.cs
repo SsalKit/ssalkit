@@ -321,4 +321,30 @@ public class GeneratorSnapshotTests
 
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
+
+    /// <summary>
+    /// An <see langword="internal"/> contract type must get an <see langword="internal"/>
+    /// extension class and <see langword="internal"/> methods, never <see langword="public"/> ones
+    /// -- a public method whose parameter type is only internal is CS0051 ("inconsistent
+    /// accessibility"), so getting this wrong does not just leak visibility, it fails to compile.
+    /// </summary>
+    [Fact]
+    public Task InternalSealedClassContract_GeneratesInternalExtensionClass()
+    {
+        const string source = """
+            using SsalKit.StableHashing;
+
+            namespace Game.Snapshots;
+
+            [StableHashContract("game.internal-contract", Version = 1)]
+            internal sealed class InternalContract
+            {
+                [StableHashMember(1)] public int Value { get; init; }
+            }
+            """;
+
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
 }

@@ -36,7 +36,8 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.item", 1);
 
             writer.AppendMemberId(1);
-            writer.AppendByte((byte)value.Rarity);
+            var m1 = value.Rarity;
+            writer.AppendByte((byte)m1);
         }
     }
 }

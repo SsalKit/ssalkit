@@ -36,13 +36,16 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.player-snapshot", 1);
 
             writer.AppendMemberId(1);
-            global::Game.Snapshots.PositionStableHashing.AppendStableHash(value.Position, ref writer);
+            var m1 = value.Position;
+            global::Game.Snapshots.PositionStableHashing.AppendStableHash(m1, ref writer);
 
             writer.AppendMemberId(2);
-            writer.AppendNullMarker((value.LastCheckpoint).HasValue);
-            if ((value.LastCheckpoint).HasValue)
+            var m2 = value.LastCheckpoint;
+            var m2_0 = m2;
+            writer.AppendNullMarker(m2_0.HasValue);
+            if (m2_0.HasValue)
             {
-                global::Game.Snapshots.PositionStableHashing.AppendStableHash((value.LastCheckpoint).Value, ref writer);
+                global::Game.Snapshots.PositionStableHashing.AppendStableHash(m2_0.Value, ref writer);
             }
         }
     }

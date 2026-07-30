@@ -36,67 +36,88 @@ namespace Game.Snapshots
             writer.AppendContractHeader("game.all-scalars", 1);
 
             writer.AppendMemberId(1);
-            writer.AppendBoolean(value.Bool);
+            var m1 = value.Bool;
+            writer.AppendBoolean(m1);
 
             writer.AppendMemberId(2);
-            writer.AppendChar(value.Char);
+            var m2 = value.Char;
+            writer.AppendChar(m2);
 
             writer.AppendMemberId(3);
-            writer.AppendSByte(value.SByte);
+            var m3 = value.SByte;
+            writer.AppendSByte(m3);
 
             writer.AppendMemberId(4);
-            writer.AppendByte(value.Byte);
+            var m4 = value.Byte;
+            writer.AppendByte(m4);
 
             writer.AppendMemberId(5);
-            writer.AppendInt16(value.Int16);
+            var m5 = value.Int16;
+            writer.AppendInt16(m5);
 
             writer.AppendMemberId(6);
-            writer.AppendUInt16(value.UInt16);
+            var m6 = value.UInt16;
+            writer.AppendUInt16(m6);
 
             writer.AppendMemberId(7);
-            writer.AppendInt32(value.Int32);
+            var m7 = value.Int32;
+            writer.AppendInt32(m7);
 
             writer.AppendMemberId(8);
-            writer.AppendUInt32(value.UInt32);
+            var m8 = value.UInt32;
+            writer.AppendUInt32(m8);
 
             writer.AppendMemberId(9);
-            writer.AppendInt64(value.Int64);
+            var m9 = value.Int64;
+            writer.AppendInt64(m9);
 
             writer.AppendMemberId(10);
-            writer.AppendUInt64(value.UInt64);
+            var m10 = value.UInt64;
+            writer.AppendUInt64(m10);
 
             writer.AppendMemberId(11);
-            writer.AppendInt128(value.Int128);
+            var m11 = value.Int128;
+            writer.AppendInt128(m11);
 
             writer.AppendMemberId(12);
-            writer.AppendUInt128(value.UInt128);
+            var m12 = value.UInt128;
+            writer.AppendUInt128(m12);
 
             writer.AppendMemberId(13);
-            writer.AppendSingle(value.Single);
+            var m13 = value.Single;
+            writer.AppendSingle(m13);
 
             writer.AppendMemberId(14);
-            writer.AppendDouble(value.Double);
+            var m14 = value.Double;
+            writer.AppendDouble(m14);
 
             writer.AppendMemberId(15);
-            writer.AppendDecimal(value.Decimal);
+            var m15 = value.Decimal;
+            writer.AppendDecimal(m15);
 
             writer.AppendMemberId(16);
-            writer.AppendString(value.String);
+            var m16 = value.String;
+            writer.AppendString(m16);
 
             writer.AppendMemberId(17);
-            writer.AppendGuid(value.Guid);
+            var m17 = value.Guid;
+            writer.AppendGuid(m17);
 
             writer.AppendMemberId(18);
-            writer.AppendDateOnly(value.DateOnly);
+            var m18 = value.DateOnly;
+            writer.AppendDateOnly(m18);
 
             writer.AppendMemberId(19);
-            writer.AppendTimeOnly(value.TimeOnly);
+            var m19 = value.TimeOnly;
+            writer.AppendTimeOnly(m19);
 
             writer.AppendMemberId(20);
-            writer.AppendTimeSpan(value.TimeSpan);
+            var m20 = value.TimeSpan;
+            writer.AppendTimeSpan(m20);
 
             writer.AppendMemberId(21);
-            writer.AppendDateTimeOffset(value.DateTimeOffset);
+            var m21 = value.DateTimeOffset;
+            writer.AppendDateTimeOffset(m21);
         }
     }
 }

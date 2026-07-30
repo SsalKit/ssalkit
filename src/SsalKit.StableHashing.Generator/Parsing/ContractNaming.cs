@@ -38,13 +38,19 @@ internal static class ContractNaming
     /// class, for a caller (another contract's emitted <c>AppendStableHash</c> body) that needs to
     /// call into it.
     /// </summary>
-    public static string BuildExtensionsFqn(INamedTypeSymbol contractType)
-    {
-        var namespaceName = SymbolFacts.GetContainingNamespaceName(contractType);
-        var className = BuildExtensionClassName(contractType);
+    public static string BuildExtensionsFqn(INamedTypeSymbol contractType) =>
+        BuildExtensionsFqn(SymbolFacts.GetContainingNamespaceName(contractType), BuildExtensionClassName(contractType));
 
-        return namespaceName.Length == 0 ? "global::" + className : "global::" + namespaceName + "." + className;
-    }
+    /// <summary>
+    /// The string-only counterpart of <see cref="BuildExtensionsFqn(INamedTypeSymbol)"/>, for a
+    /// caller building the same <c>global::</c>-qualified name from an already-resolved
+    /// <see cref="Models.ContractModel.Namespace"/>/<see cref="Models.ContractModel.ExtensionClassName"/>
+    /// pair rather than a live symbol -- in particular, <see cref="ContractNameGrouper"/>'s
+    /// disambiguated name table, built once every contract's *final* (possibly numeric-suffixed)
+    /// <see cref="Models.ContractModel.ExtensionClassName"/> is known.
+    /// </summary>
+    public static string BuildExtensionsFqn(string namespaceName, string className) =>
+        namespaceName.Length == 0 ? "global::" + className : "global::" + namespaceName + "." + className;
 
     // HintNameSanitizer strips the "global::" qualifier itself, which is what keeps it out of every
     // generated file name; the qualifier carries no information here.

@@ -90,7 +90,21 @@ internal enum CollectionForm
 /// <param name="ContractExtensionsFqn">
 /// <see cref="TypeShapeKind.Contract"/> only: the <c>global::</c>-qualified name of the
 /// referenced contract type's own generated extension class, e.g.
-/// <c>global::Game.PlayerSnapshotStableHashing</c>.
+/// <c>global::Game.PlayerSnapshotStableHashing</c>, as it would be named *before* cross-type
+/// extension-class-name disambiguation (<see cref="Parsing.ContractNameGrouper"/>) runs. This is a
+/// fallback only: <see cref="Emission.StableHashEmitter"/> prefers resolving
+/// <see cref="ContractTypeFqn"/> through the disambiguated name table built from every contract
+/// collected in the compilation, and falls back to this tentative name only when the referenced
+/// type is not in that table (e.g. it has its own unrelated errors and was never emitted).
+/// </param>
+/// <param name="ContractTypeFqn">
+/// <see cref="TypeShapeKind.Contract"/> only: the referenced contract type's own <c>global::</c>-
+/// prefixed fully qualified name (of the type itself, not its generated extension class), used as
+/// the lookup key into the disambiguated name table described under
+/// <see cref="ContractExtensionsFqn"/>. A fully qualified type name is always unique per type,
+/// which is exactly what lets two *different* referenced types whose flattened extension class
+/// names happen to collide (design's <c>Outer.Inner</c> vs. top-level <c>Outer_Inner</c> example)
+/// still each resolve to the correct one.
 /// </param>
 /// <param name="Inner">
 /// <see cref="TypeShapeKind.NullableValue"/>/<see cref="TypeShapeKind.NullableReference"/> only:
@@ -105,4 +119,5 @@ internal sealed record TypeShape(
     string? ContractExtensionsFqn,
     TypeShape? Inner,
     CollectionForm? Form,
-    TypeShape? Element);
+    TypeShape? Element,
+    string? ContractTypeFqn = null);
