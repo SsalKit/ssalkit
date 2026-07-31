@@ -1,10 +1,18 @@
 # SsalKit.Timekeeping — AI contract sheet
 
-Time-zone-aware recurring reset boundaries (daily / weekly / monthly) and half-open time-window arithmetic, written as **pure functions of `(schedule, instant)`**, with a permanently fixed daylight-saving contract and `TimeProvider` overloads.
+Deterministic, persistable time state computed without ever reading the clock itself: every member is a **pure function of `(state, instant)`**, every state type is an immutable, serializable `record struct`. Two families: `RecurrenceSchedule` + `TimeWindow` (calendar wall-clock boundaries, with a permanently fixed daylight-saving contract) and `Cooldown` + `RechargePool` (elapsed-time state — a single cooldown, or a capacity-bounded recharging pool). Both expose `TimeProvider` overloads for code that already holds a clock.
 
 - **TFM:** `net10.0`. **Package dependencies:** none (BCL only). No source generator, no analyzer.
-- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — same types, same contracts, only the package id and namespace changed.
+- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — the `RecurrenceSchedule`/`TimeWindow` types and contracts are unchanged; only the package id and namespace changed. `Cooldown`/`RechargePool` are new in this package.
 - This file is written for AI coding agents. Human-facing docs: [`README.md`](README.md) (also `README.ko.md`, `README.ja.md`).
+
+## 0. Which family do I need?
+
+| Kind of boundary | Use |
+|---|---|
+| Calendar wall-clock (daily / weekly / monthly reset, DST) | `RecurrenceSchedule` |
+| Elapsed time since an event (ability cooldown, stamina / charge pool) | `Cooldown` / `RechargePool` |
+| In-process resource throttling (concurrent request limits, token buckets) | Not this package — `System.Threading.RateLimiting` |
 
 ## 1. API surface
 
@@ -21,6 +29,14 @@ Time-zone-aware recurring reset boundaries (daily / weekly / monthly) and half-o
 | "Compared to the previous period" | `WindowAt(asOf, -1)` — O(1) at any offset |
 | Caller already holds an injected clock | the `RecurrenceScheduleTimeProviderExtensions` overloads |
 | Interval containment / overlap / clamping | `TimeWindow` |
+| "Is this ability/action usable right now?" | `Cooldown.IsReady(asOf)` |
+| "Use it now if possible" | `Cooldown.TryUse(asOf, out updated)` |
+| "How many charges does a capped resource have right now?" | `RechargePool.AvailableAt(asOf)` |
+| "Spend N charges if available" | `RechargePool.TryConsume(asOf, amount, out updated)` |
+| "How long until the next charge / until completely full?" | `RechargePool.UntilNextCharge(asOf)` / `UntilFull(asOf)` |
+| "Grant charges (reward, purchase) without exceeding capacity" | `RechargePool.Grant(amount, asOf)` |
+| "Reset to fully charged at a calendar boundary" | `RechargePool.Refill(asOf)`, typically paired with `RecurrenceSchedule.HasCrossed` |
+| Caller already holds an injected clock (Cooldowns) | the `CooldownTimeProviderExtensions` overloads |
 
 ### `RecurrenceSchedule` — `sealed class`
 
@@ -59,9 +75,39 @@ Six extensions, each forwarding `TimeProvider.GetUtcNow()` exactly once: `Previo
 
 `WindowAt` and `EnumerateBoundaries` have **no** provider overload: they take a reference instant *plus* an explicit range, so one would save nothing.
 
+### `Cooldown` — `readonly record struct`
+
+| Member | Contract |
+|---|---|
+| `static Cooldown Create(TimeSpan duration, DateTimeOffset asOf)` | Immediately usable (`ReadyAt = asOf`). `duration < 0` → `ArgumentOutOfRangeException`. `TimeSpan.Zero` is **legal** — a degenerate always-ready cooldown. |
+| `bool IsReady(DateTimeOffset asOf)` | `asOf >= ReadyAt`. |
+| `TimeSpan Remaining(DateTimeOffset asOf)` | `max(0, ReadyAt - asOf)`. Never negative. |
+| `bool TryUse(DateTimeOffset asOf, out Cooldown updated)` | Success: `updated.ReadyAt = asOf + Duration`. Failure: `updated = this` — always safe to assign back. `ArgumentOutOfRangeException` if `asOf + Duration` overflows `DateTimeOffset`. |
+| `Cooldown Reset(DateTimeOffset asOf)` | `ReadyAt = asOf`, discarding remaining wait. |
+| `TimeSpan Duration { get; }` / `DateTimeOffset ReadyAt { get; }` | Configured wait length; instant the cooldown next becomes usable. |
+| `default(Cooldown)` | **Legal.** `Duration = TimeSpan.Zero`, `ReadyAt = DateTimeOffset.MinValue` — behaves exactly like `Cooldown.Create(TimeSpan.Zero, DateTimeOffset.MinValue)`, always ready. No member guards against it. |
+
+### `RechargePool` — `readonly record struct`
+
+| Member | Contract |
+|---|---|
+| `static RechargePool Create(int capacity, TimeSpan rechargeEvery, DateTimeOffset asOf, int initialCharges = -1)` | `capacity >= 1`, `rechargeEvery > 0` → else `ArgumentOutOfRangeException`. `initialCharges` default `-1` means full; else must be `[0, capacity]`, else `ArgumentOutOfRangeException`. |
+| `int AvailableAt(DateTimeOffset asOf)` | `0..Capacity`. `InvalidOperationException` if `default(RechargePool)`. |
+| `bool TryConsume(DateTimeOffset asOf, int amount, out RechargePool updated)` | `amount < 1` → `ArgumentOutOfRangeException`. `amount > Capacity` → `ArgumentOutOfRangeException` (could never succeed — caller bug, not a permanent `false`). Insufficient charges: `false`, `updated = this`. Success: `updated.FullAt = max(FullAt, asOf) + amount * RechargeEvery`. |
+| `TimeSpan? UntilNextCharge(DateTimeOffset asOf)` | `null` when full; else `> TimeSpan.Zero`, at most `RechargeEvery`. |
+| `TimeSpan? UntilFull(DateTimeOffset asOf)` | `null` when full; else exactly `FullAt - asOf`. |
+| `RechargePool Grant(int amount, DateTimeOffset asOf)` | `amount < 1` → `ArgumentOutOfRangeException`. No upper bound — over-granting saturates at `Capacity`. `updated.FullAt = max(asOf, FullAt - amount * RechargeEvery)`. |
+| `RechargePool Refill(DateTimeOffset asOf)` | `FullAt = asOf`, discarding partial progress. Pairs with `RecurrenceSchedule.HasCrossed` for a calendar-triggered reset (see [Canonical snippets](#5-canonical-snippets)). |
+| `int Capacity { get; }` / `TimeSpan RechargeEvery { get; }` / `DateTimeOffset FullAt { get; }` | Configured capacity and interval; the single instant the pool becomes completely full — the type's entire state (see §2). |
+| `default(RechargePool)` | **Not legal.** `Capacity = 0`, `RechargeEvery = TimeSpan.Zero` — every member throws `InvalidOperationException`, including on a corrupted/truncated deserialized payload. |
+
+### `CooldownTimeProviderExtensions` — `static class`
+
+One overload per member above whose only "now"-shaped argument is `asOf`: `Cooldown.IsReady/Remaining/TryUse/Reset(timeProvider)`, `RechargePool.AvailableAt/TryConsume/UntilNextCharge/UntilFull/Grant/Refill(timeProvider, ...)`. Each forwards `TimeProvider.GetUtcNow()` exactly once. `ArgumentNullException` for a `null` provider.
+
 ## 2. Contracts (versioned / immutable)
 
-### Boundary semantics — one rule
+### Boundary semantics — one rule (RecurrenceSchedule)
 
 **A boundary instant belongs to the window it opens, not to the one it closes:** `CurrentWindow(b).Start == b` for every boundary `b`. Everything follows:
 
@@ -71,7 +117,34 @@ Six extensions, each forwarding `TimeProvider.GetUtcNow()` exactly once: `Previo
 - Because every comparison is between **instants**, the classic "compare the hour field" bug (treating 04:15 as past an 04:30 reset because `4 >= 4`) is unrepresentable through this API.
 - `WindowAt(asOf, n).End == WindowAt(asOf, n + 1).Start` for every `n`.
 
-### Daylight-saving contract — fixed for the lifetime of the type
+### Boundary semantics — one rule (Cooldowns)
+
+Same status as the rule above — a permanent, versioned contract, because the state is persisted:
+
+> **A cooldown or a recharge unit is usable at the instant it completes, not only strictly after it.**
+
+`cooldown.IsReady(cooldown.ReadyAt) == true`, `cooldown.Remaining(cooldown.ReadyAt) == TimeSpan.Zero`, `pool.AvailableAt(pool.FullAt) == Capacity` (not `Capacity - 1`).
+
+### `RechargePool` state = `FullAt` (the O(1) source)
+
+The entire state is `FullAt`, a single instant. Every other quantity is derived:
+
+```
+available(t)  = Capacity - clamp(ceil((FullAt - t) / RechargeEvery), 0, Capacity)
+consume(k, t) : FullAt' = max(FullAt, t) + k * RechargeEvery
+grant(k, t)   : FullAt' = max(t, FullAt - k * RechargeEvery)
+refill(t)     : FullAt' = t
+untilNext(t)  = null if full else (FullAt - (missing - 1) * RechargeEvery) - t
+```
+
+This is a **permanent, versioned contract**, the same status as `RecurrenceSchedule`'s daylight-saving resolution rules: `FullAt` is persisted, so re-deriving `AvailableAt` from a stored value only works if the formula never changes. Properties that follow, all pinned by tests:
+
+- **Partial progress toward the next unit is preserved exactly.** Consuming while full only pushes `FullAt` forward by one `RechargeEvery`; a matching `Grant` at the same instant restores it exactly (`TryConsume` then `Grant`, same amount, same instant → original `FullAt`).
+- **An offline gap is O(1) regardless of length** — a ten-year gap costs what a one-minute gap costs.
+- **Time going backwards is total, not exceptional.** No stored "last observed instant" exists to violate; an earlier `asOf` simply reports fewer available units via the `clamp` term, never an exception or corrupted state.
+- Boundary inclusion is consistent with §2's Cooldowns rule.
+
+### Daylight-saving contract — fixed for the lifetime of the type (RecurrenceSchedule)
 
 The scheduled time is a **wall-clock** time in the schedule's zone. Three ways a wall clock misbehaves, three fixed resolutions:
 
@@ -89,6 +162,7 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 | `PreviousBoundary`, `NextBoundary`, `CurrentWindow`, `WindowAt`, `CountBoundaries`, `HasCrossed`, `UntilNext` | **O(1)** — closed-form calendar arithmetic; a ten-year gap costs what a one-day gap costs. Time is spent on `TimeZoneInfo` conversion, not on interval width (a UTC schedule is an order of magnitude cheaper). |
 | `EnumerateBoundaries` | **O(number of boundaries)**, one zone resolution each. |
 | Resolving a boundary landing on a gap or a base-offset seam (rules 1 and 3) | ~100× an ordinary resolution. One or two days a year per zone; never on the ordinary path. |
+| Every `Cooldown` and `RechargePool` member | **O(1)** — arithmetic on `ReadyAt`/`FullAt` only, independent of elapsed time or offline duration; no benchmark project (scheduling API, not a hot path — same rationale as `RecurrenceSchedule`). |
 
 ### Exceptions and edge cases
 
@@ -103,10 +177,18 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 | `Monthly(31, ...)` in February | Clamps to the 28th/29th; still exactly one boundary |
 | A `TimeProvider` extension on a null schedule or provider | `ArgumentNullException` |
 | An `asOf` within a boundary's distance of `DateTimeOffset.MinValue`/`MaxValue` | `ArgumentOutOfRangeException` from the underlying date arithmetic (deferred to the first `MoveNext` for `EnumerateBoundaries`) |
+| `Cooldown.Create`/`RechargePool.Create`: `duration < 0` / `capacity < 1` / `rechargeEvery <= 0` / `initialCharges` outside `[0, capacity]` (and not `-1`) | `ArgumentOutOfRangeException` |
+| `RechargePool.TryConsume`/`Grant`: `amount < 1` | `ArgumentOutOfRangeException` |
+| `RechargePool.TryConsume`: `amount > Capacity` | `ArgumentOutOfRangeException` — never a permanent `false` |
+| `RechargePool.TryConsume`: valid `amount`, insufficient charges | `false`, `updated = this` |
+| `default(Cooldown)` (incl. corrupted/truncated deserialized payload) | **Legal** — behaves like `Cooldown.Create(TimeSpan.Zero, DateTimeOffset.MinValue)` |
+| `default(RechargePool)` (incl. corrupted/truncated deserialized payload) | Every member throws `InvalidOperationException` |
+| `Cooldown`/`RechargePool` with `asOf` earlier than a previously used instant | No exception — see "time going backwards" in §2 |
+| `Cooldown`/`RechargePool` arithmetic outside `DateTimeOffset`'s range, or `RechargePool`'s tick multiplication overflow | `ArgumentOutOfRangeException` / `OverflowException` from checked arithmetic |
 
 ## 3. DO NOT
 
-- **DO NOT use `DateTimeOffset.MinValue` (or `MaxValue`) as a "never seen" sentinel.** Boundaries are computed within `DateTime`'s range, so a persisted `lastSeen` of `MinValue` **throws** `ArgumentOutOfRangeException` rather than reporting every boundary since year 1. Store a real instant, or a `null` you check for.
+- **DO NOT use `DateTimeOffset.MinValue` (or `MaxValue`) as a `RecurrenceSchedule` "never seen" sentinel.** Boundaries are computed within `DateTime`'s range, so a persisted `lastSeen` of `MinValue` **throws** `ArgumentOutOfRangeException` rather than reporting every boundary since year 1. Store a real instant, or a `null` you check for. (`Cooldown`'s `default`/`MinValue`-derived state is the opposite case — see below.)
 - **DO NOT call `EnumerateBoundaries` when you only need the count.** `CountBoundaries` is O(1); the sequence resolves one time-zone instant per boundary (a decade of a daily schedule really is 3,653 resolutions). Bound the interval or `Take` before enumerating a wide one.
 - **DO NOT assume `EnumerateBoundaries` validates its arguments eagerly.** There is nothing to validate — every pair of instants is meaningful — but execution is deferred, so a range-edge failure surfaces from the first `MoveNext`, not from the call.
 - **DO NOT compare calendar fields (hour, day) to decide whether a reset has passed.** Use `HasCrossed`/`CountBoundaries`; the whole API compares instants precisely to make the hour-field bug unrepresentable.
@@ -116,8 +198,11 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 - **DO NOT expect `UntilNext` ever to return `TimeSpan.Zero`.** `NextBoundary` is strict, so an `asOf` that is itself a boundary reports the full length of the window it just opened.
 - **DO NOT parse, persist, or assert on `ToString()`.** It is a diagnostic rendering with no compatibility promise — unlike the DST rules.
 - **DO NOT expect a DST-affected window to be exactly 24 hours.** Durations are real elapsed time: 23 h on spring-forward, 25 h on fall-back for a daily schedule in a one-hour zone.
-- **DO NOT reach for the `TimeProvider` overloads to make code testable.** The core API already takes the instant as a parameter — that is what makes it a pure function. The extensions are sugar for callers that already hold an injected clock, and they only ever call `GetUtcNow()`.
-- **DO NOT treat this as a scheduler.** It computes instants; it never runs anything. Quartz.NET / Hangfire / a hosted service still own execution.
+- **DO NOT reach for the `TimeProvider` overloads (either family) to make code testable.** The core APIs already take the instant as a parameter — that is what makes them pure functions. The extensions are sugar for callers that already hold an injected clock, and they only ever call `GetUtcNow()`.
+- **DO NOT treat this package as a scheduler.** It computes instants and state; it never runs anything. Quartz.NET / Hangfire / a hosted service still own execution.
+- **DO NOT treat `Cooldown`/`RechargePool` as an in-process rate limiter.** They model persisted, cross-restart state compared against a specific stored instant — not concurrent request throttling. Use `System.Threading.RateLimiting` (`TokenBucketRateLimiter`, `ConcurrencyLimiter`) for that; it solves a different problem and nothing in it needs to survive a restart.
+- **DO NOT treat `default(RechargePool)` as usable.** Unlike `Cooldown`, whose `default` is a legal always-ready value, `RechargePool.Capacity = 0` and `RechargeEvery = TimeSpan.Zero` are not something the formula in §2 can evaluate; every member throws `InvalidOperationException`, including on a corrupted/truncated deserialized payload. Always construct via `RechargePool.Create`.
+- **DO NOT assume `TryConsume`/`Grant`/`TryUse` are safe against concurrent read-modify-write.** These types are immutable and thread-safe to *read*, but `if (pool.TryConsume(now, 1, out var updated)) player.Stamina = updated;` still races if two threads run it against the same stored value at once. The package adds no locking; that is the caller's responsibility, the same as any optimistic-concurrency update.
 - **DO NOT expect cron expressions, RFC 5545 rules, holiday calendars, open-ended intervals, or fixed-interval ("every 6 hours") recurrence.** Out of scope for v1: three calendar cadences only.
 - **DO NOT assume the zone id resolves everywhere.** Ids follow `TimeZoneInfo`'s own resolution; IANA ids work on Windows from .NET 6 **provided ICU is available** — globalization-invariant mode is the case to watch.
 
@@ -212,5 +297,47 @@ public sealed class QuotaService(TimeProvider timeProvider)
     public bool ShouldRefill(DateTimeOffset lastReset) => Reset.HasCrossed(lastReset, timeProvider);
 
     public TimeSpan TimeLeft() => Reset.UntilNext(timeProvider);
+}
+```
+
+### Cooldowns: a single ability, and a capped resource
+
+```csharp
+using SsalKit.Timekeeping;
+
+// A single ability on a 30-second cooldown.
+var cooldown = Cooldown.Create(TimeSpan.FromSeconds(30), now);
+
+if (cooldown.TryUse(now, out var updated))
+{
+    player.AbilityCooldown = updated;   // save this back to storage
+}
+
+// Five stamina charges, recharging one every 20 minutes.
+var pool = RechargePool.Create(capacity: 5, rechargeEvery: TimeSpan.FromMinutes(20), asOf: now);
+
+if (pool.TryConsume(now, amount: 1, out var updatedPool))
+{
+    player.Stamina = updatedPool;       // save this back too
+}
+
+int available = pool.AvailableAt(now);
+TimeSpan? untilNext = pool.UntilNextCharge(now);
+```
+
+### Combining `RecurrenceSchedule` with `RechargePool`
+
+The two families are orthogonal — neither type knows about the other — so a calendar-triggered pool reset is ordinary calling code:
+
+```csharp
+using SsalKit.Timekeeping;
+
+var dailyReset = RecurrenceSchedule.Daily(new TimeOnly(4, 30));
+
+if (dailyReset.HasCrossed(player.LastStaminaReset, now))
+{
+    var boundary = dailyReset.PreviousBoundary(now);
+    player.Stamina = player.Stamina.Refill(boundary);   // preserves boundary-instant inclusion (§2)
+    player.LastStaminaReset = boundary;
 }
 ```
