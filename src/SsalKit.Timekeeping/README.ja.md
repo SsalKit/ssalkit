@@ -6,8 +6,21 @@
 
 以前は `SsalKit.RecurrenceSchedule` として公開されていました（非推奨）。型と契約は同一で、変更されたのはパッケージ id と名前空間のみです。
 
-タイムゾーンを意識した繰り返しリセット境界（日次 / 週次 / 月次）と、半開区間の時間ウィンドウ演算を、呼び出し側が渡した時刻に対する純粋関数として提供するライブラリです。恒久的に固定された夏時間（DST）の契約と、すでに時計を保持しているコードのための `TimeProvider` オーバーロードを備えています。依存関係はありません。
+SsalKit.Timekeeping は、時計そのものを一切読まずに決定的で永続化可能な時間状態を計算します。すべてのメンバーは `(状態, 時刻)` の純粋関数であり、すべての状態型は不変でシリアライズ可能な `record struct` であり、時刻は常に呼び出し側が渡す引数です — 直接渡すか、すでに時計を保持しているコードのための `TimeProvider` オーバーロードを通じて渡します。依存関係はありません。
 [![NuGet](https://img.shields.io/nuget/v/SsalKit.Timekeeping.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Timekeeping)
+
+| コンポーネント | 答える問い | 状態 |
+|---|---|---|
+| [`RecurrenceSchedule`](#クイックスタート-recurrenceschedule) + [`TimeWindow`](#timewindow-包含ルールは-1-つだけ) | カレンダーの壁時計境界 — 日次/週次/月次のリセット、恒久的に固定された DST 契約 | 既存 |
+| [`Cooldown`](#クイックスタート-cooldowns) + [`RechargePool`](#cooldowns) | 経過時間の状態 — 単一のクールダウン、または容量制限付きの充電プール | 新規 |
+
+### 境界の所在
+
+| 境界の種類 | 使うべき型 |
+|---|---|
+| カレンダーの壁時計（日次/週次/月次リセット、DST） | `RecurrenceSchedule` |
+| イベントからの経過時間（アビリティのクールダウン、スタミナ/チャージプール） | `Cooldown` / `RechargePool` |
+| プロセス内リソースのスロットリング（同時リクエスト数制限、トークンバケット） | このパッケージの対象外 — [`System.Threading.RateLimiting`](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) を参照 |
 
 ## なぜ SsalKit.Timekeeping なのか
 
@@ -36,7 +49,7 @@ SsalKit.Timekeeping はその空白を埋めます。
 dotnet add package SsalKit.Timekeeping
 ```
 
-## クイックスタート
+## クイックスタート: RecurrenceSchedule
 
 ```csharp
 using SsalKit.Timekeeping;
@@ -82,7 +95,7 @@ monthly.NextBoundary(new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
 
 DST を含めて以上をすべて実行できるサンプルは [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample) にあります。
 
-## API 概要
+## API 概要: RecurrenceSchedule
 
 ### `RecurrenceSchedule`
 
@@ -139,7 +152,7 @@ DST を含めて以上をすべて実行できるサンプルは [samples/SsalKi
 
 `TimeProvider` は .NET 8 以降 BCL の一部なので、これらを使ってもパッケージ依存は増えません。
 
-## 境界のセマンティクス
+## 境界のセマンティクス: RecurrenceSchedule
 
 すべては 1 つのルールから導かれます。**境界の時刻は、それが閉じるウィンドウではなく、それが開くウィンドウに属する。**
 
@@ -229,6 +242,139 @@ today.Clamp(overrunInstant);           // == today.End: 「このウィンドウ
 
 **オフセットは表示のためだけのものです。** `DateTimeOffset` はタイムライン上の 1 点を指し、`TimeWindow` の演算も値の等価性もその点を比較します。`2026-07-25T04:30:00+09:00` と `2026-07-24T19:30:00+00:00` は同じ瞬間なので、どちらの表記で作ったウィンドウも `==` であり同じ挙動をします。オフセットが `Start`、`End`、`ToString()` に保たれるのは、スケジュールが生成したウィンドウがそのゾーンの現地時刻をそのまま表示できるようにするためだけです。
 
+## Cooldowns
+
+`Cooldown` と `RechargePool` は `RecurrenceSchedule` とは異なる問いに答えます。「カレンダーの境界が過ぎたか」ではなく、「次のチャージが使えるようになるまでどれだけ経過時間が必要か」です。どちらも状態全体が `DateTimeOffset` / `TimeSpan` フィールド 1〜2 個だけの `readonly record struct` なので、`RecurrenceSchedule` の永続化された境界とまったく同じ形で、プロセス再起動やオフラインの空白期間を乗り越えられます — 構造体を保存しておき、あとはその構造体と問い合わせる時刻から残りをすべて再計算するだけです。
+
+### クイックスタート: Cooldowns
+
+```csharp
+using SsalKit.Timekeeping;
+
+// 30 秒のクールダウンを持つ単一のアビリティ。
+var cooldown = Cooldown.Create(TimeSpan.FromSeconds(30), now);
+
+if (cooldown.TryUse(now, out var updated))
+{
+    player.AbilityCooldown = updated;   // ストレージに保存し直す
+}
+
+TimeSpan left = cooldown.Remaining(now);
+bool ready = cooldown.IsReady(now);
+
+// 20 分ごとに 1 つ充電される、5 個のスタミナチャージ。
+var pool = RechargePool.Create(capacity: 5, rechargeEvery: TimeSpan.FromMinutes(20), asOf: now);
+
+if (pool.TryConsume(now, amount: 1, out var updatedPool))
+{
+    player.Stamina = updatedPool;       // こちらも保存し直す
+}
+
+int available = pool.AvailableAt(now);
+TimeSpan? untilNext = pool.UntilNextCharge(now);
+```
+
+どちらの型も `(状態, 時刻)` の純粋関数です — 周囲の時計を読む箇所はありません — そのため `player.AbilityCooldown` と `player.Stamina` はストレージ（JSON、DB のカラム、何であれ）をそのまま往復します。次の `IsReady` / `AvailableAt` 呼び出しは、保存された構造体とそのとき渡した時刻だけからすべてを再計算し、別途「最後に保存した時刻」を管理する必要はありません。
+
+### API 概要: Cooldown と RechargePool
+
+#### `Cooldown`
+
+| メンバー | 用途 |
+|---|---|
+| `static Cooldown Create(TimeSpan duration, DateTimeOffset asOf)` | 即座に使用可能なクールダウン。`duration` は今後の `TryUse` が突入させる待ち時間の長さ。`duration < 0` は `ArgumentOutOfRangeException`。`TimeSpan.Zero` は合法で、常に使用可能なクールダウンを作る。 |
+| `IsReady(DateTimeOffset asOf)` | `asOf >= ReadyAt`。 |
+| `Remaining(DateTimeOffset asOf)` | `max(0, ReadyAt - asOf)`。負になることはない。 |
+| `TryUse(DateTimeOffset asOf, out Cooldown updated)` | 成功時、新しい `Duration` 分の待ちを開始（`ReadyAt = asOf + Duration`）。失敗時、`updated` はこのインスタンスのまま変わらない — そのまま代入し直しても常に安全。 |
+| `Reset(DateTimeOffset asOf)` | 残りの待ちを破棄し、`asOf` に即座に使用可能にする。 |
+| `Duration` / `ReadyAt` | 設定された待ち時間の長さと、クールダウンが次に使用可能になる時刻。 |
+
+#### `RechargePool`
+
+| メンバー | 用途 |
+|---|---|
+| `static RechargePool Create(int capacity, TimeSpan rechargeEvery, DateTimeOffset asOf, int initialCharges = -1)` | `capacity >= 1`、`rechargeEvery > 0` — でなければ `ArgumentOutOfRangeException`。`initialCharges` の既定値は `-1`（満タンを意味する）、それ以外は `[0, capacity]` の範囲でなければならない。 |
+| `AvailableAt(DateTimeOffset asOf)` | `0..Capacity` の値。 |
+| `TryConsume(DateTimeOffset asOf, int amount, out RechargePool updated)` | `amount` は `1..Capacity` でなければならない（`amount > Capacity` は例外 — このプールでは決して満たせない要求）。現在利用可能な量が `amount` 未満なら `false` を返し、`updated` は変わらない。 |
+| `UntilNextCharge(DateTimeOffset asOf)` | 満タンなら `null`。それ以外で、`asOf` がプールのモデル化された充電区間（`FullAt - (Capacity - 1) * RechargeEvery` から `FullAt` まで）の内側にあれば、長くても `RechargeEvery` の長さ。`asOf` がその区間より前であれば、最も早いモデル上のチャージが完了するまでの全時間となり、`RechargeEvery` を超えることがある。 |
+| `UntilFull(DateTimeOffset asOf)` | 満タンなら `null`。そうでなければ、ちょうど `FullAt - asOf`。 |
+| `Grant(int amount, DateTimeOffset asOf)` | `Capacity` でクランプしつつ単位を加える。`TryConsume` と異なり `amount` に上限はない — 過剰付与は単に満タンで飽和する。 |
+| `Refill(DateTimeOffset asOf)` | 次の単位に向けた部分的な進捗を破棄し、`asOf` に完全に満タンにする。 |
+| `Capacity` / `RechargeEvery` / `FullAt` | 設定された容量と充電間隔、そしてプールが完全に満タンになる単一の時刻 — [`FullAt` モデル](#fullat-モデル) を参照。 |
+
+#### `CooldownTimeProviderExtensions`
+
+`RecurrenceScheduleTimeProviderExtensions` と同じパターンです。上記メンバーのうち「今」に相当する引数が `asOf` だけのものごとに（`Cooldown` の `IsReady`、`Remaining`、`TryUse`、`Reset`。`RechargePool` の `AvailableAt`、`TryConsume`、`UntilNextCharge`、`UntilFull`、`Grant`、`Refill`）オーバーロードがあり、それぞれ `TimeProvider.GetUtcNow()` をちょうど 1 回転送します。`null` プロバイダーは `ArgumentNullException`。
+
+### 境界のセマンティクス: Cooldowns
+
+ルールは 1 つだけで、`RecurrenceSchedule` の「境界はそれが開くウィンドウに属する」と同じ地位の、恒久的でバージョンをまたぐ契約です。
+
+> **クールダウンや 1 単位のチャージは、完了するちょうどその瞬間から使用可能であり、その後だけ使用可能なのではない。**
+
+```csharp
+cooldown.IsReady(cooldown.ReadyAt);       // true
+cooldown.Remaining(cooldown.ReadyAt);     // TimeSpan.Zero
+pool.AvailableAt(pool.FullAt);            // Capacity。Capacity - 1 ではない
+```
+
+クールダウンとプールの状態は `RecurrenceSchedule` の境界と同じ形で永続化されます（「このアビリティを最後に使った時刻」「このプールが満タンになる時刻」）。そのため、この比較は保存された `ReadyAt` や `FullAt` を壊さない限り、リリースをまたいで意味が変わることはありません。
+
+### `FullAt` モデル
+
+`RechargePool` の状態全体は `FullAt` — プールが完全に満タンになる単一の時刻 — です。それ以外のすべての量はこれと `RechargeEvery` から導かれます。
+
+```
+available(t)  = Capacity - clamp(ceil((FullAt - t) / RechargeEvery), 0, Capacity)
+consume(k, t) : FullAt' = max(FullAt, t) + k * RechargeEvery
+grant(k, t)   : FullAt' = max(t, FullAt - k * RechargeEvery)
+refill(t)     : FullAt' = t
+```
+
+これにより、プールがどれだけ長くオフラインだったか、どれだけの単位が不足しているかに関わらず、すべてのメンバーが **O(1)** になります。また、頼りにできる 3 つの性質も得られます。
+
+- **次の単位に向けた部分的な進捗が正確に保存されます。** 1 単位消費すると、`FullAt` と消費時刻のうち遅い方を基準に `RechargeEvery` 1 つ分だけ前に押し出されるだけで、すでに進んでいたチャージの進捗はリセットされません。同じ時刻に同じ量を `Grant` したときにこの移動が元の `FullAt` に正確に戻るかどうかは、消費時点で実際にチャージが進行中だったかによります。進行中だった場合（消費時刻に `FullAt` がその時刻以降）、往復は損失なく復元され、その時刻より前の観測についても同様です。逆にプールがすでに満タンだった場合（消費時刻に `FullAt` がその時刻以前）、往復は実際に満タンになった元の時刻ではなく、消費/付与の時刻そのものに `FullAt` を戻します — その時刻以降の観測（両方の状態ともその区間ずっと満タンと報告する）は一致し続けますが、その時刻より前の照会や、2 つの `RechargePool` 値の等価性比較では違いが分かります。
+- **オフラインの空白は 1 分でも 10 年でも同じコストです。** どんな空白の後でも `AvailableAt` は引き算 1 回と割り算 1 回であり、逃したチャージを走査するループではありません。
+- **時刻の逆行は例外ではなく、正常に処理されます。** 違反されうる「最後に観測した時刻」という保存値がそもそも存在しません。以前に使われた時刻より早い `asOf` は（上の式の `clamp` 項を通じて）単に少ない利用可能数を報告するだけで、例外も状態破損もありません。
+
+### 例外
+
+| 条件 | 挙動 |
+|---|---|
+| `Create`: `capacity < 1` / `rechargeEvery <= 0` / `duration < 0` / `initialCharges` が合法範囲外 | `ArgumentOutOfRangeException` |
+| `TryConsume` / `Grant`: `amount < 1` | `ArgumentOutOfRangeException` |
+| `TryConsume`: `amount > Capacity` | `ArgumentOutOfRangeException` — このサイズのプールでは何度充電しても決して満たせない要求なので、永遠に `false` を返す代わりに呼び出し側のバグとして拒否 |
+| `TryConsume`: `amount` は有効だが、現在それだけ利用可能ではない | `false`、`updated` は変わらない — 元の値の上にそのまま代入し直しても常に安全 |
+| `default(Cooldown)`（破損または切り詰められたデシリアライズ結果を含む） | 合法 — `Cooldown.Create(TimeSpan.Zero, DateTimeOffset.MinValue)` とまったく同じに振る舞う、すなわち常に使用可能 |
+| `default(RechargePool)`（破損または切り詰められたデシリアライズ結果を含む） | すべてのメンバーが `InvalidOperationException` を投げる — `Cooldown` と異なり、容量 `0` で決して充電されないプールは使用可能な退化状態ではない |
+| 時刻の逆行 | 例外なし — 上記「時刻の逆行」を参照 |
+| `DateTimeOffset` の範囲を超える演算、または `RechargePool` のティック乗算のオーバーフロー | 下層の checked 演算による `ArgumentOutOfRangeException`（または `OverflowException`） |
+
+`Cooldown` と `RechargePool` は意図的に既定値の扱いが異なります。`Cooldown.Duration = TimeSpan.Zero` はすでに「クールダウン未設定」を表す合法な退化ケースなので、`default(Cooldown)` は単にそのケースがあらかじめ組み立てられているだけです。`RechargePool.Create` はすべて 0 の既定値を意味あるものにしようとすると 0 の `RechargeEvery` で割ることになってしまうため、代わりにすべてのメンバーが明示的にこれを防御し、例外を投げます。
+
+### シリアライズとスレッド安全性
+
+どちらの型も public な `get`/`init` プロパティのみを持つ `record struct` なので、System.Text.Json（あるいは MessagePack、その他何でも）はカスタムコンバーターなしに往復させられます。構造体そのものが状態です。`Cooldown` はフィールド 2 つ（`Duration`、`ReadyAt`）を、`RechargePool` はフィールド 3 つ（`Capacity`、`RechargeEvery`、`FullAt`）を保持します。破損したペイロードのデシリアライズによってコンストラクタが迂回された場合、それをキャッチするのはデシリアライズの時点ではなく、上の例外表のガードがいずれかのメソッド呼び出し時点で捕まえます。
+
+不変な値と純粋関数の組み合わせにより、どちらの型も読み取り目的なら複数スレッド間で安全に共有できます。ただし、read-modify-write の一連の操作を原子的にするわけではありません。`if (pool.TryConsume(now, 1, out var updated)) player.Stamina = updated;` は、2 つのスレッドが同じ保存済みの値に対して同時に実行すればやはり競合します。これは楽観的並行性制御による更新まわりで呼び出し側がすでに負っている責任と同じであり、このパッケージはその上にロックを追加しません。
+
+### `RecurrenceSchedule` との組み合わせ
+
+この 2 つの系列は直交しています — どちらの型も互いを知りません — そのため「このプールを毎日 04:30 にリセットしつつ、それ以外の時間は普段どおり充電させる」ことは、どちらかの型が提供すべき機能ではなく、ただの普通の呼び出し側コードになります。
+
+```csharp
+using SsalKit.Timekeeping;
+
+var dailyReset = RecurrenceSchedule.Daily(new TimeOnly(4, 30));
+
+if (dailyReset.HasCrossed(player.LastStaminaReset, now))
+{
+    var boundary = dailyReset.PreviousBoundary(now);
+    player.Stamina = player.Stamina.Refill(boundary);
+    player.LastStaminaReset = boundary;
+}
+```
+
 ## テスト
 
 コア API が時刻を引数で受け取るので、ほとんどのテストには時計がまったく必要ありません。検証したい時刻をそのまま渡すだけです。テスト対象のクラスが注入された `TimeProvider` を保持している場合は、フェイクを渡してください。
@@ -248,7 +394,7 @@ Assert.True(dailyReset.HasCrossed(lastReset, clock));
 Assert.Equal(5, dailyReset.CountBoundaries(lastLogin, clock));
 ```
 
-拡張メソッドは `GetUtcNow()` しか呼ばないので、他にフェイクにするものはありません。
+拡張メソッドは `GetUtcNow()` しか呼ばないので、他にフェイクにするものはありません。`Cooldown` と `RechargePool` も同じ方法でテストできます — 時刻を直接渡すか、同じフェイクの `TimeProvider` を拡張メソッドに渡してください。
 
 ## パフォーマンス
 
@@ -259,17 +405,20 @@ O(1) ではなく、そのつもりもないものが 2 つあります。
 - `EnumerateBoundaries` は境界の個数に比例し、境界ごとにタイムゾーン解決が 1 回ずつかかります。個数だけが必要なら `CountBoundaries` を使ってください。
 - DST のギャップや基準オフセットの継ぎ目に落ちる境界（規則 1 と規則 3）の解決は、壁時計がスケジュール時刻に到達する瞬間を探索するため、通常の解決の百倍ほどかかります。ゾーンごとに年 1〜2 日の話であり、通常の経路には一切触れません。
 
+`Cooldown` と `RechargePool` の各メンバーも同様に O(1) です — 上記の [`FullAt` モデル](#fullat-モデル) こそが、プールがどれだけ長くオフラインだったかに関わらずこれを成り立たせている源泉です。
+
 **このライブラリにベンチマークプロジェクトは意図的に同梱していません。** `SsalKit.Randomness` と違ってこちらはホットパスではなくスケジュール計算 API であり、絶対値を特定のマシンに固定することは、その維持コストに見合いません。ライブラリが約束するのは上の計算量であり、それは実行時間の予算ではなくテストスイートの構造的な表明によって担保されます。
 
 ## このライブラリの位置づけ
 
 - **スケジューラーではありません。** このライブラリは時刻を計算するだけで、何も実行しません。実行は依然として Quartz.NET、Hangfire、あるいはホステッドサービスの仕事です。`RecurrenceSchedule` には *いつ* を尋ね、*実行* はそちらに任せてください。
+- **リソースリミッターではありません。** `Cooldown` と `RechargePool` は、永続化され特定の時刻と比較される状態をモデル化します — プレイヤーのアビリティのクールダウン、ログイン報酬のプールなどです。`System.Threading.RateLimiting`（`TokenBucketRateLimiter`、`ConcurrencyLimiter` など）は別の問題を解決します。再起動後も生き残る必要がなく、プロセス間で比較される必要もない、同時実行のプロセス内作業をスロットリングする問題です。API のスロットリングには `RateLimiter` を、状態そのものを保存・検査・復元する必要があるときはこれらの型を使ってください。
 - **NodaTime とは補完関係です。** NodaTime はカレンダー体系、期間、ゾーン演算を BCL よりはるかに徹底してモデル化します。ただし「リセットウィンドウ」の概念はなく、このライブラリにも NodaTime を置き換える意図はありません。すでにカレンダー処理で NodaTime を使っていても、境界通過に関する問いには、BCL の型の上で、調整すべき依存関係なしにこのライブラリが答えます。
 - **Cronos とも補完関係です。** Cronos は cron 式を解析して次の発生時刻を返します。このライブラリは cron を解析せず、3 つの固定されたカレンダー周期だけを提供しますが、cron パーサーが答えないことに答えます。ある時刻がどのウィンドウに属するか、そして 2 つの時刻の間に発生が何回あったかです。
 
 v1 で意図的に対象外としたのは、cron 式、RFC 5545 の繰り返し規則、営業日・祝日カレンダー、開区間、そしてアンカー規則が別の設計問題となる固定間隔（「6 時間ごと」）の繰り返しです。
 
-## 例外とエッジケース
+## 例外とエッジケース: RecurrenceSchedule と TimeWindow
 
 | 条件 | 挙動 |
 |---|---|
@@ -282,7 +431,7 @@ v1 で意図的に対象外としたのは、cron 式、RFC 5545 の繰り返し
 | 2 月における `Monthly(31, ...)` | 28 日または 29 日にクランプ。その月もちょうど 1 つの境界を持つ |
 | `null` のスケジュールまたはプロバイダーでの `TimeProvider` 拡張の呼び出し | `ArgumentNullException` |
 
-**範囲の両端についてひとつ注意があります。** 境界は `DateTime` の範囲内で計算されます。`DateTimeOffset.MinValue` や `MaxValue` から境界 1 つ分の距離に入る `asOf` は表現不可能な境界を要求することになり、内部の日付演算が `ArgumentOutOfRangeException` を投げます。したがって「一度も見ていない」を表すセンチネルとして `DateTimeOffset.MinValue` を使うのは避けるのが賢明です。永続化された `lastSeen` が `MinValue` だと、西暦 1 年以降のすべての境界を報告する代わりに例外になります。実際の時刻を保存するか、チェック可能な `null` を使ってください。
+**範囲の両端についてひとつ注意があります。** 境界は `DateTime` の範囲内で計算されます。`DateTimeOffset.MinValue` や `MaxValue` から境界 1 つ分の距離に入る `asOf` は表現不可能な境界を要求することになり、内部の日付演算が `ArgumentOutOfRangeException` を投げます。したがって「一度も見ていない」を表すセンチネルとして `DateTimeOffset.MinValue` を使うのは避けるのが賢明です。永続化された `lastSeen` が `MinValue` だと、西暦 1 年以降のすべての境界を報告する代わりに例外になります。実際の時刻を保存するか、チェック可能な `null` を使ってください。`Cooldown` と `RechargePool` には [Cooldowns](#cooldowns) の下に別の例外表があります — とりわけ `Cooldown` は `default` / `MinValue` 由来の状態を例外ではなく合法として扱っており、ここでの `RecurrenceSchedule` の注意点とは正反対です。
 
 ## ライセンス
 
