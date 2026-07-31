@@ -220,7 +220,8 @@ public readonly record struct TickSchedule<TEvent>
     /// <param name="updated">When this method returns, the schedule with the due entries removed and
     /// every remaining entry preserved in its original storage order. When nothing was due, this is
     /// exactly <see langword="this"/> (the same value, not merely an equal one) -- popping nothing is a
-    /// no-op, not a rebuild.</param>
+    /// no-op, not a rebuild, and (see the implementation note on the most common polling path below)
+    /// does not allocate.</param>
     /// <returns>The due entries, ordered by <see cref="TickScheduleEntry{TEvent}.DueTick"/> ascending
     /// and then by <see cref="TickScheduleEntry{TEvent}.Sequence"/> ascending -- the permanent
     /// determinism contract described in the type-level remarks. Empty when nothing was due; this
@@ -230,7 +231,21 @@ public readonly record struct TickSchedule<TEvent>
     {
         var entries = Entries;
 
-        if (entries.IsEmpty)
+        // The most common call shape in a per-tick polling loop is "nothing due yet", so check for
+        // that with a plain scan before allocating anything: no List<T>, no ImmutableArray.Builder,
+        // not even for an empty schedule (entries.Length == 0 simply never enters the loop below).
+        var hasDue = false;
+
+        for (var i = 0; i < entries.Length; i++)
+        {
+            if (entries[i].DueTick <= currentTick)
+            {
+                hasDue = true;
+                break;
+            }
+        }
+
+        if (!hasDue)
         {
             updated = this;
             return ImmutableArray<TickScheduleEntry<TEvent>>.Empty;
@@ -251,12 +266,6 @@ public readonly record struct TickSchedule<TEvent>
             {
                 remaining.Add(entry);
             }
-        }
-
-        if (due.Count == 0)
-        {
-            updated = this;
-            return ImmutableArray<TickScheduleEntry<TEvent>>.Empty;
         }
 
         // Every candidate carries a unique StorageIndex, so this comparer defines a total order over

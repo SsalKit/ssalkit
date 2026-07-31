@@ -480,7 +480,8 @@ A corrupted or hand-edited payload can still produce a schedule with duplicate `
 |---|---|
 | `Add` | `O(n)` in the current entry count (`ImmutableArray<T>.Add`'s usual backing-array copy) |
 | `PopDue` | `O(n + k log k)` — a full scan to select the due subset (`n`), then a sort of only that subset (`k`) |
-| `RemoveAll`, `Count`, `IsEmpty`, `NextDueTick` | `O(n)` |
+| `RemoveAll`, `NextDueTick` | `O(n)` |
+| `Count`, `IsEmpty` | `O(1)` — read straight off the normalized `Entries`' `Length`/`IsEmpty` |
 
 Both `Add` and `PopDue` are sized for game- and simulation-scale entry counts (hundreds to low thousands), where the gap to a theoretically optimal priority queue is never worth the added complexity — and a future release could change the internal representation without breaking callers, because the public contract is storage-order independence, not this specific one.
 

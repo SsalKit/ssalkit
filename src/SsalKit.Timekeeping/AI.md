@@ -204,7 +204,8 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 | Every `Cooldown` and `RechargePool` member | **O(1)** — arithmetic on `ReadyAt`/`FullAt` only, independent of elapsed time or offline duration; no benchmark project (scheduling API, not a hot path — same rationale as `RecurrenceSchedule`). |
 | `TickSchedule<TEvent>.Add` | **O(n)** in the current entry count — copies `Entries`' backing array (`ImmutableArray<T>.Add`'s usual cost). |
 | `TickSchedule<TEvent>.PopDue` | **O(n + k log k)** — `n` = total entries (full scan to select the due subset), `k` = due entries (sort of only that subset). |
-| `TickSchedule<TEvent>.RemoveAll` / `Count` / `IsEmpty` / `NextDueTick` | **O(n)**. |
+| `TickSchedule<TEvent>.RemoveAll` / `NextDueTick` | **O(n)**. |
+| `TickSchedule<TEvent>.Count` / `IsEmpty` | **O(1)** — read straight off the normalized `Entries`' `Length`/`IsEmpty`. |
 
 Both `TickSchedule` costs are for game-/simulation-scale entry counts (hundreds to low thousands); the public contract is storage-order independence, not this specific representation, so a future release could change the internal layout without breaking callers.
 

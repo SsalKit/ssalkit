@@ -480,7 +480,8 @@ foreach (var entry in schedule.PopDue(currentTick, out schedule))
 |---|---|
 | `Add` | 현재 엔트리 개수에 대해 `O(n)` (`ImmutableArray<T>.Add`가 늘 하는 배킹 배열 복사) |
 | `PopDue` | `O(n + k log k)` — due 부분집합을 골라내는 전체 스캔(`n`), 그 부분집합만 정렬(`k`) |
-| `RemoveAll`, `Count`, `IsEmpty`, `NextDueTick` | `O(n)` |
+| `RemoveAll`, `NextDueTick` | `O(n)` |
+| `Count`, `IsEmpty` | `O(1)` — 정규화된 `Entries`의 `Length`/`IsEmpty`를 바로 읽음 |
 
 `Add`와 `PopDue` 모두 게임·시뮬레이션 규모의 엔트리 개수(수백에서 수천 단위 초반)를 겨냥하고 있어, 이론상 최적인 우선순위 큐와의 차이가 추가 복잡도를 들일 가치가 없습니다 — 그리고 공개 계약이 이 특정 구현이 아니라 저장 순서 비의존성이므로, 이후 릴리스가 호출부를 깨지 않고 내부 표현을 바꿀 수도 있습니다.
 

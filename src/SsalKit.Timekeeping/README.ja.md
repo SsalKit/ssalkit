@@ -480,7 +480,8 @@ foreach (var entry in schedule.PopDue(currentTick, out schedule))
 |---|---|
 | `Add` | 現在のエントリー数に対して `O(n)`（`ImmutableArray<T>.Add` が常に行うバッキング配列のコピー） |
 | `PopDue` | `O(n + k log k)` — due の部分集合を選び出す全走査（`n`）、その部分集合だけのソート（`k`） |
-| `RemoveAll`、`Count`、`IsEmpty`、`NextDueTick` | `O(n)` |
+| `RemoveAll`、`NextDueTick` | `O(n)` |
+| `Count`、`IsEmpty` | `O(1)` — 正規化された `Entries` の `Length`/`IsEmpty` をそのまま読むだけ |
 
 `Add` と `PopDue` はどちらもゲーム・シミュレーション規模のエントリー数（数百〜数千の下位）を対象にしており、理論上最適な優先度付きキューとの差は追加の複雑さに見合いません — そして公開契約はこの特定の実装ではなく格納順非依存性なので、将来のリリースが呼び出し側を壊さずに内部表現を変更することもできます。
 
