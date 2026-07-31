@@ -7,9 +7,9 @@
 
   <PropertyGroup>
     <PackageId>SsalKit.Timekeeping</PackageId>
-    <Description>Deterministic, serializable time-state calculations: calendar recurrence boundaries (daily/weekly/monthly), half-open time-window arithmetic, and elapsed-time cooldown/recharge state with O(1) offline catch-up. Pure functions of (state, instant) -- never reads the clock. Boundary and daylight-saving rules are fixed versioned contracts. Zero dependencies.</Description>
+    <Description>Deterministic, serializable time-state calculations: calendar recurrence boundaries (daily/weekly/monthly), half-open time-window arithmetic, elapsed-time cooldown/recharge state with O(1) offline catch-up, and a logical-tick event schedule for simulations. Pure functions of (state, instant/tick) -- never reads the clock. Boundary, daylight-saving, and tick-dispatch rules are fixed versioned contracts. Zero dependencies.</Description>
     <PackageDescription>$(Description)</PackageDescription>
-    <PackageTags>timekeeping;recurrence;schedule;reset;time-window;cooldown;recharge;energy;deterministic;timezone;dst;timeprovider</PackageTags>
+    <PackageTags>timekeeping;recurrence;schedule;reset;time-window;cooldown;recharge;energy;deterministic;timezone;dst;timeprovider;tick;simulation;event-schedule</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

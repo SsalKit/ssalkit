@@ -13,6 +13,7 @@ SsalKit.Timekeeping computes deterministic, persistable time state without ever 
 |---|---|---|
 | [`RecurrenceSchedule`](#quick-start-recurrenceschedule) + [`TimeWindow`](#timewindow-one-containment-rule) | Calendar wall-clock boundaries — daily / weekly / monthly resets, with a permanently fixed daylight-saving contract | Original |
 | [`Cooldown`](#quick-start-cooldowns) + [`RechargePool`](#cooldowns) | Elapsed-time state — a single cooldown, or a capacity-bounded recharging pool | New |
+| [`TickSchedule`](#quick-start-tickschedule) | Logical-tick state — a deterministic, serializable queue of events due at simulation tick numbers | New |
 
 ### Where the boundary is
 
@@ -20,6 +21,7 @@ SsalKit.Timekeeping computes deterministic, persistable time state without ever 
 |---|---|
 | Calendar wall-clock (daily / weekly / monthly reset, DST) | `RecurrenceSchedule` |
 | Elapsed time since an event (ability cooldown, stamina / charge pool) | `Cooldown` / `RechargePool` |
+| Logical simulation tick (deterministic event dispatch by tick number, not by clock) | `TickSchedule` |
 | In-process resource throttling (concurrent request limits, token buckets) | Not this package — see [`System.Threading.RateLimiting`](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) |
 
 ## Why SsalKit.Timekeeping?
@@ -375,6 +377,118 @@ if (dailyReset.HasCrossed(player.LastStaminaReset, now))
 }
 ```
 
+## TickSchedule
+
+`TickSchedule<TEvent>` answers a third kind of question — neither "has a calendar boundary passed" (`RecurrenceSchedule`) nor "how much elapsed time is left" (`Cooldown` / `RechargePool`), but "which of the events I scheduled are due at this logical simulation tick". A tick is not a wall-clock reading — it is whatever `long` your simulation loop is already counting — and the schedule stores only the event *value* you hand it, never a delegate, so persisting it, restoring it, and replaying the same `Add`/`PopDue` calls anywhere reproduces the exact same dispatch order, forever.
+
+### Quick Start: TickSchedule
+
+```csharp
+using SsalKit.Timekeeping;
+
+var schedule = TickSchedule<string>.Empty
+    .Add("boss-respawn", dueTick: 1800)
+    .Add("wave-2", dueTick: 1800);
+
+// ... the simulation loop advances one tick at a time ...
+var due = schedule.PopDue(currentTick: 1800, out schedule);
+
+foreach (var entry in due)
+{
+    Dispatch(entry.Event);   // your code decides what "boss-respawn" means, and does it
+}
+// due contains both entries, "boss-respawn" before "wave-2" (insertion order, same tick).
+```
+
+`TickSchedule` never runs anything itself — like `RecurrenceSchedule`, it only ever answers *when*; deciding what an event means and executing it is entirely the caller's job. The event value can be an enum, an id, or a record — anything a serializer can round-trip — but never a delegate, since a callback cannot survive a save file the way a value can.
+
+A runnable walkthrough — a battle timeline, catch-up after a gap, a recurring wave spawner, and a save/restore round trip — is in [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample) (the `tickschedule` group).
+
+### API Overview: TickSchedule
+
+#### `TickSchedule<TEvent>`
+
+| Member | Purpose |
+|---|---|
+| `static TickSchedule<TEvent> Empty` | The empty schedule. Identical to `default(TickSchedule<TEvent>)` — see [Determinism](#determinism-tickschedule) below. |
+| `Entries` | The entries in storage (insertion-then-removal) order — the serialization surface, together with `NextSequence`. Carries no meaning of its own; see Determinism. |
+| `NextSequence` | The `Sequence` the next `Add` will assign. Starts at `0` on an empty schedule. |
+| `Count` / `IsEmpty` | Number of pending entries, and whether there are none. |
+| `NextDueTick` | The smallest `DueTick` among pending entries, or `null` when empty — how far a loop can fast-forward before the next `PopDue` would return anything. |
+| `Add(TEvent event, long dueTick)` | Appends a new entry, due at `dueTick` (any `long`, including a value at or before "now" — immediately due at the next `PopDue`). |
+| `PopDue(long currentTick, out TickSchedule<TEvent> updated)` | Removes and returns every entry with `DueTick <= currentTick`, ordered `(DueTick, Sequence)` ascending — the boundary is inclusive. Empty array and `updated == this` when nothing is due; this method never fails. |
+| `RemoveAll(TEvent event)` | Removes every entry equal to `event` (`EqualityComparer<TEvent>.Default`) — cancels a previously scheduled event by value. |
+
+#### `TickScheduleEntry<TEvent>`
+
+| Member | Purpose |
+|---|---|
+| `DueTick` | The logical tick this entry becomes due at. |
+| `Sequence` | The insertion order `Add` assigned — the FIFO tie-break for entries sharing a `DueTick`. |
+| `Event` | The value passed to `Add`. Handed back unexecuted by `PopDue`. |
+
+### Determinism: TickSchedule
+
+Everything follows from one rule, with the same permanent, versioned-contract status as `RecurrenceSchedule`'s daylight-saving rules and `Cooldown`'s boundary-inclusion rule:
+
+> **Dispatch order is `(DueTick ascending, Sequence ascending)`, and nothing else — regardless of the order entries happen to be stored in.**
+
+```csharp
+var a = TickSchedule<string>.Empty.Add("x", 10).Add("y", 10);
+var b = a; // any schedule holding the same entries, in any storage order, pops identically
+
+a.PopDue(10, out _).SequenceEqual(b.PopDue(10, out _));   // true, always
+```
+
+- `PopDue`'s boundary is inclusive: an event scheduled at tick 1800 is due starting at `PopDue(1800, ...)`, not only at `PopDue(1801, ...)` — the same "a boundary belongs to the thing it opens" convention `RecurrenceSchedule` uses for calendar boundaries.
+- `Add` appends and never sorts `Entries`; all ordering happens inside `PopDue`, at the moment it is needed. There is no sorted-storage invariant to maintain, which means there is none to violate either — a deserializer that lands `Entries` in an arbitrary order (a hand-edited save, a corrupted payload) still gets the same `PopDue` result, because the rule above never references storage order in the first place.
+- The complexity trade-off is explicit, not hidden — see [Complexity](#complexity-tickschedule) below.
+- `default(TickSchedule<TEvent>)` is a **legal, empty schedule** — the same status as `default(Cooldown)`. `Empty` is exactly this value. Every member treats it as zero entries; there is no invalid state for an `EnsureValid` guard to reject.
+- `NextSequence` advances by one per `Add` using checked arithmetic; `Add` throws `OverflowException` rather than silently wrapping into a duplicate `Sequence` once `NextSequence` reaches `long.MaxValue` — not a practical concern at any real event rate.
+
+### Catch-up and recurring events
+
+Because `PopDue` scans every pending entry regardless of how many ticks have elapsed since the last call, "catching up" after a restart or an offline gap is not a special case — it is the same call with a larger `currentTick`:
+
+```csharp
+// A save was last flushed at tick 400; the process restarts at tick 1000.
+var due = schedule.PopDue(currentTick: 1000, out schedule);
+// due contains every entry with DueTick <= 1000, in (DueTick, Sequence) order -- no replay needed.
+```
+
+v1 has no built-in repeating schedule; a recurring event is one line — re-`Add` the same event for its next occurrence the moment the current one pops:
+
+```csharp
+foreach (var entry in schedule.PopDue(currentTick, out schedule))
+{
+    if (entry.Event is "wave")
+    {
+        schedule = schedule.Add(entry.Event, entry.DueTick + WaveInterval);   // schedule the next wave
+    }
+}
+```
+
+### Serialization: TickSchedule
+
+`Entries` and `NextSequence` are the entire serialization surface — both are public `init` properties, so System.Text.Json (or anything else) round-trips a schedule with no custom converter. Because dispatch order never depends on storage order (see Determinism above), a schedule restored from a save file pops in exactly the same order the original would have, regardless of what order the deserializer happened to reconstruct `Entries` in.
+
+A corrupted or hand-edited payload can still produce a schedule with duplicate `Sequence` values, or a `NextSequence` that has regressed behind an existing entry's `Sequence`. `PopDue` stays fully deterministic even then: it breaks any remaining tie using each entry's storage position as an implementation-only third sort key, so the *observable* contract stays exactly `(DueTick, Sequence)` for any payload `Add` could have legitimately produced.
+
+### Complexity: TickSchedule
+
+| Member | Cost |
+|---|---|
+| `Add` | `O(n)` in the current entry count (`ImmutableArray<T>.Add`'s usual backing-array copy) |
+| `PopDue` | `O(n + k log k)` — a full scan to select the due subset (`n`), then a sort of only that subset (`k`) |
+| `RemoveAll`, `Count`, `IsEmpty`, `NextDueTick` | `O(n)` |
+
+Both `Add` and `PopDue` are sized for game- and simulation-scale entry counts (hundreds to low thousands), where the gap to a theoretically optimal priority queue is never worth the added complexity — and a future release could change the internal representation without breaking callers, because the public contract is storage-order independence, not this specific one.
+
+### Two things worth knowing before you compare or extend `TickSchedule`
+
+- **`==` compares storage order, not logical content.** Two schedules holding the same entries in a different `Entries` order compare unequal even though `PopDue` would treat them identically — and `ImmutableArray<T>`'s own equality compares backing-array *identity*, so even two schedules built by separately `Add`-ing the same entries in the same order can compare unequal. Compare `PopDue` results (or `Entries` converted to a plain list) instead of comparing `TickSchedule` values directly.
+- **There is no `TimeProvider` overload, and there will not be one.** A logical tick is not a wall-clock reading; sugar that reads `TimeProvider.GetUtcNow()` would not produce a tick number at all. Advance `currentTick` from whatever your simulation already uses to count ticks.
+
 ## Testing
 
 Because the core API takes the instant as an argument, most tests need no clock at all — just pass the instant you want to test. Where a class under test holds an injected `TimeProvider`, hand it a fake:
@@ -394,7 +508,7 @@ Assert.True(dailyReset.HasCrossed(lastReset, clock));
 Assert.Equal(5, dailyReset.CountBoundaries(lastLogin, clock));
 ```
 
-The extension methods only ever call `GetUtcNow()`, so there is nothing else to fake. `Cooldown` and `RechargePool` test the same way — pass the instant directly, or hand the same fake `TimeProvider` to their extension methods.
+The extension methods only ever call `GetUtcNow()`, so there is nothing else to fake. `Cooldown` and `RechargePool` test the same way — pass the instant directly, or hand the same fake `TimeProvider` to their extension methods. `TickSchedule` needs no fake at all — `Add`/`PopDue` take a plain `long` tick, not a clock reading.
 
 ## Performance
 
@@ -407,11 +521,13 @@ Two things are not O(1) and are not meant to be:
 
 Every `Cooldown` and `RechargePool` member is likewise O(1) — the [`FullAt` model](#the-fullat-model) above is precisely what makes that true regardless of how long a pool has been offline.
 
+`TickSchedule.Add` and `.PopDue` are not O(1) — see [Complexity: TickSchedule](#complexity-tickschedule) — but the same "not worth benchmarking at this scale" reasoning applies: they cost the same whether the schedule has been idle for one tick or caught up across ten thousand.
+
 **No benchmark project ships with this library**, deliberately: unlike `SsalKit.Randomness`, this is a scheduling API rather than a hot path, and pinning absolute numbers to a machine would be a promise worth less than the maintenance it costs. The complexity claims above are what the library commits to; they are asserted structurally by the test suite rather than by a wall-clock budget.
 
 ## Where this sits
 
-- **Not a scheduler.** This library computes instants; it never runs anything. Quartz.NET, Hangfire, or a hosted service still own execution — ask a `RecurrenceSchedule` *when*, and let them do the *doing*.
+- **Not a scheduler, and not an execution engine.** This library computes instants and tick-due events; it never runs anything. Quartz.NET, Hangfire, or a hosted service still own execution — ask a `RecurrenceSchedule` *when*, ask a `TickSchedule` *what's due*, and let them do the *doing*.
 - **Not a resource limiter.** `Cooldown` and `RechargePool` model state that gets persisted and compared against a specific instant — a player's ability cooldown, a login-reward pool. `System.Threading.RateLimiting` (`TokenBucketRateLimiter`, `ConcurrencyLimiter`, and friends) solves a different problem: throttling concurrent, in-process work where nothing needs to survive a restart or be compared across processes. Reach for a `RateLimiter` for API throttling; reach for these types when the state itself needs to be stored, inspected, or restored.
 - **Complementary to NodaTime.** NodaTime models calendar systems, periods, and zoned arithmetic far more thoroughly than the BCL. It has no "reset window" concept, and this library has no ambition to replace it: if you already use NodaTime for calendar work, this still answers the crossing questions, on BCL types, with no dependency to reconcile.
 - **Complementary to Cronos.** Cronos parses cron expressions and gives you the next occurrence. This library does not parse cron — it offers three fixed calendar cadences instead — but it does answer what a cron parser does not: which window an instant belongs to, and how many occurrences fall between two instants.

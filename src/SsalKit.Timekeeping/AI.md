@@ -1,9 +1,9 @@
 # SsalKit.Timekeeping — AI contract sheet
 
-Deterministic, persistable time state computed without ever reading the clock itself: every member is a **pure function of `(state, instant)`**, every state type is an immutable, serializable `record struct`. Two families: `RecurrenceSchedule` + `TimeWindow` (calendar wall-clock boundaries, with a permanently fixed daylight-saving contract) and `Cooldown` + `RechargePool` (elapsed-time state — a single cooldown, or a capacity-bounded recharging pool). Both expose `TimeProvider` overloads for code that already holds a clock.
+Deterministic, persistable time state computed without ever reading the clock itself: every member is a **pure function of `(state, instant)`** (or, for `TickSchedule`, `(state, tick)`), every state type is an immutable, serializable `record struct`. Three families: `RecurrenceSchedule` + `TimeWindow` (calendar wall-clock boundaries, with a permanently fixed daylight-saving contract), `Cooldown` + `RechargePool` (elapsed-time state — a single cooldown, or a capacity-bounded recharging pool), and `TickSchedule` (a deterministic, serializable queue of events due at logical simulation tick numbers — never a wall-clock reading). The first two families expose `TimeProvider` overloads for code that already holds a clock; `TickSchedule` deliberately does not (see §3).
 
 - **TFM:** `net10.0`. **Package dependencies:** none (BCL only). No source generator, no analyzer.
-- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — the `RecurrenceSchedule`/`TimeWindow` types and contracts are unchanged; only the package id and namespace changed. `Cooldown`/`RechargePool` are new in this package.
+- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — the `RecurrenceSchedule`/`TimeWindow` types and contracts are unchanged; only the package id and namespace changed. `Cooldown`/`RechargePool` and `TickSchedule`/`TickScheduleEntry` are new in this package.
 - This file is written for AI coding agents. Human-facing docs: [`README.md`](README.md) (also `README.ko.md`, `README.ja.md`).
 
 ## 0. Which family do I need?
@@ -12,6 +12,7 @@ Deterministic, persistable time state computed without ever reading the clock it
 |---|---|
 | Calendar wall-clock (daily / weekly / monthly reset, DST) | `RecurrenceSchedule` |
 | Elapsed time since an event (ability cooldown, stamina / charge pool) | `Cooldown` / `RechargePool` |
+| Logical simulation tick (deterministic event dispatch by tick number, not by clock) | `TickSchedule` |
 | In-process resource throttling (concurrent request limits, token buckets) | Not this package — `System.Threading.RateLimiting` |
 
 ## 1. API surface
@@ -37,6 +38,10 @@ Deterministic, persistable time state computed without ever reading the clock it
 | "Grant charges (reward, purchase) without exceeding capacity" | `RechargePool.Grant(amount, asOf)` |
 | "Reset to fully charged at a calendar boundary" | `RechargePool.Refill(asOf)`, typically paired with `RecurrenceSchedule.HasCrossed` |
 | Caller already holds an injected clock (Cooldowns) | the `CooldownTimeProviderExtensions` overloads |
+| "Schedule an event for a future simulation tick" | `TickSchedule<TEvent>.Add(event, dueTick)` |
+| "Which events are due now (or were missed while offline)?" | `TickSchedule<TEvent>.PopDue(currentTick, out updated)` |
+| "Cancel a previously scheduled event" | `TickSchedule<TEvent>.RemoveAll(event)` |
+| "How far can the simulation fast-forward before anything is due?" | `TickSchedule<TEvent>.NextDueTick` |
 
 ### `RecurrenceSchedule` — `sealed class`
 
@@ -105,6 +110,28 @@ Six extensions, each forwarding `TimeProvider.GetUtcNow()` exactly once: `Previo
 
 One overload per member above whose only "now"-shaped argument is `asOf`: `Cooldown.IsReady/Remaining/TryUse/Reset(timeProvider)`, `RechargePool.AvailableAt/TryConsume/UntilNextCharge/UntilFull/Grant/Refill(timeProvider, ...)`. Each forwards `TimeProvider.GetUtcNow()` exactly once. `ArgumentNullException` for a `null` provider.
 
+### `TickSchedule<TEvent>` — `readonly record struct`
+
+| Member | Contract |
+|---|---|
+| `static TickSchedule<TEvent> Empty { get; }` | The empty schedule. Identical to `default(TickSchedule<TEvent>)` — see §2. |
+| `ImmutableArray<TickScheduleEntry<TEvent>> Entries { get; init; }` | Entries in storage (insertion-then-removal) order — the serialization surface together with `NextSequence`. Getter never returns a default `ImmutableArray` (normalizes to `.Empty`), even when the schedule itself is `default`. Carries no ordering meaning — see §2 determinism. |
+| `long NextSequence { get; init; }` | The `Sequence` the next `Add` assigns. `0` on an empty schedule. |
+| `int Count { get; }` | `Entries.Length`. |
+| `bool IsEmpty { get; }` | `Entries.IsEmpty`. |
+| `long? NextDueTick { get; }` | Smallest `DueTick` among entries, or `null` when empty. |
+| `TickSchedule<TEvent> Add(TEvent event, long dueTick)` | Appends `new TickScheduleEntry<TEvent>(dueTick, NextSequence, event)`; `NextSequence` advances by one (checked). `dueTick` is any `long`, including at-or-before "now" (immediately due next `PopDue`). `OverflowException` if `NextSequence == long.MaxValue`. |
+| `ImmutableArray<TickScheduleEntry<TEvent>> PopDue(long currentTick, out TickSchedule<TEvent> updated)` | Removes and returns every entry with `DueTick <= currentTick`, ordered `(DueTick, Sequence)` ascending — boundary **inclusive**. Empty result + `updated == this` (same value, not merely equal) when nothing is due — a total function, never throws for "nothing to pop". |
+| `TickSchedule<TEvent> RemoveAll(TEvent event)` | Removes every entry with `Event` equal to `event` via `EqualityComparer<TEvent>.Default`. `NextSequence` unchanged — removed `Sequence` values are never reused. `updated == this` when nothing matched. |
+
+### `TickScheduleEntry<TEvent>` — `readonly record struct(long DueTick, long Sequence, TEvent Event)`
+
+| Member | Contract |
+|---|---|
+| `DueTick` | The logical tick this entry becomes due at. Opaque `long` — the library only ever compares it, never assigns meaning. |
+| `Sequence` | Insertion order `Add` assigned; the FIFO tie-break for entries sharing a `DueTick`. Not the same as position in `Entries` — entries are never reordered in storage. |
+| `Event` | The value passed to `Add`, handed back unexecuted by `PopDue`. No type constraint; a `notnull` type (enum, id, record) is recommended for predictable `RemoveAll`/serializer behavior. **Never a delegate** — see §3. |
+
 ## 2. Contracts (versioned / immutable)
 
 ### Boundary semantics — one rule (RecurrenceSchedule)
@@ -124,6 +151,18 @@ Same status as the rule above — a permanent, versioned contract, because the s
 > **A cooldown or a recharge unit is usable at the instant it completes, not only strictly after it.**
 
 `cooldown.IsReady(cooldown.ReadyAt) == true`, `cooldown.Remaining(cooldown.ReadyAt) == TimeSpan.Zero`, `pool.AvailableAt(pool.FullAt) == Capacity` (not `Capacity - 1`).
+
+### Determinism — one rule (TickSchedule)
+
+Same permanent, versioned-contract status as the two rules above:
+
+> **Dispatch order is `(DueTick ascending, Sequence ascending)`, and nothing else, regardless of the order `Entries` happens to be stored in.**
+
+- `PopDue`'s boundary is **inclusive**: an entry due at tick `N` is returned by `PopDue(N, ...)`, not only by `PopDue(N + 1, ...)` — consistent with the package-wide "a boundary belongs to the thing it opens" convention.
+- `Add` never sorts `Entries`; all ordering happens inside `PopDue`. There is no sorted-storage invariant to maintain, so there is none for a deserializer (or a hand-edited/corrupted payload) to violate — `PopDue` honors the rule above for `Entries` in **any** order.
+- `default(TickSchedule<TEvent>)` is **legal** — `Entries` default-normalizes to empty, `NextSequence` is `0`, identical to `Empty`. No `EnsureValid` guard exists because no invalid state exists.
+- If a corrupted payload produces duplicate `Sequence` values or a regressed `NextSequence`, `PopDue` stays fully deterministic by breaking any remaining tie with each entry's storage position as an implementation-only third sort key — the *observable* contract stays `(DueTick, Sequence)` for any payload `Add` could legitimately have produced.
+- `Entries` + `NextSequence` are the entire serialization surface (both public `init`); STJ round-trips with no custom converter, and dispatch order after restore matches the order before saving regardless of the order the deserializer reconstructs `Entries` in.
 
 ### `RechargePool` state = `FullAt` (the O(1) source)
 
@@ -163,6 +202,11 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 | `EnumerateBoundaries` | **O(number of boundaries)**, one zone resolution each. |
 | Resolving a boundary landing on a gap or a base-offset seam (rules 1 and 3) | ~100× an ordinary resolution. One or two days a year per zone; never on the ordinary path. |
 | Every `Cooldown` and `RechargePool` member | **O(1)** — arithmetic on `ReadyAt`/`FullAt` only, independent of elapsed time or offline duration; no benchmark project (scheduling API, not a hot path — same rationale as `RecurrenceSchedule`). |
+| `TickSchedule<TEvent>.Add` | **O(n)** in the current entry count — copies `Entries`' backing array (`ImmutableArray<T>.Add`'s usual cost). |
+| `TickSchedule<TEvent>.PopDue` | **O(n + k log k)** — `n` = total entries (full scan to select the due subset), `k` = due entries (sort of only that subset). |
+| `TickSchedule<TEvent>.RemoveAll` / `Count` / `IsEmpty` / `NextDueTick` | **O(n)**. |
+
+Both `TickSchedule` costs are for game-/simulation-scale entry counts (hundreds to low thousands); the public contract is storage-order independence, not this specific representation, so a future release could change the internal layout without breaking callers.
 
 ### Exceptions and edge cases
 
@@ -185,6 +229,10 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 | `default(RechargePool)` (incl. corrupted/truncated deserialized payload) | Every member throws `InvalidOperationException` |
 | `Cooldown`/`RechargePool` with `asOf` earlier than a previously used instant | No exception — see "time going backwards" in §2 |
 | `Cooldown`/`RechargePool` arithmetic outside `DateTimeOffset`'s range, or `RechargePool`'s tick multiplication overflow | `ArgumentOutOfRangeException` / `OverflowException` from checked arithmetic |
+| `TickSchedule<TEvent>.Add`: `NextSequence` would overflow past `long.MaxValue` | `OverflowException` (checked arithmetic) — not a practical concern at any real event rate |
+| `TickSchedule<TEvent>.PopDue`: nothing due | Not an error — empty result array, `updated == this`; a total function |
+| `default(TickSchedule<TEvent>)` (incl. corrupted/truncated deserialized payload) | **Legal** — behaves like `TickSchedule<TEvent>.Empty`; every member operates normally, no guard needed |
+| `TickSchedule<TEvent>` payload with duplicate `Sequence` values or a regressed `NextSequence` | No exception — `PopDue` stays deterministic via the storage-position tie-break (§2) |
 
 ## 3. DO NOT
 
@@ -205,6 +253,12 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 - **DO NOT assume `TryConsume`/`Grant`/`TryUse` are safe against concurrent read-modify-write.** These types are immutable and thread-safe to *read*, but `if (pool.TryConsume(now, 1, out var updated)) player.Stamina = updated;` still races if two threads run it against the same stored value at once. The package adds no locking; that is the caller's responsibility, the same as any optimistic-concurrency update.
 - **DO NOT expect cron expressions, RFC 5545 rules, holiday calendars, open-ended intervals, or fixed-interval ("every 6 hours") recurrence.** Out of scope for v1: three calendar cadences only.
 - **DO NOT assume the zone id resolves everywhere.** Ids follow `TimeZoneInfo`'s own resolution; IANA ids work on Windows from .NET 6 **provided ICU is available** — globalization-invariant mode is the case to watch.
+- **DO NOT treat `TickSchedule` as an execution engine.** It only ever tells you what is due; dispatching `entry.Event` (a `switch`, a lookup table, a queue push) is entirely the caller's job, the same as `RecurrenceSchedule` only ever answering *when*.
+- **DO NOT store a delegate as `TEvent`.** Callbacks cannot survive a serialize/deserialize round trip the way a value can — store an enum, an id, or a record, and look it up or switch on it at dispatch time.
+- **DO NOT compare two `TickSchedule<TEvent>` values with `==` expecting "same logical schedule".** Equality is sensitive to storage order (`Entries` in a different order compares unequal even when `PopDue` would treat the schedules identically) and, independently, to `ImmutableArray<T>`'s own identity-based equality (two schedules built by separately `Add`-ing the same entries in the same order can still compare unequal). Compare `PopDue` results, or `Entries` converted to a plain list, instead.
+- **DO NOT look for a `TimeProvider` overload on `TickSchedule`.** There is none, and there will not be one — a logical tick is not a wall-clock reading. Advance `currentTick` from whatever the simulation already uses to count ticks.
+- **DO NOT assume `TickSchedule<TEvent>` serializes `TEvent` for you beyond what your serializer already handles.** The schedule only guarantees `Entries` + `NextSequence` round-trip through STJ/etc. with no custom converter *for the schedule itself*; `TEvent` still needs to be a type your chosen serializer can handle (an enum, primitive id, or `[JsonSerializable]`-annotated record — the same responsibility as serializing any other application type).
+- **DO NOT expect `TickSchedule` to reorder `Entries` for you, or to maintain a sorted invariant.** Storage is deliberately append-only; only `PopDue` sorts, and only the due subset, at the moment it is called.
 
 ## 4. Diagnostics
 
@@ -339,5 +393,38 @@ if (dailyReset.HasCrossed(player.LastStaminaReset, now))
     var boundary = dailyReset.PreviousBoundary(now);
     player.Stamina = player.Stamina.Refill(boundary);   // preserves boundary-instant inclusion (§2)
     player.LastStaminaReset = boundary;
+}
+```
+
+### TickSchedule: a tick loop, with catch-up after a restart
+
+```csharp
+using SsalKit.Timekeeping;
+
+// Persisted (or reloaded from a save): world.Schedule is TickSchedule<string>, world.LastTick a long.
+for (long tick = world.LastTick + 1; tick <= currentSimulationTick; tick++)
+{
+    var due = world.Schedule.PopDue(tick, out world.Schedule);   // boundary inclusive (§2)
+
+    foreach (var entry in due)
+    {
+        Dispatch(entry.Event);   // caller decides what "boss-respawn" etc. means and does it
+    }
+}
+
+world.LastTick = currentSimulationTick;
+
+// A process that fell behind (or just restarted) does not need to replay every intervening tick --
+// one PopDue at the caught-up tick returns every entry due at or before it, in (DueTick, Sequence)
+// order, exactly as if each intervening PopDue had been called in turn.
+var missed = world.Schedule.PopDue(currentSimulationTick, out world.Schedule);
+
+// Recurring events (v1 has no built-in repeat): re-Add for the next occurrence as each one pops.
+foreach (var entry in missed)
+{
+    if (entry.Event is "wave")
+    {
+        world.Schedule = world.Schedule.Add(entry.Event, entry.DueTick + WaveInterval);
+    }
 }
 ```
