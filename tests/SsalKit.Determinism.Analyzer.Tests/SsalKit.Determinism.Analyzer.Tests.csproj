@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Verify.Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SsalKit.Determinism.Analyzer\SsalKit.Determinism.Analyzer.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Determinism\SsalKit.Determinism.csproj" />
+    <!-- Referenced so the conditional-catalog tests can hand the real Randomness assembly to the
+         compilation under test; the analyzer itself depends on nothing. -->
+    <ProjectReference Include="..\..\src\SsalKit.Randomness\SsalKit.Randomness.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Generators.Toolkit.Testing\SsalKit.Generators.Toolkit.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

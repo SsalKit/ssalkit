@@ -18,6 +18,7 @@
 | `SsalKit.Generators.Toolkit.Testing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.Testing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit.Testing) | 증분 소스 생성기와 분석기를 위한 테스트 프레임워크 비의존 하네스. 증분 캐싱 단언을 포함합니다. | [README](src/SsalKit.Generators.Toolkit.Testing/README.ko.md) |
 | `SsalKit.Timekeeping` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Timekeeping.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Timekeeping) | 결정적이고 저장 가능한 시간 상태 계산 라이브러리. 달력 리셋 경계(일간/주간/월간, 고정 DST 계약), 경과 시간 쿨다운·충전 풀, 그리고 시뮬레이션용 논리적 틱 이벤트 스케줄. | [README](src/SsalKit.Timekeeping/README.ko.md) |
 | `SsalKit.StableHashing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.StableHashing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.StableHashing) | `[StableHashContract]`/`[StableHashMember]`로 생성되는, 버전 고정 canonical encoding 계약 기반의 플랫폼·프로세스 독립적 64bit 체크섬. | [README](src/SsalKit.StableHashing/README.ko.md) |
+| `SsalKit.Determinism` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Determinism.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Determinism) | `[Deterministic]` 스코프 안에서 사용된 비결정적 API에 대한 opt-in 컴파일 타임 진단. 모든 메시지가 구체적인 대체 수단을 지목합니다. | [README](src/SsalKit.Determinism/README.ko.md) |
 
 ## 이름의 유래
 

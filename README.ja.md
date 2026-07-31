@@ -18,6 +18,7 @@
 | `SsalKit.Generators.Toolkit.Testing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Generators.Toolkit.Testing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Generators.Toolkit.Testing) | インクリメンタルソースジェネレーターとアナライザーのための、テストフレームワーク非依存のハーネス。インクリメンタルキャッシュのアサーションを含みます。 | [README](src/SsalKit.Generators.Toolkit.Testing/README.ja.md) |
 | `SsalKit.Timekeeping` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Timekeeping.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Timekeeping) | 決定的で永続化可能な時間状態を計算するライブラリ。カレンダーのリセット境界（日次/週次/月次、固定 DST 契約）、経過時間のクールダウン・充電プール、そしてシミュレーション向けの論理ティックイベントスケジュール。 | [README](src/SsalKit.Timekeeping/README.ja.md) |
 | `SsalKit.StableHashing` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.StableHashing.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.StableHashing) | `[StableHashContract]`/`[StableHashMember]` から生成される、バージョン固定の canonical encoding 契約に基づくプラットフォーム・プロセス非依存の 64bit チェックサム。 | [README](src/SsalKit.StableHashing/README.ja.md) |
+| `SsalKit.Determinism` | [![NuGet](https://img.shields.io/nuget/v/SsalKit.Determinism.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Determinism) | `[Deterministic]` スコープ内で使われた非決定的な API に対する opt-in なコンパイル時診断。すべてのメッセージが具体的な代替手段を名指しします。 | [README](src/SsalKit.Determinism/README.ja.md) |
 
 ## 名前の由来
 

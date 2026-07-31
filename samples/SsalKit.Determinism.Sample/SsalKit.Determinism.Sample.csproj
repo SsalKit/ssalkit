@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The attributes themselves, plus the three libraries the analyzer's messages point at:
+         this sample is the one place all four are used together, which is the point of it. -->
+    <ProjectReference Include="..\..\src\SsalKit.Determinism\SsalKit.Determinism.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Randomness\SsalKit.Randomness.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Timekeeping\SsalKit.Timekeeping.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing\SsalKit.StableHashing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Wired as analyzers so this project is checked (and the [StableHashContract] types below
+         get their ComputeStableHash() generated) by the real components, without having to pack
+         and consume the NuGet packages first.
+
+         Because the repository builds with TreatWarningsAsErrors, the fact that this project
+         compiles at all is the regression test: not one SSALD warning is reported anywhere in the
+         deterministic cores below. Violations.cs, excluded by default, is where the diagnostics
+         can be seen firing (see the comment at the top of that file). -->
+    <ProjectReference Include="..\..\src\SsalKit.Determinism.Analyzer\SsalKit.Determinism.Analyzer.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\SsalKit.StableHashing.Generator\SsalKit.StableHashing.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

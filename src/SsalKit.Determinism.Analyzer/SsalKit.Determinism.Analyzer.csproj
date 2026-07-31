@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- The release-tracking rules RS2002 ("rule is in an unshipped release but is not a supported
+         diagnostic") and RS2003 ("rule was shipped but is no longer a supported diagnostic") can
+         only match a release-file entry against a diagnostic whose id is a compile-time constant at
+         the DiagnosticDescriptor construction site. The SSALD table is built by
+         SsalKit.Generators.Toolkit's DiagnosticDescriptorFactory, which composes "SSALD" + the
+         numeric id at run time, so the rules cannot resolve a single entry and report them all as
+         unmatched. The files are still maintained and still passed as AdditionalFiles;
+         AnalyzerReleasesSyncTests re-establishes exactly what these two rules checked (plus
+         category/severity agreement) as an ordinary test that reads the same two files. -->
+    <NoWarn>$(NoWarn);RS2002;RS2003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Deliberately pinned below the central version: this is the minimum Roslyn
+         version the analyzer supports, so older SDK/IDE hosts can still load it. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" VersionOverride="4.8.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Full-file link (not a selective subset): this compiles the exact same source set a
+         package consumer receives via contentFiles, so an internal build continuously verifies
+         consumer-side build integrity; unused internal types do not emit warnings. -->
+    <Compile Include="..\SsalKit.Generators.Toolkit\*.cs" Link="Toolkit\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SsalKit.Determinism.Analyzer.Tests" />
+  </ItemGroup>
+
+</Project>
