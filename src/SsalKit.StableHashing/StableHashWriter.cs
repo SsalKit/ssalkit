@@ -115,6 +115,10 @@ public ref struct StableHashWriter
     }
 
     private XxHash64 _hasher;
+    // Written only through the writable span over its elements (StagingSpan) — ReSharper's
+    // analysis does not recognize InlineArray element-ref writes as assignments (Roslyn does,
+    // hence no CS0649 from the actual build). Same pattern as XxHash64._carry.
+    // ReSharper disable once UnassignedField.Compiler
     private StagingBuffer _staging;
     private int _stagingLength;
 
