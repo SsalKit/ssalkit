@@ -128,6 +128,39 @@ public sealed class RechargePoolTests
         Assert.Null(pool.UntilNextCharge(nextChargeAt));
     }
 
+    [Fact]
+    public void UntilNextCharge_CanExceedRechargeEvery_WhenAsOfIsBeforeTheModeledRechargeSpan()
+    {
+        // Contract precision (review fix #2): UntilNextCharge only promises "positive and at most
+        // RechargeEvery" while asOf falls within the pool's modeled recharge span --
+        // [FullAt - (Capacity - 1) * RechargeEvery, FullAt]. Querying from far before that span is
+        // still total and well-defined (time reversal never throws), but the honest answer is the
+        // full duration to the *earliest* modeled charge, which is not RechargeEvery-bounded: the
+        // type must not invent a recharge boundary outside the span it actually models.
+        //
+        // Expected-value derivation: this pool is full (FullAt == Now). Querying 100 years before
+        // Now makes elapsed (FullAt - asOf) enormously larger than Capacity * RechargeEvery, so
+        // MissingCharges clamps to Capacity (5), and the formula
+        //   UntilNextCharge(asOf) = (FullAt - (missing - 1) * RechargeEvery) - asOf
+        // becomes exactly (FullAt - (Capacity - 1) * RechargeEvery) - asOf, i.e. the distance from
+        // asOf to the earliest of the 5 modeled charge instants.
+        var pool = RechargePool.Create(5, Every, Now); // full: FullAt == Now, Capacity == 5
+
+        var asOf = Now.AddYears(-100);
+        var expected = (pool.FullAt - (4 * Every)) - asOf; // (Capacity - 1) == 4
+
+        var untilNext = pool.UntilNextCharge(asOf);
+
+        Assert.NotNull(untilNext);
+        Assert.Equal(expected, untilNext);
+
+        // The point of this test: this genuinely exceeds RechargeEvery, unlike every UntilNextCharge
+        // result elsewhere in this file where asOf is inside the modeled span.
+        Assert.True(
+            untilNext > Every,
+            $"expected UntilNextCharge to exceed RechargeEvery ({Every}) for an asOf before the modeled recharge span, but got {untilNext}.");
+    }
+
     // ---- Algebra: available in [0, Capacity], monotonic non-decreasing in t ----
 
     [Fact]
@@ -574,20 +607,87 @@ public sealed class RechargePoolTests
         Assert.Throws<ArgumentOutOfRangeException>(() => pool.TryConsume(pool.FullAt, 1, out _));
     }
 
-    [Fact]
-    public void Grant_Throws_WhenTheCandidateFullAtWouldOverflowMinValue()
-    {
-        var pool = RechargePool.Create(2, TimeSpan.FromDays(1000), DateTimeOffset.MinValue.AddDays(1));
+    // ---- Grant saturates before doing any date arithmetic, rather than computing an intermediate
+    //      candidate that could overflow/underflow even though the correct, saturated answer is
+    //      always representable (review fix: "clamp-before-arithmetic" restructuring of Grant) ----
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => pool.Grant(1, DateTimeOffset.MinValue));
+    [Fact]
+    public void Grant_AtMinValue_SaturatesWithoutThrowing_TheReviewReportedRepro()
+    {
+        // The exact review reproduction: a pool created full at DateTimeOffset.MinValue (so
+        // FullAt == MinValue), then granted at MinValue itself. FullAt <= asOf here (equal), so this
+        // hits Grant's "already full" branch and returns immediately with FullAt = asOf -- no
+        // subtraction, and therefore no possibility of underflowing past MinValue.
+        var pool = RechargePool.Create(1, TimeSpan.FromDays(1), DateTimeOffset.MinValue);
+
+        var granted = pool.Grant(1, DateTimeOffset.MinValue);
+
+        AssertTime.Exact(DateTimeOffset.MinValue, granted.FullAt);
+        Assert.Equal(1, granted.AvailableAt(DateTimeOffset.MinValue));
     }
 
     [Fact]
-    public void MultiplyingByAHugeAmount_ThrowsOverflow_RatherThanWrappingSilently()
+    public void Grant_NearMinValue_SaturatesRatherThanUnderflowing()
     {
+        // Not the already-full branch this time: FullAt (MinValue + 1 day) is strictly after asOf
+        // (MinValue), so there is a genuine 1-day deficit. But RechargeEvery is 1000 days, so a
+        // single unit (amount = 1) already covers that whole deficit -- missing is 1, amount >=
+        // missing, so this still saturates via the "amount covers everything missing" branch
+        // without ever computing 1 * 1000 days, which is what the naive
+        // "FullAt - amount * RechargeEvery" formula would have done (and which underflows past
+        // MinValue, throwing, even though the correct saturated answer is representable).
+        var pool = RechargePool.Create(2, TimeSpan.FromDays(1000), DateTimeOffset.MinValue.AddDays(1));
+
+        var granted = pool.Grant(1, DateTimeOffset.MinValue);
+
+        AssertTime.Exact(DateTimeOffset.MinValue, granted.FullAt);
+        Assert.Equal(2, granted.AvailableAt(DateTimeOffset.MinValue));
+    }
+
+    [Fact]
+    public void Grant_AtMaxValue_SaturatesWithoutThrowing_TheMinValueReproMirrored()
+    {
+        // Symmetric to Grant_AtMinValue_SaturatesWithoutThrowing_TheReviewReportedRepro: a pool
+        // created full at DateTimeOffset.MaxValue, granted at MaxValue itself -- the already-full
+        // branch again, on the opposite edge of the representable range.
+        var pool = RechargePool.Create(1, TimeSpan.FromDays(1), DateTimeOffset.MaxValue);
+
+        var granted = pool.Grant(1, DateTimeOffset.MaxValue);
+
+        AssertTime.Exact(DateTimeOffset.MaxValue, granted.FullAt);
+        Assert.Equal(1, granted.AvailableAt(DateTimeOffset.MaxValue));
+    }
+
+    [Fact]
+    public void Grant_NearMaxValue_WithAHugeAmount_Saturates()
+    {
+        // A pool one day away from being full, right at the edge of the representable range, granted
+        // a huge (int.MaxValue) amount at its creation instant. missing is 1 here, so amount >=
+        // missing saturates immediately -- exercising the extreme-amount case near the opposite edge
+        // from Grant_WithAHugeAmount_SaturatesWithoutAttemptingTheMultiplication below.
+        var asOf = DateTimeOffset.MaxValue.AddDays(-1);
+        var pool = RechargePool.Create(1, TimeSpan.FromDays(1), asOf, initialCharges: 0);
+
+        var granted = pool.Grant(int.MaxValue, asOf);
+
+        AssertTime.Exact(asOf, granted.FullAt);
+        Assert.Equal(1, granted.AvailableAt(asOf));
+    }
+
+    [Fact]
+    public void Grant_WithAHugeAmount_SaturatesWithoutAttemptingTheMultiplication()
+    {
+        // amount (int.MaxValue) vastly exceeds missing (1), so this saturates via the
+        // "amount covers everything missing" branch and never reaches
+        // "FullAt - amount * RechargeEvery" -- which is exactly what used to throw
+        // OverflowException here before the review fix, even though the correct, saturated answer
+        // was always simply asOf.
         var pool = RechargePool.Create(1, TimeSpan.FromDays(1), Now, initialCharges: 0);
 
-        Assert.Throws<OverflowException>(() => pool.Grant(int.MaxValue, Now));
+        var granted = pool.Grant(int.MaxValue, Now);
+
+        AssertTime.Exact(Now, granted.FullAt);
+        Assert.Equal(1, granted.AvailableAt(Now));
     }
 
     // ---- Offset invariance: same instant, different offset notation, same result ----

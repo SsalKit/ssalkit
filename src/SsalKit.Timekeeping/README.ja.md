@@ -296,7 +296,7 @@ TimeSpan? untilNext = pool.UntilNextCharge(now);
 | `static RechargePool Create(int capacity, TimeSpan rechargeEvery, DateTimeOffset asOf, int initialCharges = -1)` | `capacity >= 1`、`rechargeEvery > 0` — でなければ `ArgumentOutOfRangeException`。`initialCharges` の既定値は `-1`（満タンを意味する）、それ以外は `[0, capacity]` の範囲でなければならない。 |
 | `AvailableAt(DateTimeOffset asOf)` | `0..Capacity` の値。 |
 | `TryConsume(DateTimeOffset asOf, int amount, out RechargePool updated)` | `amount` は `1..Capacity` でなければならない（`amount > Capacity` は例外 — このプールでは決して満たせない要求）。現在利用可能な量が `amount` 未満なら `false` を返し、`updated` は変わらない。 |
-| `UntilNextCharge(DateTimeOffset asOf)` | 満タンなら `null`。そうでなければ、長くても `RechargeEvery` の長さの期間。 |
+| `UntilNextCharge(DateTimeOffset asOf)` | 満タンなら `null`。それ以外で、`asOf` がプールのモデル化された充電区間（`FullAt - (Capacity - 1) * RechargeEvery` から `FullAt` まで）の内側にあれば、長くても `RechargeEvery` の長さ。`asOf` がその区間より前であれば、最も早いモデル上のチャージが完了するまでの全時間となり、`RechargeEvery` を超えることがある。 |
 | `UntilFull(DateTimeOffset asOf)` | 満タンなら `null`。そうでなければ、ちょうど `FullAt - asOf`。 |
 | `Grant(int amount, DateTimeOffset asOf)` | `Capacity` でクランプしつつ単位を加える。`TryConsume` と異なり `amount` に上限はない — 過剰付与は単に満タンで飽和する。 |
 | `Refill(DateTimeOffset asOf)` | 次の単位に向けた部分的な進捗を破棄し、`asOf` に完全に満タンにする。 |

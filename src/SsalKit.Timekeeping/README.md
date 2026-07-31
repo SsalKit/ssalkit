@@ -296,7 +296,7 @@ Both types are pure functions of `(state, instant)` — nothing here reads the a
 | `static RechargePool Create(int capacity, TimeSpan rechargeEvery, DateTimeOffset asOf, int initialCharges = -1)` | `capacity >= 1`, `rechargeEvery > 0` — else `ArgumentOutOfRangeException`. `initialCharges` defaults to `-1`, meaning full; any other value must be in `[0, capacity]`. |
 | `AvailableAt(DateTimeOffset asOf)` | A value in `0..Capacity`. |
 | `TryConsume(DateTimeOffset asOf, int amount, out RechargePool updated)` | `amount` must be `1..Capacity` (`amount > Capacity` throws — a request this pool could never satisfy). Returns `false` (and leaves `updated` unchanged) when fewer than `amount` units are currently available. |
-| `UntilNextCharge(DateTimeOffset asOf)` | `null` when full; otherwise a duration at most `RechargeEvery` long. |
+| `UntilNextCharge(DateTimeOffset asOf)` | `null` when full. Otherwise, if `asOf` falls within the pool's modeled recharge span (`FullAt - (Capacity - 1) * RechargeEvery` up to `FullAt`), at most `RechargeEvery` long; if `asOf` is earlier than that span, the full duration until the earliest modeled charge completes, which can exceed `RechargeEvery`. |
 | `UntilFull(DateTimeOffset asOf)` | `null` when full; otherwise exactly `FullAt - asOf`. |
 | `Grant(int amount, DateTimeOffset asOf)` | Adds units, clamped at `Capacity`. Unlike `TryConsume`, `amount` has no upper bound — over-granting just saturates the pool. |
 | `Refill(DateTimeOffset asOf)` | Completely full at `asOf`, discarding any partial progress toward the next unit. |

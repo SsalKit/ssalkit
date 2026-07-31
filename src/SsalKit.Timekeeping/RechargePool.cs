@@ -224,8 +224,18 @@ public readonly record struct RechargePool
     /// Returns how long until the next unit becomes available at <paramref name="asOf"/>.
     /// </summary>
     /// <param name="asOf">The instant to measure from.</param>
-    /// <returns><see langword="null"/> when the pool is already full at <paramref name="asOf"/>;
-    /// otherwise, a strictly positive duration at most <see cref="RechargeEvery"/> long.</returns>
+    /// <returns>
+    /// <see langword="null"/> when the pool is already full at <paramref name="asOf"/>. Otherwise,
+    /// when <paramref name="asOf"/> falls within the pool's <i>modeled recharge span</i> — the range
+    /// where a deficit is genuinely in progress, from <c>FullAt - (Capacity - 1) * RechargeEvery</c>
+    /// up to <see cref="FullAt"/> — the result is strictly positive and at most
+    /// <see cref="RechargeEvery"/> long. But because this type is total under time reversal (see the
+    /// type remarks), <paramref name="asOf"/> is also allowed to be <i>earlier</i> than that span
+    /// entirely; there, the result is instead the full duration until the earliest modeled charge
+    /// completes, which can exceed <see cref="RechargeEvery"/> by an arbitrary amount (a pool queried
+    /// a hundred years before it was ever created is still answered honestly, not by inventing a
+    /// recharge boundary outside the modeled span).
+    /// </returns>
     /// <exception cref="InvalidOperationException">This instance is <c>default(RechargePool)</c> or
     /// another invalid state.</exception>
     public TimeSpan? UntilNextCharge(DateTimeOffset asOf)
@@ -260,15 +270,20 @@ public readonly record struct RechargePool
 
     /// <summary>
     /// Returns a pool with <paramref name="amount"/> units granted at <paramref name="asOf"/>,
-    /// clamped so the pool never reports more than <see cref="Capacity"/> available units.
+    /// saturating so the pool never reports more than <see cref="Capacity"/> available units.
     /// </summary>
     /// <param name="amount">The number of units to grant. Must be at least <c>1</c>. Unlike
     /// <see cref="TryConsume"/>, there is no upper bound: granting more than
     /// <see cref="Capacity"/> is legal and simply saturates the pool at full.</param>
     /// <param name="asOf">The instant of the grant.</param>
-    /// <returns>A pool with <see cref="FullAt"/> pulled backward by <c>amount * RechargeEvery</c>
-    /// from its current value, but never before <paramref name="asOf"/> — which is what preserves any
-    /// progress already made toward the next unit while never over-filling the pool.</returns>
+    /// <returns>
+    /// <see langword="this"/> with <see cref="FullAt"/> set to <paramref name="asOf"/> when the pool
+    /// was already full, or when <paramref name="amount"/> covers every unit still missing —
+    /// granting saturates rather than pulling <see cref="FullAt"/> any further into the past.
+    /// Otherwise, <see langword="this"/> with <see cref="FullAt"/> pulled backward by exactly
+    /// <c>amount * RechargeEvery</c>, which preserves whatever progress was already made toward the
+    /// next unit.
+    /// </returns>
     /// <exception cref="InvalidOperationException">This instance is <c>default(RechargePool)</c> or
     /// another invalid state.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="amount"/> is less than
@@ -278,9 +293,37 @@ public readonly record struct RechargePool
         EnsureValid();
         ArgumentOutOfRangeException.ThrowIfLessThan(amount, 1);
 
-        var candidate = FullAt - MultiplyChecked(RechargeEvery, amount);
-        var newFullAt = candidate > asOf ? candidate : asOf;
-        return this with { FullAt = newFullAt };
+        if (FullAt <= asOf)
+        {
+            // Already full: there is nothing to subtract from, so this also sidesteps ever forming
+            // a candidate instant that could underflow DateTimeOffset's range for an extreme
+            // RechargeEvery/amount combination whose final, saturated answer is simply asOf anyway.
+            return this with { FullAt = asOf };
+        }
+
+        var missing = MissingCharges(asOf);
+
+        if (amount >= missing)
+        {
+            // amount covers the entire deficit (Grant's contract: enough to cover what's missing
+            // right now => full right now), so this saturates exactly like the already-full branch
+            // above — again without ever computing amount * RechargeEvery, which is what keeps an
+            // extreme amount (say, int.MaxValue) from ever reaching the checked multiplication below.
+            return this with { FullAt = asOf };
+        }
+
+        // amount < missing here, so subtracting is provably safe and never needs to fall back to
+        // asOf via a max(): missing is ceil((FullAt - asOf) / RechargeEvery) clamped to Capacity, so
+        // amount <= missing - 1, and the defining property of that ceiling gives
+        // (missing - 1) * RechargeEvery < FullAt - asOf whether or not the clamp fired (clamping
+        // only ever lowers missing, which only tightens this bound). Hence
+        // amount * RechargeEvery < FullAt - asOf, i.e. the candidate below lands strictly after
+        // asOf. And because FullAt - asOf is itself a valid TimeSpan (both are already-valid
+        // DateTimeOffset values), amount * RechargeEvery -- being smaller than that valid TimeSpan's
+        // tick count -- cannot overflow the tick range either. MultiplyChecked's checked arithmetic
+        // is kept as a defense-in-depth backstop for corrupted/hand-constructed states that violate
+        // this invariant, not because this path is expected to need it.
+        return this with { FullAt = FullAt - MultiplyChecked(RechargeEvery, amount) };
     }
 
     /// <summary>

@@ -296,7 +296,7 @@ TimeSpan? untilNext = pool.UntilNextCharge(now);
 | `static RechargePool Create(int capacity, TimeSpan rechargeEvery, DateTimeOffset asOf, int initialCharges = -1)` | `capacity >= 1`, `rechargeEvery > 0` — 아니면 `ArgumentOutOfRangeException`. `initialCharges`는 기본값 `-1`(가득 참)이고, 다른 값은 `[0, capacity]` 범위여야 함. |
 | `AvailableAt(DateTimeOffset asOf)` | `0..Capacity` 사이 값. |
 | `TryConsume(DateTimeOffset asOf, int amount, out RechargePool updated)` | `amount`는 `1..Capacity` 여야 함(`amount > Capacity`면 예외 — 이 풀로는 절대 채울 수 없는 요청). 현재 사용 가능한 양이 `amount`보다 적으면 `false`를 반환하고 `updated`는 그대로. |
-| `UntilNextCharge(DateTimeOffset asOf)` | 가득 찼으면 `null`. 아니면 최대 `RechargeEvery` 길이의 기간. |
+| `UntilNextCharge(DateTimeOffset asOf)` | 가득 찼으면 `null`. 그 외에는, `asOf`가 풀의 모델 충전 구간(`FullAt - (Capacity - 1) * RechargeEvery`부터 `FullAt`까지) 안이면 최대 `RechargeEvery` 길이. `asOf`가 그 구간보다 이전이면 가장 이른 모델 충전이 완료되기까지의 전체 시간이며, `RechargeEvery`를 초과할 수 있음. |
 | `UntilFull(DateTimeOffset asOf)` | 가득 찼으면 `null`. 아니면 정확히 `FullAt - asOf`. |
 | `Grant(int amount, DateTimeOffset asOf)` | `Capacity`로 클램프하며 충전량을 더함. `TryConsume`과 달리 `amount`에 상한이 없음 — 초과 지급은 그냥 가득 참에서 포화됨. |
 | `Refill(DateTimeOffset asOf)` | 다음 충전을 향한 부분 진행률을 버리고 `asOf`에 완전히 가득 참. |
