@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>SsalKit.Determinism</PackageId>
+    <Description>Opt-in compile-time diagnostics for non-deterministic APIs (ambient clock, process randomness, Guid.NewGuid, randomized hashing, environment identity, scheduling) inside [Deterministic] scopes, with concrete SsalKit alternatives named in every message. Zero dependencies.</Description>
+    <PackageDescription>Opt-in compile-time diagnostics for non-deterministic APIs (ambient clock, process randomness, Guid.NewGuid, randomized hashing, environment identity, scheduling) inside [Deterministic] scopes, with concrete SsalKit alternatives named in every message. Zero dependencies.</PackageDescription>
+    <PackageTags>determinism;analyzer;roslyn;deterministic;simulation;replay;banned-api</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <!-- Agent-facing contract sheet, shipped alongside the human README. -->
+    <None Include="AI.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Build-order dependency only: the analyzer must not be added as a compile-time
+         reference or analyzer for this project itself. -->
+    <ProjectReference Include="..\SsalKit.Determinism.Analyzer\SsalKit.Determinism.Analyzer.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the analyzer assembly inside this package under analyzers/dotnet/cs so
+         consumers automatically get the diagnostics when they reference this package.
+         This is not a package dependency, so the "zero dependencies" contract still holds. -->
+    <None Include="..\SsalKit.Determinism.Analyzer\bin\$(Configuration)\netstandard2.0\SsalKit.Determinism.Analyzer.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>
