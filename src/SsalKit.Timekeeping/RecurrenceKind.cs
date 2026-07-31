@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule;
+namespace SsalKit.Timekeeping;
 
 /// <summary>
 /// The calendar cadence a <see cref="RecurrenceSchedule"/> repeats on. Internal on purpose: the

@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SsalKit.RecurrenceSchedule\SsalKit.RecurrenceSchedule.csproj" />
+    <ProjectReference Include="..\..\src\SsalKit.Timekeeping\SsalKit.Timekeeping.csproj" />
   </ItemGroup>
 
 </Project>

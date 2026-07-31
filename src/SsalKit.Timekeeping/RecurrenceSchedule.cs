@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 
-namespace SsalKit.RecurrenceSchedule;
+namespace SsalKit.Timekeeping;
 
 /// <summary>
 /// A calendar-aligned recurring boundary — "every day at 04:30 Seoul time", "every Monday at 09:00

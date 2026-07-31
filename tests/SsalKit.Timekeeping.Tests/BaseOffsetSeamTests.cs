@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule.Tests;
+namespace SsalKit.Timekeeping.Tests;
 
 /// <summary>
 /// Rule 3 of the daylight-saving contract: the wall-clock times a zone loses when its <i>base</i>

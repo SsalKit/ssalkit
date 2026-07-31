@@ -6,15 +6,15 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PackageId>SsalKit.RecurrenceSchedule</PackageId>
-    <Description>Time-zone-aware recurring reset boundaries (daily/weekly/monthly) over TimeProvider: previous/next boundary, current window, crossing detection and crossing counts, plus a half-open TimeWindow value type. The daylight-saving resolution rules are a fixed versioned contract. Zero dependencies.</Description>
+    <PackageId>SsalKit.Timekeeping</PackageId>
+    <Description>Deterministic, serializable time-state calculations: calendar recurrence boundaries (daily/weekly/monthly) and half-open time-window arithmetic over TimeProvider. Pure functions of (state, instant) -- never reads the clock. The daylight-saving resolution rules are a fixed versioned contract. Zero dependencies.</Description>
     <PackageDescription>$(Description)</PackageDescription>
-    <PackageTags>time;schedule;recurrence;reset;timezone;dst;timeprovider;interval;window</PackageTags>
+    <PackageTags>timekeeping;recurrence;schedule;reset;time-window;deterministic;timezone;dst;timeprovider</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="SsalKit.RecurrenceSchedule.Tests" />
+    <InternalsVisibleTo Include="SsalKit.Timekeeping.Tests" />
   </ItemGroup>
 
   <ItemGroup>

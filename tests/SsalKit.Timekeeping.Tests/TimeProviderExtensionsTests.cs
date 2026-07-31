@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule.Tests;
+namespace SsalKit.Timekeeping.Tests;
 
 public sealed class TimeProviderExtensionsTests
 {

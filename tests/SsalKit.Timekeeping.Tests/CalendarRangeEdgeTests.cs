@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule.Tests;
+namespace SsalKit.Timekeeping.Tests;
 
 /// <summary>
 /// The top of the calendar, where the occurrence <i>after</i> the one being looked at does not

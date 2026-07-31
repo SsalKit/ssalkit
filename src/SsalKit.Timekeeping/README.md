@@ -1,13 +1,15 @@
 [← SsalKit](https://github.com/ssalkit/ssalkit)
 
-**English** | [한국어](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.RecurrenceSchedule/README.ko.md) | [日本語](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.RecurrenceSchedule/README.ja.md)
+**English** | [한국어](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Timekeeping/README.ko.md) | [日本語](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Timekeeping/README.ja.md)
 
-# SsalKit.RecurrenceSchedule
+# SsalKit.Timekeeping
+
+Formerly published as `SsalKit.RecurrenceSchedule` (deprecated). Same types, same contracts — only the package id and namespace changed.
 
 Time-zone-aware recurring reset boundaries (daily / weekly / monthly) and half-open time-window arithmetic, written as pure functions of an instant you supply — with a permanently fixed daylight-saving contract and `TimeProvider` overloads for code that already holds a clock. Zero dependencies.
-[![NuGet](https://img.shields.io/nuget/v/SsalKit.RecurrenceSchedule.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.RecurrenceSchedule)
+[![NuGet](https://img.shields.io/nuget/v/SsalKit.Timekeeping.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Timekeeping)
 
-## Why SsalKit.RecurrenceSchedule?
+## Why SsalKit.Timekeeping?
 
 "Has the daily reset happened since the last time we looked?" turns up in every codebase with a daily quota, a login reward, a billing period, or a reporting window. It looks like two lines of `DateTime` arithmetic — which is exactly why it gets rewritten at each call site instead of shared, and why the copies end up disagreeing.
 
@@ -20,7 +22,7 @@ Two different answers to one question, in one codebase, with 25-plus call sites 
 
 .NET 8 added `TimeProvider`, which settles the "who owns the clock" half of the problem. What it does not add is a type for the recurring window itself — the BCL still has no notion of "the reset period this instant belongs to". NodaTime models calendars and time zones in depth but has no reset-window concept; Cronos parses cron expressions and gives you the next occurrence, not window membership or crossing counts.
 
-SsalKit.RecurrenceSchedule fills that gap:
+SsalKit.Timekeeping fills that gap:
 
 - **`RecurrenceSchedule`** defines a calendar-aligned recurrence — every day at 04:30 Seoul time, every Monday at 09:00 UTC, the 31st of every month — and answers the four questions worth asking about it: `PreviousBoundary`, `NextBoundary`, `CurrentWindow`, and, for the "player was away" case, `HasCrossed` / `CountBoundaries`.
 - **One containment rule, everywhere.** `TimeWindow` is half-open `[Start, End)` with no inclusive variant, so consecutive windows tile the timeline with neither double counting nor holes.
@@ -31,13 +33,13 @@ SsalKit.RecurrenceSchedule fills that gap:
 ## Installation
 
 ```bash
-dotnet add package SsalKit.RecurrenceSchedule
+dotnet add package SsalKit.Timekeeping
 ```
 
 ## Quick Start
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 var seoul = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
 var dailyReset = RecurrenceSchedule.Daily(new TimeOnly(4, 30), seoul);
@@ -78,7 +80,7 @@ monthly.NextBoundary(new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
 // 2026-02-28T00:00:00+00:00 -- February clamps, and still gets exactly one boundary
 ```
 
-A runnable walkthrough of all of this, daylight saving included, is in [samples/SsalKit.RecurrenceSchedule.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.RecurrenceSchedule.Sample).
+A runnable walkthrough of all of this, daylight saving included, is in [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample).
 
 ## API Overview
 

@@ -48,7 +48,7 @@ jobs:
             src/SsalKit.Generators.Toolkit \
             src/SsalKit.Generators.Toolkit.Testing \
             src/SsalKit.Guard \
-            src/SsalKit.RecurrenceSchedule
+            src/SsalKit.Timekeeping
           do
             dotnet pack "$project" \
               --configuration Release \

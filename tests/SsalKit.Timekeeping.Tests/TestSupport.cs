@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule.Tests;
+namespace SsalKit.Timekeeping.Tests;
 
 /// <summary>
 /// The time zones the daylight-saving contract is pinned against. IANA identifiers are used

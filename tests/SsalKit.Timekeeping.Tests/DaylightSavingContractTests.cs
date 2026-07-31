@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule.Tests;
+namespace SsalKit.Timekeeping.Tests;
 
 /// <summary>
 /// Golden cases for the daylight-saving contract. Every expected value here comes from the
