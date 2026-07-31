@@ -3,8 +3,10 @@
 // Walks through the library in the order the questions usually come up: has the daily reset
 // happened since we last looked, how many resets did a player miss while they were away, what do
 // weekly and monthly cadences look like (including the month-end clamp), what happens on the two
-// days a year a wall clock misbehaves, how the half-open TimeWindow arithmetic composes, and how
-// the TimeProvider overloads read "now" for code that already holds a clock.
+// days a year a wall clock misbehaves, how the half-open TimeWindow arithmetic composes, how the
+// TimeProvider overloads read "now" for code that already holds a clock, and -- the elapsed-time
+// half of the package -- a single skill Cooldown, a capacity-bounded RechargePool, and the two
+// combined with a calendar reset.
 //
 // Every instant below is a fixed literal rather than DateTimeOffset.UtcNow: the whole API is a
 // pure function of (schedule, instant), so this output is byte-for-byte reproducible from run to
@@ -212,6 +214,101 @@ Console.WriteLine();
 Console.WriteLine("                 In tests, hand in a fake provider (FakeTimeProvider, or the handful of");
 Console.WriteLine("                 lines FixedTimeProvider takes at the bottom of this file) to drive a");
 Console.WriteLine("                 schedule across a boundary deterministically.");
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 7. Cooldown: a single elapsed-time cooldown, stored as the instant it becomes ready rather than
+//    as a countdown. Create is immediately usable; a successful TryUse starts a fresh wait; and the
+//    wait is usable *at* the instant it completes, not only strictly after it -- the same
+//    boundary-inclusive convention RecurrenceSchedule uses for calendar boundaries.
+// ---------------------------------------------------------------------------------------
+var fireball = Cooldown.Create(TimeSpan.FromSeconds(20), now);
+
+Console.WriteLine("[Cooldown]       a 20-second skill cooldown");
+Console.WriteLine($"                 Create(20s, now)     ReadyAt {Instant(fireball.ReadyAt)}  (immediately usable)");
+
+bool firstCast = fireball.TryUse(now, out var onCooldown);
+Console.WriteLine($"                 TryUse(now)          {firstCast}   -> ReadyAt {Instant(onCooldown.ReadyAt)}");
+
+bool secondCast = onCooldown.TryUse(now, out var stillOnCooldown);
+Console.WriteLine($"                 TryUse(now) again    {secondCast}  (still on cooldown)  Remaining {onCooldown.Remaining(now).TotalSeconds:0}s");
+
+bool castAtReadyAt = stillOnCooldown.TryUse(onCooldown.ReadyAt, out _);
+Console.WriteLine($"                 TryUse(ReadyAt)      {castAtReadyAt}   (boundary is inclusive -- usable at ReadyAt, not only after it)");
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 8. RechargePool: a capacity-bounded resource that recharges one unit at a time. Its entire state
+//    is FullAt, the single instant it becomes completely full -- every other quantity is derived
+//    from it and RechargeEvery, in O(1).
+// ---------------------------------------------------------------------------------------
+var energy = RechargePool.Create(3, TimeSpan.FromMinutes(20), now);
+
+Console.WriteLine("[RechargePool]   a 3-slot energy pool, one recharge every 20 minutes");
+Console.WriteLine($"                 Create(3, 20m, now)  FullAt {Instant(energy.FullAt)}  AvailableAt(now) {energy.AvailableAt(now)}");
+
+bool consumed = energy.TryConsume(now, 2, out var afterConsume);
+Console.WriteLine($"                 TryConsume(now, 2)   {consumed}   AvailableAt(now) {afterConsume.AvailableAt(now)}  FullAt {Instant(afterConsume.FullAt)}");
+Console.WriteLine($"                 UntilNextCharge(now) {Elapsed(afterConsume.UntilNextCharge(now)!.Value)}");
+Console.WriteLine($"                 UntilFull(now)       {Elapsed(afterConsume.UntilFull(now)!.Value)}");
+
+var twentyMinutesLater = now.AddMinutes(20);
+Console.WriteLine($"                 20 minutes later     AvailableAt {afterConsume.AvailableAt(twentyMinutesLater)}  (one more slot has recharged)");
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 9. Offline recharge: AvailableAt is one subtraction and one division against FullAt, not a loop
+//    over missed recharges -- so a three-day gap and a ten-year gap cost exactly the same to
+//    answer, and the pool re-derives correctly however long it has been offline.
+// ---------------------------------------------------------------------------------------
+var emptyPool = RechargePool.Create(3, TimeSpan.FromMinutes(20), now, initialCharges: 0);
+var threeDaysLater = now.AddDays(3);
+var tenYearsLater = now.AddYears(10);
+
+Console.WriteLine("[Offline]        an emptied pool, queried long after anyone last looked at it");
+Console.WriteLine($"                 emptied at           {Instant(now)}  AvailableAt(now) {emptyPool.AvailableAt(now)}");
+Console.WriteLine($"                 3 days later         AvailableAt {emptyPool.AvailableAt(threeDaysLater)}  (3 * 20m << 3 days, so fully recharged)");
+Console.WriteLine($"                 10 years later       AvailableAt {emptyPool.AvailableAt(tenYearsLater)}  (same O(1) cost as the 3-day query above)");
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 10. Partial progress toward the next unit is preserved exactly: spending the one slot that is
+//     already available does not restart the progress already made toward the slot that is
+//     mid-recharge, because consume/grant operate on FullAt directly rather than on a per-slot
+//     countdown.
+// ---------------------------------------------------------------------------------------
+var partial = RechargePool.Create(2, TimeSpan.FromMinutes(20), now, initialCharges: 1); // 1 slot pending
+var halfway = now.AddMinutes(10); // halfway through the pending slot's recharge
+
+Console.WriteLine("[Partial]        one slot pending and half-charged when the other slot is spent");
+Console.WriteLine($"                 before spending:     UntilNextCharge(halfway) {Elapsed(partial.UntilNextCharge(halfway)!.Value)}");
+
+bool spent = partial.TryConsume(halfway, 1, out var afterSpend);
+Console.WriteLine($"                 TryConsume(halfway, 1) {spent}   AvailableAt(halfway) {afterSpend.AvailableAt(halfway)}");
+Console.WriteLine($"                 after spending:      UntilNextCharge(halfway) {Elapsed(afterSpend.UntilNextCharge(halfway)!.Value)}  (unchanged -- the pending slot's progress was not reset)");
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 11. Combining the two halves of the package: RecurrenceSchedule.HasCrossed detects a calendar
+//     reset, and RechargePool.Refill applies it -- a daily stamina top-up that fires on the wall
+//     clock rather than waiting for the pool's own (much slower) recharge rate to catch up.
+// ---------------------------------------------------------------------------------------
+var dailyStamina = RechargePool.Create(5, TimeSpan.FromHours(6), lastReset, initialCharges: 1);
+
+Console.WriteLine("[Combined]       HasCrossed detects the reset; Refill applies it to the pool");
+Console.WriteLine($"                 pool created at      {Instant(lastReset)}  (own recharge rate: 1 slot / 6h)");
+
+if (dailyReset.HasCrossed(lastReset, now))
+{
+    var resetBoundary = dailyReset.PreviousBoundary(now);
+    var refilled = dailyStamina.Refill(resetBoundary);
+
+    Console.WriteLine($"                 HasCrossed(lastReset, now) {dailyReset.HasCrossed(lastReset, now)}  -> reset boundary {Instant(resetBoundary)}");
+    Console.WriteLine($"                 before Refill:       AvailableAt(now) {dailyStamina.AvailableAt(now)}  (still recharging on its own)");
+    Console.WriteLine($"                 after Refill(boundary): AvailableAt(now) {refilled.AvailableAt(now)}  (full immediately, regardless of the 6-hour rate)");
+}
+
+Console.WriteLine();
 
 // Renders an instant with the UTC offset it carries. Boundaries come back at the schedule time
 // zone's offset for that date, which is exactly what makes the DST section above readable: the
