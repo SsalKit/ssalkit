@@ -13,6 +13,7 @@ SsalKit.Timekeeping은 시계를 직접 읽지 않고 결정적이고 저장 가
 |---|---|---|
 | [`RecurrenceSchedule`](#빠른-시작-recurrenceschedule) + [`TimeWindow`](#timewindow-포함-규칙은-하나) | 달력 벽시계 경계 — 일간/주간/월간 리셋, 영구히 고정된 DST 계약 | 기존 |
 | [`Cooldown`](#빠른-시작-cooldowns) + [`RechargePool`](#cooldowns) | 경과 시간 상태 — 단일 쿨다운, 또는 용량 제한이 있는 충전 풀 | 신규 |
+| [`TickSchedule`](#빠른-시작-tickschedule) | 논리적 틱 상태 — 시뮬레이션 틱 번호에 예정된 이벤트를 담는 결정적이고 직렬화 가능한 큐 | 신규 |
 
 ### 경계의 소재
 
@@ -20,6 +21,7 @@ SsalKit.Timekeeping은 시계를 직접 읽지 않고 결정적이고 저장 가
 |---|---|
 | 달력 벽시계 (일간/주간/월간 리셋, DST) | `RecurrenceSchedule` |
 | 이벤트로부터 경과한 시간 (능력 쿨다운, 스태미나/충전 풀) | `Cooldown` / `RechargePool` |
+| 논리적 시뮬레이션 틱 (시계가 아니라 틱 번호를 기준으로 한 결정적 이벤트 디스패치) | `TickSchedule` |
 | 프로세스 내 자원 스로틀링 (동시 요청 제한, 토큰 버킷) | 이 패키지 담당 아님 — [`System.Threading.RateLimiting`](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) 참고 |
 
 ## 왜 SsalKit.Timekeeping인가
@@ -375,6 +377,119 @@ if (dailyReset.HasCrossed(player.LastStaminaReset, now))
 }
 ```
 
+## TickSchedule
+
+`TickSchedule<TEvent>`는 세 번째 종류의 질문에 답합니다 — "달력 경계가 지났는가"(`RecurrenceSchedule`)도, "다음 충전까지 얼마나 남았는가"(`Cooldown` / `RechargePool`)도 아니라, "이 논리적 시뮬레이션 틱에 예정된 이벤트 중 어느 것이 지금 도달했는가"입니다. 틱은 벽시계가 아닙니다 — 시뮬레이션 루프가 이미 세고 있는 `long`일 뿐입니다 — 그리고 스케줄은 넘겨받은 이벤트 *값*만 저장할 뿐 delegate는 저장하지 않으므로, 저장하고 복원한 뒤 같은 `Add`/`PopDue` 호출을 어디서 재생하든 정확히 같은 디스패치 순서가 재현됩니다.
+
+### 빠른 시작: TickSchedule
+
+```csharp
+using SsalKit.Timekeeping;
+
+var schedule = TickSchedule<string>.Empty
+    .Add("boss-respawn", dueTick: 1800)
+    .Add("wave-2", dueTick: 1800);
+
+// ... 시뮬레이션 루프가 한 틱씩 진행한다 ...
+var due = schedule.PopDue(currentTick: 1800, out schedule);
+
+foreach (var entry in due)
+{
+    Dispatch(entry.Event);   // "boss-respawn"이 무엇을 뜻하는지, 그리고 실행은 호출자의 코드가 결정
+}
+// due에는 두 엔트리가 모두 담기고, 같은 틱이므로 삽입 순서대로 "boss-respawn" 다음 "wave-2"이다.
+```
+
+`TickSchedule`은 그 자체로 아무것도 실행하지 않습니다 — `RecurrenceSchedule`과 마찬가지로 오직 *언제*에만 답합니다. 이벤트가 무엇을 뜻하는지 결정하고 실행하는 것은 전적으로 호출자의 몫입니다. 이벤트 값은 enum, id, record 등 직렬화기가 왕복시킬 수 있는 무엇이든 될 수 있지만, delegate만은 안 됩니다. 콜백은 값과 달리 세이브 파일을 살아남지 못하기 때문입니다.
+
+DST를 포함해 위 내용을 전부 실행해 볼 수 있는 예제는 — 전투 타임라인, 공백 이후 캐치업, 반복되는 웨이브 스포너, 세이브/복원 왕복 — [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample)의 `tickschedule` 그룹에 있습니다.
+
+### API 개요: TickSchedule
+
+#### `TickSchedule<TEvent>`
+
+| 멤버 | 용도 |
+|---|---|
+| `static TickSchedule<TEvent> Empty` | 빈 스케줄. `default(TickSchedule<TEvent>)`와 동일 — 아래 [결정성](#결정성-tickschedule) 참고. |
+| `Entries` | 저장(삽입 후 제거) 순서의 엔트리들 — `NextSequence`와 함께 직렬화 표면을 이룸. 그 자체로는 아무 의미도 없음(결정성 참고). |
+| `NextSequence` | 다음 `Add`가 배정할 `Sequence`. 빈 스케줄에서는 `0`으로 시작. |
+| `Count` / `IsEmpty` | 대기 중인 엔트리 개수, 그리고 하나도 없는지 여부. |
+| `NextDueTick` | 대기 중인 엔트리 중 가장 작은 `DueTick`, 비어 있으면 `null` — 다음 `PopDue`가 뭔가를 반환하기 전까지 루프가 얼마나 빨리감기할 수 있는지. |
+| `Add(TEvent event, long dueTick)` | `dueTick`에 예정된 새 엔트리를 추가(임의의 `long` 가능, "지금" 이전 값 포함 — 다음 `PopDue`에서 즉시 도달함). |
+| `PopDue(long currentTick, out TickSchedule<TEvent> updated)` | `DueTick <= currentTick`인 엔트리 전부를 `(DueTick, Sequence)` 오름차순으로 제거하고 반환 — 경계는 포함. 도달한 것이 없으면 빈 배열과 `updated == this`; 이 메서드는 절대 실패하지 않음. |
+| `RemoveAll(TEvent event)` | `event`와 일치하는(`EqualityComparer<TEvent>.Default`) 엔트리 전부 제거 — 예약된 이벤트를 값으로 취소. |
+
+#### `TickScheduleEntry<TEvent>`
+
+| 멤버 | 용도 |
+|---|---|
+| `DueTick` | 이 엔트리가 도달하는 논리적 틱. |
+| `Sequence` | `Add`가 배정한 삽입 순서 — 같은 `DueTick`을 공유하는 엔트리 사이의 FIFO tie-break. |
+| `Event` | `Add`에 넘겨진 값. `PopDue`가 실행되지 않은 채 그대로 돌려줌. |
+
+### 결정성: TickSchedule
+
+모든 것이 하나의 규칙에서 나오며, `RecurrenceSchedule`의 DST 규칙 및 `Cooldown`의 경계 포함 규칙과 동일한 지위의 영구 버전 계약입니다.
+
+> **디스패치 순서는 `(DueTick 오름차순, Sequence 오름차순)`이며, 그 밖의 어떤 것도 아니다 — 엔트리가 실제로 어떤 순서로 저장돼 있든 무관하다.**
+
+```csharp
+var a = TickSchedule<string>.Empty.Add("x", 10).Add("y", 10);
+var b = a; // 같은 엔트리를 어떤 저장 순서로 갖고 있든, 동일하게 팝된다
+
+a.PopDue(10, out _).SequenceEqual(b.PopDue(10, out _));   // 언제나 true
+```
+
+- `PopDue`의 경계는 포함입니다. 틱 1800에 예약된 이벤트는 `PopDue(1801, ...)`에서만이 아니라 `PopDue(1800, ...)`부터 도달합니다 — `RecurrenceSchedule`이 달력 경계에 쓰는 "경계는 자신이 여는 것에 속한다"와 같은 관례입니다.
+- `Add`는 추가만 할 뿐 `Entries`를 절대 정렬하지 않습니다. 모든 정렬은 필요한 순간, 즉 `PopDue` 내부에서 일어납니다. 유지해야 할 정렬 불변식이 없다는 것은 깨질 불변식도 없다는 뜻입니다 — 역직렬화기가 `Entries`를 임의 순서로(손으로 편집한 세이브, 손상된 페이로드) 배치해도 같은 `PopDue` 결과가 나옵니다. 위 규칙이 애초에 저장 순서를 참조하지 않기 때문입니다.
+- 복잡도 트레이드오프는 숨기지 않고 명시합니다 — 아래 [복잡도](#복잡도-tickschedule) 참고.
+- `default(TickSchedule<TEvent>)`는 **합법적인 빈 스케줄**입니다 — `default(Cooldown)`과 같은 지위입니다. `Empty`는 정확히 이 값입니다. 모든 멤버가 이를 엔트리 0개로 취급하므로, `EnsureValid` 가드가 거부할 불능 상태가 존재하지 않습니다.
+- `NextSequence`는 `Add`마다 checked 산술로 하나씩 증가합니다. `NextSequence`가 `long.MaxValue`에 도달하면 `Add`는 조용히 감싸 중복된 `Sequence`를 만드는 대신 `OverflowException`을 던집니다 — 실질적인 이벤트 발생률로는 도달할 일이 없는 경우입니다.
+
+### 캐치업과 반복 이벤트
+
+`PopDue`는 마지막 호출 이후 몇 틱이 지났든 대기 중인 엔트리 전체를 스캔하므로, 재시작이나 오프라인 공백 이후 "따라잡기"는 특수한 경우가 아니라 단지 더 큰 `currentTick`으로 같은 호출을 하는 것뿐입니다.
+
+```csharp
+// 세이브가 마지막으로 저장된 시점은 틱 400, 프로세스는 틱 1000에 재시작한다.
+var due = schedule.PopDue(currentTick: 1000, out schedule);
+// due에는 DueTick <= 1000인 엔트리가 (DueTick, Sequence) 순서로 전부 담긴다 -- 재생이 필요 없다.
+```
+
+v1에는 내장된 반복 스케줄이 없습니다. 반복 이벤트는 한 줄이면 됩니다 — 현재 발생이 팝되는 순간 다음 발생을 위해 같은 이벤트를 다시 `Add`하면 됩니다.
+
+```csharp
+foreach (var entry in schedule.PopDue(currentTick, out schedule))
+{
+    if (entry.Event is "wave")
+    {
+        schedule = schedule.Add(entry.Event, entry.DueTick + WaveInterval);   // 다음 웨이브를 예약
+    }
+}
+```
+
+### 직렬화: TickSchedule
+
+`Entries`와 `NextSequence`가 직렬화 표면 전체입니다 — 둘 다 public `init` 속성이므로, System.Text.Json(또는 그 밖의 무엇이든)이 커스텀 컨버터 없이 스케줄을 왕복시킵니다. 디스패치 순서가 저장 순서에 의존하지 않으므로(위 결정성 참고), 세이브 파일에서 복원된 스케줄은 역직렬화기가 `Entries`를 어떤 순서로 재구성했든 원본이 팝했을 것과 정확히 같은 순서로 팝합니다.
+
+손상되거나 손으로 편집된 페이로드는 여전히 중복된 `Sequence` 값을 가진 스케줄이나, 기존 엔트리의 `Sequence`보다 뒤로 후퇴한 `NextSequence`를 만들어낼 수 있습니다. 그런 경우에도 `PopDue`는 완전히 결정적입니다. 남은 동점을 각 엔트리의 저장 위치를 구현 전용 세 번째 정렬 키로 삼아 깨기 때문에, *관측 가능한* 계약은 `Add`가 실제로 만들어낼 수 있었던 어떤 페이로드에 대해서도 정확히 `(DueTick, Sequence)` 그대로입니다.
+
+### 복잡도: TickSchedule
+
+| 멤버 | 비용 |
+|---|---|
+| `Add` | 현재 엔트리 개수에 대해 `O(n)` (`ImmutableArray<T>.Add`가 늘 하는 배킹 배열 복사) |
+| `PopDue` | `O(n + k log k)` — due 부분집합을 골라내는 전체 스캔(`n`), 그 부분집합만 정렬(`k`) |
+| `RemoveAll`, `NextDueTick` | `O(n)` |
+| `Count`, `IsEmpty` | `O(1)` — 정규화된 `Entries`의 `Length`/`IsEmpty`를 바로 읽음 |
+
+`Add`와 `PopDue` 모두 게임·시뮬레이션 규모의 엔트리 개수(수백에서 수천 단위 초반)를 겨냥하고 있어, 이론상 최적인 우선순위 큐와의 차이가 추가 복잡도를 들일 가치가 없습니다 — 그리고 공개 계약이 이 특정 구현이 아니라 저장 순서 비의존성이므로, 이후 릴리스가 호출부를 깨지 않고 내부 표현을 바꿀 수도 있습니다.
+
+### `TickSchedule`을 비교하거나 확장하기 전에 알아둘 두 가지
+
+- **`==`는 저장 순서를 비교하지, 논리적 내용을 비교하지 않습니다.** 같은 엔트리를 다른 `Entries` 순서로 담은 두 스케줄은 `PopDue`가 동일하게 취급하더라도 `==`로는 다르게 나옵니다 — 게다가 `ImmutableArray<T>`의 자체 동등성은 배킹 배열의 *식별자*를 비교하므로, 같은 엔트리를 같은 순서로 각각 `Add`해 만든 두 스케줄조차 다르게 나올 수 있습니다. `TickSchedule` 값을 직접 비교하는 대신 `PopDue` 결과(또는 평범한 리스트로 변환한 `Entries`)를 비교하십시오.
+- **`TimeProvider` 오버로드는 없으며, 앞으로도 없을 것입니다.** 논리적 틱은 벽시계 값이 아닙니다. `TimeProvider.GetUtcNow()`를 읽는 당의정을 만들어봐야 애초에 틱 번호가 나오지 않습니다. `currentTick`은 여러분의 시뮬레이션이 이미 틱을 세는 방식 그대로 진행시키십시오.
+
 ## 테스트
 
 코어 API가 시각을 인자로 받기 때문에, 대부분의 테스트에는 시계가 아예 필요 없습니다. 검증하고 싶은 시각을 그냥 넘기면 됩니다. 테스트 대상 클래스가 주입된 `TimeProvider`를 들고 있는 경우에는 가짜 시계를 넘기세요.
@@ -394,7 +509,7 @@ Assert.True(dailyReset.HasCrossed(lastReset, clock));
 Assert.Equal(5, dailyReset.CountBoundaries(lastLogin, clock));
 ```
 
-확장 메서드는 `GetUtcNow()`만 호출하므로, 그 밖에 가짜로 만들 것이 없습니다. `Cooldown`과 `RechargePool`도 같은 방식으로 테스트합니다 — 시각을 직접 넘기거나, 같은 가짜 `TimeProvider`를 확장 메서드에 넘기세요.
+확장 메서드는 `GetUtcNow()`만 호출하므로, 그 밖에 가짜로 만들 것이 없습니다. `Cooldown`과 `RechargePool`도 같은 방식으로 테스트합니다 — 시각을 직접 넘기거나, 같은 가짜 `TimeProvider`를 확장 메서드에 넘기세요. `TickSchedule`은 가짜가 아예 필요 없습니다 — `Add`/`PopDue`는 시계 값이 아니라 평범한 `long` 틱을 받습니다.
 
 ## 성능
 
@@ -407,11 +522,13 @@ O(1)이 아니고, 그럴 의도도 없는 것이 둘 있습니다.
 
 `Cooldown`과 `RechargePool`의 모든 멤버도 마찬가지로 O(1)입니다 — 위의 [`FullAt` 모델](#fullat-모델)이 풀이 얼마나 오래 오프라인이었든 이를 보장하는 바로 그 원천입니다.
 
+`TickSchedule.Add`와 `.PopDue`는 O(1)이 아닙니다 — [복잡도: TickSchedule](#복잡도-tickschedule) 참고 — 하지만 "이 규모에서는 벤치마크할 가치가 없다"는 같은 논리가 적용됩니다. 스케줄이 한 틱만 대기했든 만 틱을 밀려서 따라잡든 비용은 같습니다.
+
 **이 라이브러리에는 벤치마크 프로젝트를 의도적으로 동봉하지 않습니다.** `SsalKit.Randomness`와 달리 이쪽은 핫패스가 아니라 스케줄 계산 API이고, 절대 수치를 특정 기계에 못 박아 두는 일은 그 유지 비용만큼의 값어치도 하지 못하기 때문입니다. 라이브러리가 약속하는 것은 위의 복잡도이며, 이는 실행 시간 예산이 아니라 테스트 스위트의 구조적 단언으로 보장됩니다.
 
 ## 이 라이브러리의 자리
 
-- **스케줄러가 아닙니다.** 이 라이브러리는 시각을 계산할 뿐, 아무것도 실행하지 않습니다. 실행은 여전히 Quartz.NET, Hangfire, 또는 호스팅 서비스의 몫입니다. `RecurrenceSchedule`에는 *언제*를 묻고, *실행*은 그쪽에 맡기세요.
+- **스케줄러가 아니고, 실행 엔진도 아닙니다.** 이 라이브러리는 시각과 틱 도달 이벤트를 계산할 뿐, 아무것도 실행하지 않습니다. 실행은 여전히 Quartz.NET, Hangfire, 또는 호스팅 서비스의 몫입니다. `RecurrenceSchedule`에는 *언제*를, `TickSchedule`에는 *무엇이 도달했는지*를 묻고, *실행*은 그쪽에 맡기세요.
 - **자원 제한기가 아닙니다.** `Cooldown`과 `RechargePool`은 영속화되어 특정 시각과 비교되는 상태를 모델링합니다 — 플레이어의 능력 쿨다운, 출석 보상 풀 같은 것입니다. `System.Threading.RateLimiting`(`TokenBucketRateLimiter`, `ConcurrencyLimiter` 등)은 다른 문제를 풉니다. 재시작 이후에도 유지되거나 프로세스 간에 비교될 필요가 없는, 동시성 있는 프로세스 내 작업을 스로틀링하는 문제입니다. API 스로틀링에는 `RateLimiter`를, 상태 자체를 저장·조회·복원해야 할 때는 이 타입들을 쓰세요.
 - **NodaTime과는 보완 관계입니다.** NodaTime은 달력 체계, 기간, 존 산술을 BCL보다 훨씬 철저하게 모델링합니다. 다만 "리셋 창" 개념은 없고, 이 라이브러리도 NodaTime을 대체할 생각이 없습니다. 이미 달력 작업에 NodaTime을 쓰고 있더라도, 경계 통과에 대한 질문은 BCL 타입 위에서 의존성 충돌 없이 이 라이브러리가 답합니다.
 - **Cronos와도 보완 관계입니다.** Cronos는 cron 식을 파싱해 다음 발생 시각을 알려줍니다. 이 라이브러리는 cron을 파싱하지 않고 세 가지 고정된 달력 주기만 제공하지만, cron 파서가 답하지 않는 것에 답합니다. 어떤 시각이 어느 창에 속하는지, 그리고 두 시각 사이에 발생이 몇 번 있었는지입니다.

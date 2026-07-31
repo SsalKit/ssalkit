@@ -4,21 +4,24 @@
 // happened since we last looked, how many resets did a player miss while they were away, what do
 // weekly and monthly cadences look like (including the month-end clamp), what happens on the two
 // days a year a wall clock misbehaves, how the half-open TimeWindow arithmetic composes, how the
-// TimeProvider overloads read "now" for code that already holds a clock, and -- the elapsed-time
-// half of the package -- a single skill Cooldown, a capacity-bounded RechargePool, and the two
-// combined with a calendar reset.
+// TimeProvider overloads read "now" for code that already holds a clock, the elapsed-time half of
+// the package -- a single skill Cooldown, a capacity-bounded RechargePool -- and finally the
+// logical-tick half: a deterministic TickSchedule driving a battle timeline, catching up after a
+// gap, a re-Add recurring pattern, and a save/restore round trip, before the two calendar and
+// elapsed-time halves are combined with a calendar reset.
 //
-// Every instant used below is a fixed literal rather than DateTimeOffset.UtcNow (see
-// SampleContext.cs): the whole API is a pure function of (schedule, instant), so this output is
-// byte-for-byte reproducible from run to run, and the daylight-saving section can sit on the
-// exact 2026 transition dates.
+// Every instant (or tick) used below is a fixed literal rather than DateTimeOffset.UtcNow or a
+// wall-clock reading (see SampleContext.cs): the whole API is a pure function of (schedule/state,
+// instant/tick), so this output is byte-for-byte reproducible from run to run, and the
+// daylight-saving section can sit on the exact 2026 transition dates.
 //
 // The sample is split by topic, one group per file: RecurrenceSamples, DstSamples,
-// TimeWindowSamples, TimeProviderSamples, CooldownSamples, CombinedSamples. Run without arguments
-// to execute every group, in the canonical order below. Pass one or more group names
-// (case-insensitive, any order) to run only those groups, e.g.:
+// TimeWindowSamples, TimeProviderSamples, CooldownSamples, TickScheduleSamples, CombinedSamples. Run
+// without arguments to execute every group, in the canonical order below. Pass one or more group
+// names (case-insensitive, any order) to run only those groups, e.g.:
 //   dotnet run -- cooldowns
 //   dotnet run -- dst windows
+//   dotnet run -- tickschedule
 // An unrecognized group name prints the list of available groups instead of running anything.
 
 using System.Globalization;
@@ -35,6 +38,7 @@ var groups = new (string Name, Action Run)[]
     ("windows", TimeWindowSamples.Run),
     ("timeprovider", TimeProviderSamples.Run),
     ("cooldowns", CooldownSamples.Run),
+    ("tickschedule", TickScheduleSamples.Run),
     ("combined", CombinedSamples.Run),
 };
 
