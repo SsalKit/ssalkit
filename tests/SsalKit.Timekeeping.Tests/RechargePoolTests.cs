@@ -157,9 +157,16 @@ public sealed class RechargePoolTests
     }
 
     [Fact]
-    public void ConsumeThenGrant_RestoresTheOriginalFullAtExactly()
+    public void ConsumeThenGrant_RestoresTheOriginalFullAtExactly_WhenAChargeWasPending()
     {
+        // Capacity == initialCharges, so the pool is exactly full at "Now": FullAt == Now, which
+        // satisfies the lossless round-trip precondition FullAt >= asOf (the boundary-inclusive
+        // "a charge was pending" case, since a unit becomes available *at* FullAt, not only after
+        // it -- see the type's boundary semantics). See
+        // ConsumeThenGrant_LandsOnTheConsumeInstant_RatherThanTheOriginalFullAt_WhenThePoolWasAlreadyFull
+        // for the other branch of this contract, where the round trip is not exact.
         var pool = RechargePool.Create(5, Every, Now, initialCharges: 5);
+        Assert.True(pool.FullAt >= Now);
 
         Assert.True(pool.TryConsume(Now, 3, out var afterConsume));
         var restored = afterConsume.Grant(3, Now);
@@ -169,15 +176,52 @@ public sealed class RechargePoolTests
     }
 
     [Fact]
-    public void GrantThenConsume_RestoresTheOriginalFullAtExactly()
+    public void GrantThenConsume_RestoresTheOriginalFullAtExactly_WhenAChargeWasPending()
     {
         var pool = RechargePool.Create(5, Every, Now, initialCharges: 0);
-        var afterConsumeAllInitially = pool; // already empty; use Grant then Consume round trip instead
+        Assert.True(pool.FullAt >= Now); // not yet full: the lossless round-trip precondition holds.
 
-        var granted = afterConsumeAllInitially.Grant(2, Now);
+        var granted = pool.Grant(2, Now);
         Assert.True(granted.TryConsume(Now, 2, out var restored));
 
         AssertTime.Exact(pool.FullAt, restored.FullAt);
+        Assert.Equal(pool, restored);
+    }
+
+    [Fact]
+    public void ConsumeThenGrant_LandsOnTheConsumeInstant_RatherThanTheOriginalFullAt_WhenThePoolWasAlreadyFull()
+    {
+        // The pool became full at "Now" but is queried (and consumed from) two hours later, when it
+        // has long since been full: FullAt (Now) is strictly before the consume instant, so the
+        // "charge was pending" precondition of the other round-trip tests does NOT hold.
+        var pool = RechargePool.Create(4, Every, Now, initialCharges: 4);
+        var consumeAt = Now.AddHours(2);
+        Assert.True(pool.FullAt < consumeAt);
+
+        Assert.True(pool.TryConsume(consumeAt, 1, out var afterConsume));
+        var restored = afterConsume.Grant(1, consumeAt);
+
+        // FullAt lands on the consume/grant instant itself, not on the pool's original FullAt.
+        AssertTime.Exact(consumeAt, restored.FullAt);
+        Assert.NotEqual(pool.FullAt, restored.FullAt);
+        Assert.NotEqual(pool, restored);
+
+        // But every observation made at or after that instant is identical: both states report the
+        // pool completely full throughout, since both have FullAt <= any t >= consumeAt.
+        foreach (var laterOffset in new[] { TimeSpan.Zero, TimeSpan.FromTicks(1), Every, TimeSpan.FromDays(400) })
+        {
+            var t = consumeAt + laterOffset;
+            Assert.Equal(pool.AvailableAt(t), restored.AvailableAt(t));
+            Assert.Equal(pool.UntilNextCharge(t), restored.UntilNextCharge(t));
+            Assert.Equal(pool.UntilFull(t), restored.UntilFull(t));
+        }
+
+        // A query *before* the consume instant, however, tells them apart: the original pool was
+        // already full there (FullAt == Now <= t < consumeAt), but the restored pool is not yet
+        // (its FullAt == consumeAt > t).
+        var beforeConsume = consumeAt.AddTicks(-1);
+        Assert.Equal(4, pool.AvailableAt(beforeConsume));
+        Assert.Equal(3, restored.AvailableAt(beforeConsume));
     }
 
     [Fact]
@@ -341,6 +385,76 @@ public sealed class RechargePoolTests
 
         Assert.False(succeeded);
         Assert.Equal(emptied, updated);
+    }
+
+    // ---- Overflow-safe ceiling division in MissingCharges (review fix) ----
+    //
+    // The naive ceiling-division formula "(elapsed + RechargeEvery.Ticks - 1) / RechargeEvery.Ticks"
+    // can overflow `long` when `elapsed` and `RechargeEvery.Ticks` are each individually well within
+    // range but their *sum* is not -- even though the mathematically correct answer is small and
+    // unremarkable. These tests pin the review-reported reproduction and its close relatives.
+    //
+    // Derivation for the repro pool below: Capacity=1, RechargeEvery=TimeSpan.MaxValue (~9.22e18
+    // ticks), created full at DateTimeOffset.MaxValue, so FullAt == MaxValue and Create's own
+    // FullAt arithmetic never has to add anything (missing = 0 there). Querying AvailableAt at
+    // DateTimeOffset.MinValue makes elapsed = (FullAt - asOf).Ticks = (MaxValue - MinValue).Ticks,
+    // the full DateTime tick range (~3.16e18) -- large, but strictly *less* than RechargeEvery.Ticks
+    // (~9.22e18), because TimeSpan's range is wider than DateTime's. So
+    // ceil(elapsed / RechargeEvery.Ticks) is exactly 1 (one incomplete recharge interval separates
+    // MinValue from FullAt), clamped to Capacity (1) unchanged, giving AvailableAt = Capacity - 1 =
+    // 0 -- not an exception.
+
+    [Fact]
+    public void AvailableAt_NeverOverflows_WhenElapsedAndRechargeEveryAreBothNearLongMaxValue()
+    {
+        var pool = RechargePool.Create(1, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+        Assert.Equal(0, pool.AvailableAt(DateTimeOffset.MinValue));
+    }
+
+    [Fact]
+    public void AvailableAt_AtFullAt_IsStillCapacity_WithAnExtremeRechargeEvery()
+    {
+        var pool = RechargePool.Create(1, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+        Assert.Equal(1, pool.AvailableAt(pool.FullAt));
+    }
+
+    [Fact]
+    public void UntilNextCharge_NeverOverflows_WithAnExtremeRechargeEveryAndAWideGap()
+    {
+        var pool = RechargePool.Create(1, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+        // missing = 1 (derived above), so untilNext = (FullAt - 0 * RechargeEvery) - asOf.
+        Assert.Equal(pool.FullAt - DateTimeOffset.MinValue, pool.UntilNextCharge(DateTimeOffset.MinValue));
+    }
+
+    [Fact]
+    public void AvailableAt_IsMonotonicAndNeverThrows_AcrossTheFullRepresentableRangeWithAnExtremeRechargeEvery()
+    {
+        var pool = RechargePool.Create(1, TimeSpan.MaxValue, DateTimeOffset.MaxValue);
+
+        DateTimeOffset[] probes =
+        [
+            DateTimeOffset.MinValue,
+            DateTimeOffset.MinValue.AddYears(1000),
+            new DateTimeOffset(2026, 7, 25, 0, 0, 0, TimeSpan.Zero),
+            DateTimeOffset.MaxValue.AddYears(-1000),
+            DateTimeOffset.MaxValue,
+        ];
+
+        var previous = -1;
+        foreach (var probe in probes)
+        {
+            var available = pool.AvailableAt(probe);
+            Assert.InRange(available, 0, 1);
+            Assert.True(available >= previous, $"available regressed at {probe:O}: {previous} -> {available}");
+            previous = available;
+        }
+
+        // Only exactly at FullAt does the pool become available -- everywhere else in this range,
+        // the single RechargeEvery interval (wider than the whole DateTime range) has not elapsed.
+        Assert.Equal(1, previous);
     }
 
     // ---- Exception contract ----

@@ -32,13 +32,31 @@ namespace SsalKit.Timekeeping;
 /// </para>
 /// <para>
 /// <b>Partial progress toward the next unit is preserved exactly</b> by consuming or granting
-/// through <see cref="FullAt"/> rather than through a per-unit countdown: consuming a unit while the
-/// pool is already full only pushes <see cref="FullAt"/> forward by one <see cref="RechargeEvery"/>,
-/// it does not reset progress toward whatever unit was already charging, and granting a unit undoes
-/// exactly that shift. A <see cref="TryConsume"/> immediately followed by the matching
-/// <see cref="Grant"/> (same amount, same instant) restores the original <see cref="FullAt"/>
-/// exactly.
+/// through <see cref="FullAt"/> rather than through a per-unit countdown: consuming a unit pushes
+/// <see cref="FullAt"/> forward by one <see cref="RechargeEvery"/> from whichever is later of
+/// <see cref="FullAt"/> and the consume instant, so it never resets progress toward a charge that
+/// was already pending. Whether the matching <see cref="Grant"/> undoes that shift back to the
+/// <i>original</i> <see cref="FullAt"/> depends on whether a charge was actually pending at the
+/// moment of consumption:
 /// </para>
+/// <list type="bullet">
+/// <item><description>
+/// <b>A charge was pending</b> (<see cref="FullAt"/> was at or after the consume instant): a
+/// <see cref="TryConsume"/> immediately followed by the matching <see cref="Grant"/> (same amount,
+/// same instant) restores the original <see cref="FullAt"/> exactly — the round trip is lossless,
+/// including for observations made before the consume/grant instant.
+/// </description></item>
+/// <item><description>
+/// <b>The pool was already full</b> (<see cref="FullAt"/> was at or before the consume instant): the
+/// round trip instead lands <see cref="FullAt"/> on the consume/grant instant itself, not on
+/// whatever earlier instant the pool had actually become full at. Every observation made <i>at or
+/// after</i> that instant — <see cref="AvailableAt(DateTimeOffset)"/>,
+/// <see cref="UntilNextCharge(DateTimeOffset)"/>, <see cref="UntilFull(DateTimeOffset)"/> — is still
+/// identical to the original, since both states report the pool full throughout that range; only a
+/// query <i>before</i> that instant, or comparing the two <see cref="RechargePool"/> values for
+/// equality, can tell them apart.
+/// </description></item>
+/// </list>
 /// <para>
 /// <b>Comparisons are always by absolute instant, never by offset notation</b> — the same
 /// <see cref="DateTimeOffset"/> convention used throughout this package. This type has no notion of
@@ -303,7 +321,12 @@ public readonly record struct RechargePool
 
         checked
         {
-            var missing = (elapsed + RechargeEvery.Ticks - 1) / RechargeEvery.Ticks;
+            // ceil(elapsed / RechargeEvery.Ticks) == 1 + (elapsed - 1) / RechargeEvery.Ticks for
+            // elapsed >= 1 (guaranteed by the guard above), by the standard integer-ceiling identity.
+            // Unlike the more obvious "(elapsed + RechargeEvery.Ticks - 1) / RechargeEvery.Ticks",
+            // this form never adds two values that can each be close to long.MaxValue, so it cannot
+            // overflow where the equivalent sum would.
+            var missing = 1 + ((elapsed - 1) / RechargeEvery.Ticks);
             return Math.Min(missing, Capacity);
         }
     }

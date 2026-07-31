@@ -187,6 +187,82 @@ public sealed class CooldownTests
         AssertTime.Exact(Now, updated.ReadyAt);
     }
 
+    // ---- A negative Duration is a genuinely invalid state, guarded everywhere ----
+    //
+    // Duration is a public init property, so a negative value cannot come from Create but can come
+    // from an object initializer or from deserializing a corrupted payload. Left unguarded, a
+    // negative Duration would let TryUse succeed while pushing ReadyAt *backwards*, silently
+    // defeating the cooldown -- the review-reported reproduction below.
+
+    [Fact]
+    public void NegativeDuration_TryUse_Throws()
+    {
+        // The reviewer's exact reproduction: a Duration of -1 minute set via the init accessor,
+        // bypassing Create's ArgumentOutOfRangeException guard entirely.
+        var corrupted = new Cooldown { Duration = TimeSpan.FromMinutes(-1), ReadyAt = Now };
+
+        Assert.Throws<InvalidOperationException>(() => corrupted.TryUse(Now, out _));
+    }
+
+    [Fact]
+    public void NegativeDuration_IsReady_Throws()
+    {
+        var corrupted = new Cooldown { Duration = TimeSpan.FromMinutes(-1), ReadyAt = Now };
+
+        Assert.Throws<InvalidOperationException>(() => corrupted.IsReady(Now));
+    }
+
+    [Fact]
+    public void NegativeDuration_Remaining_Throws()
+    {
+        var corrupted = new Cooldown { Duration = TimeSpan.FromMinutes(-1), ReadyAt = Now };
+
+        Assert.Throws<InvalidOperationException>(() => corrupted.Remaining(Now));
+    }
+
+    [Fact]
+    public void NegativeDuration_Reset_Throws()
+    {
+        var corrupted = new Cooldown { Duration = TimeSpan.FromMinutes(-1), ReadyAt = Now };
+
+        Assert.Throws<InvalidOperationException>(() => corrupted.Reset(Now));
+    }
+
+    [Fact]
+    public void SystemTextJson_DeserializedNegativeDuration_IsGuardedTheSameAsAHandConstructedOne()
+    {
+        var corrupted = JsonSerializer.Deserialize<Cooldown>(
+            """{"Duration":"-00:01:00","ReadyAt":"2026-07-25T12:00:00+00:00"}""");
+
+        Assert.Equal(TimeSpan.FromMinutes(-1), corrupted.Duration);
+        Assert.Throws<InvalidOperationException>(() => corrupted.IsReady(Now));
+        Assert.Throws<InvalidOperationException>(() => corrupted.Remaining(Now));
+        Assert.Throws<InvalidOperationException>(() => corrupted.TryUse(Now, out _));
+        Assert.Throws<InvalidOperationException>(() => corrupted.Reset(Now));
+    }
+
+    [Fact]
+    public void ZeroDuration_IsStillLegal_AfterTheNegativeDurationGuardWasAdded()
+    {
+        var cooldown = new Cooldown { Duration = TimeSpan.Zero, ReadyAt = Now };
+
+        Assert.True(cooldown.IsReady(Now));
+        Assert.Equal(TimeSpan.Zero, cooldown.Remaining(Now));
+        Assert.True(cooldown.TryUse(Now, out _));
+        Assert.Equal(Now, cooldown.Reset(Now).ReadyAt);
+    }
+
+    [Fact]
+    public void DefaultCooldown_IsStillLegal_AfterTheNegativeDurationGuardWasAdded()
+    {
+        var cooldown = default(Cooldown);
+
+        Assert.True(cooldown.IsReady(Now));
+        Assert.Equal(TimeSpan.Zero, cooldown.Remaining(Now));
+        Assert.True(cooldown.TryUse(Now, out _));
+        AssertTime.Exact(Now, cooldown.Reset(Now).ReadyAt);
+    }
+
     // ---- MinValue/MaxValue: BCL exceptions propagate ----
 
     [Fact]

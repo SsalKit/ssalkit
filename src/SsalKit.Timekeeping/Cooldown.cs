@@ -42,7 +42,13 @@ namespace SsalKit.Timekeeping;
 /// Unlike <see cref="RechargePool"/>, whose default is a genuinely inert state that every member must
 /// reject, no member of this type needs to guard against <c>default(Cooldown)</c> — it behaves
 /// exactly like <c>Cooldown.Create(TimeSpan.Zero, DateTimeOffset.MinValue)</c>, a value a caller
-/// could just as well construct on purpose.
+/// could just as well construct on purpose. <b>A negative <see cref="Duration"/> is the actual
+/// invalid state</b> — it cannot come from <see cref="Create"/>, but <see cref="Duration"/>'s
+/// <see langword="init"/> accessor and deserialization can both produce it directly, and a negative
+/// duration would let <see cref="TryUse(DateTimeOffset, out Cooldown)"/> push <see cref="ReadyAt"/>
+/// <i>backwards</i> on a successful use, silently defeating the cooldown. Every member therefore
+/// throws <see cref="InvalidOperationException"/> when <see cref="Duration"/> is negative, the same
+/// as <see cref="RechargePool"/> guards its own invalid default.
 /// </para>
 /// <para>
 /// <b>Range.</b> Arithmetic that would place <see cref="ReadyAt"/> or a comparison outside the range
@@ -99,7 +105,14 @@ public readonly record struct Cooldown
     /// <param name="asOf">The instant to test.</param>
     /// <returns><see langword="true"/> if <paramref name="asOf"/> is at or after
     /// <see cref="ReadyAt"/>; otherwise, <see langword="false"/>.</returns>
-    public bool IsReady(DateTimeOffset asOf) => asOf >= ReadyAt;
+    /// <exception cref="InvalidOperationException"><see cref="Duration"/> is negative — a corrupted
+    /// or hand-constructed invalid state.</exception>
+    public bool IsReady(DateTimeOffset asOf)
+    {
+        EnsureValid();
+
+        return asOf >= ReadyAt;
+    }
 
     /// <summary>
     /// Returns how much longer the cooldown has left at <paramref name="asOf"/>.
@@ -107,8 +120,12 @@ public readonly record struct Cooldown
     /// <param name="asOf">The instant to measure from.</param>
     /// <returns><c>ReadyAt - asOf</c>, clamped to <see cref="TimeSpan.Zero"/> when the cooldown is
     /// already ready. Never negative.</returns>
+    /// <exception cref="InvalidOperationException"><see cref="Duration"/> is negative — a corrupted
+    /// or hand-constructed invalid state.</exception>
     public TimeSpan Remaining(DateTimeOffset asOf)
     {
+        EnsureValid();
+
         var remaining = ReadyAt - asOf;
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
@@ -124,10 +141,14 @@ public readonly record struct Cooldown
     /// assigning <paramref name="updated"/> back over the original is always safe.</param>
     /// <returns><see langword="true"/> if the cooldown was ready and has now been used; otherwise,
     /// <see langword="false"/>.</returns>
+    /// <exception cref="InvalidOperationException"><see cref="Duration"/> is negative — a corrupted
+    /// or hand-constructed invalid state.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><c>asOf + Duration</c> falls outside the range
     /// of <see cref="DateTimeOffset"/>.</exception>
     public bool TryUse(DateTimeOffset asOf, out Cooldown updated)
     {
+        EnsureValid();
+
         if (!IsReady(asOf))
         {
             updated = this;
@@ -145,5 +166,26 @@ public readonly record struct Cooldown
     /// <param name="asOf">The instant the cooldown becomes ready at.</param>
     /// <returns>A cooldown with the same <see cref="Duration"/> and <see cref="ReadyAt"/> set to
     /// <paramref name="asOf"/>.</returns>
-    public Cooldown Reset(DateTimeOffset asOf) => this with { ReadyAt = asOf };
+    /// <exception cref="InvalidOperationException"><see cref="Duration"/> is negative — a corrupted
+    /// or hand-constructed invalid state.</exception>
+    public Cooldown Reset(DateTimeOffset asOf)
+    {
+        EnsureValid();
+
+        return this with { ReadyAt = asOf };
+    }
+
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> when <see cref="Duration"/> is negative — a
+    /// state <see cref="Create"/> would never produce, but that the <see langword="init"/> accessor
+    /// or deserialization of a corrupted payload can.
+    /// </summary>
+    private void EnsureValid()
+    {
+        if (Duration < TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                "This Cooldown has a negative Duration (a corrupted or hand-constructed invalid state); construct one with Cooldown.Create.");
+        }
+    }
 }
