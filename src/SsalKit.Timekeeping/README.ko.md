@@ -1,13 +1,15 @@
 [← SsalKit](https://github.com/ssalkit/ssalkit/blob/main/README.ko.md)
 
-[English](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.RecurrenceSchedule/README.md) | **한국어** | [日本語](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.RecurrenceSchedule/README.ja.md)
+[English](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Timekeeping/README.md) | **한국어** | [日本語](https://github.com/ssalkit/ssalkit/blob/main/src/SsalKit.Timekeeping/README.ja.md)
 
-# SsalKit.RecurrenceSchedule
+# SsalKit.Timekeeping
+
+과거 `SsalKit.RecurrenceSchedule`이라는 이름으로 배포되었습니다 (해당 이름은 지원 중단됨). 타입과 계약은 동일하며, 패키지 id와 네임스페이스만 변경되었습니다.
 
 타임존을 인지하는 반복 리셋 경계(일간 / 주간 / 월간)와 반개구간 시간 창 산술을, 호출자가 넘긴 시각에 대한 순수 함수로 제공하는 라이브러리입니다. DST 처리 규칙을 영구히 고정한 계약과, 이미 시계를 들고 있는 코드를 위한 `TimeProvider` 오버로드를 함께 제공합니다. 의존성이 없습니다.
-[![NuGet](https://img.shields.io/nuget/v/SsalKit.RecurrenceSchedule.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.RecurrenceSchedule)
+[![NuGet](https://img.shields.io/nuget/v/SsalKit.Timekeeping.svg?logo=nuget)](https://www.nuget.org/packages/SsalKit.Timekeeping)
 
-## 왜 SsalKit.RecurrenceSchedule인가
+## 왜 SsalKit.Timekeeping인가
 
 "마지막으로 확인한 이후로 일일 리셋이 지나갔는가?"는 일일 쿼터, 출석 보상, 결제 주기, 리포트 윈도우가 있는 코드베이스라면 어디에나 등장합니다. 겉보기에 `DateTime` 산술 두 줄이라서, 공유되는 대신 호출부마다 다시 작성되고, 그렇게 복제된 구현들이 서로 다른 답을 내놓기 시작합니다.
 
@@ -20,7 +22,7 @@
 
 .NET 8이 `TimeProvider`를 추가하면서 "시계는 누가 소유하는가" 쪽 절반은 정리됐습니다. 하지만 반복되는 창 자체를 표현하는 타입은 여전히 없습니다. BCL에는 "이 시각이 속한 리셋 기간"이라는 개념이 없습니다. NodaTime은 달력과 타임존을 깊이 있게 모델링하지만 리셋 창 개념은 없고, Cronos는 cron 식을 파싱해 다음 발생 시각을 알려줄 뿐 창 소속 판정이나 통과 횟수는 다루지 않습니다.
 
-SsalKit.RecurrenceSchedule은 그 빈자리를 채웁니다.
+SsalKit.Timekeeping은 그 빈자리를 채웁니다.
 
 - `RecurrenceSchedule`은 달력에 정렬된 반복을 정의하고 — 매일 04:30 서울 시각, 매주 월요일 09:00 UTC, 매월 31일 — 그에 대해 물을 가치가 있는 네 가지 질문에 답합니다. `PreviousBoundary`, `NextBoundary`, `CurrentWindow`, 그리고 "자리를 비웠던 사용자"를 위한 `HasCrossed` / `CountBoundaries`입니다.
 - **포함 규칙은 어디서나 하나뿐입니다.** `TimeWindow`는 반개구간 `[Start, End)`이고 포함 구간 변형이 없습니다. 그래서 연속된 창들이 타임라인을 이중 계산도 구멍도 없이 정확히 타일링합니다.
@@ -31,13 +33,13 @@ SsalKit.RecurrenceSchedule은 그 빈자리를 채웁니다.
 ## 설치
 
 ```bash
-dotnet add package SsalKit.RecurrenceSchedule
+dotnet add package SsalKit.Timekeeping
 ```
 
 ## 빠른 시작
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 var seoul = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
 var dailyReset = RecurrenceSchedule.Daily(new TimeOnly(4, 30), seoul);
@@ -78,7 +80,7 @@ monthly.NextBoundary(new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
 // 2026-02-28T00:00:00+00:00 -- 2월은 클램프되지만, 경계는 여전히 정확히 한 개
 ```
 
-DST를 포함해 위 내용을 전부 실행해 볼 수 있는 예제는 [samples/SsalKit.RecurrenceSchedule.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.RecurrenceSchedule.Sample)에 있습니다.
+DST를 포함해 위 내용을 전부 실행해 볼 수 있는 예제는 [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample)에 있습니다.
 
 ## API 개요
 

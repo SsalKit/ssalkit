@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule;
+namespace SsalKit.Timekeeping;
 
 /// <summary>
 /// A half-open interval of time <c>[Start, End)</c> — the start instant belongs to the window, the

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace SsalKit.RecurrenceSchedule.Tests;
+namespace SsalKit.Timekeeping.Tests;
 
 /// <summary>
 /// <see cref="RecurrenceSchedule.ToString"/> is documented as a diagnostic rendering rather than a

@@ -1,4 +1,4 @@
-// SsalKit.RecurrenceSchedule sample
+// SsalKit.Timekeeping sample
 //
 // Walks through the library in the order the questions usually come up: has the daily reset
 // happened since we last looked, how many resets did a player miss while they were away, what do
@@ -11,7 +11,7 @@
 // run, and the daylight-saving section can sit on the exact 2026 transition dates.
 
 using System.Globalization;
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 // Formatting only: keeps the month names and separators below identical on every machine.
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
@@ -23,7 +23,7 @@ var kst = TimeSpan.FromHours(9);
 var est = TimeSpan.FromHours(-5); // New York, standard time
 var edt = TimeSpan.FromHours(-4); // New York, daylight saving time
 
-Console.WriteLine("== SsalKit.RecurrenceSchedule sample ==");
+Console.WriteLine("== SsalKit.Timekeeping sample ==");
 Console.WriteLine();
 
 // ---------------------------------------------------------------------------------------

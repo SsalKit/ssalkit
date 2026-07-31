@@ -1,9 +1,9 @@
-# SsalKit.RecurrenceSchedule — AI contract sheet
+# SsalKit.Timekeeping — AI contract sheet
 
 Time-zone-aware recurring reset boundaries (daily / weekly / monthly) and half-open time-window arithmetic, written as **pure functions of `(schedule, instant)`**, with a permanently fixed daylight-saving contract and `TimeProvider` overloads.
 
 - **TFM:** `net10.0`. **Package dependencies:** none (BCL only). No source generator, no analyzer.
-- **Namespace:** `SsalKit.RecurrenceSchedule` (note: the namespace and the main type share a name).
+- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — same types, same contracts, only the package id and namespace changed.
 - This file is written for AI coding agents. Human-facing docs: [`README.md`](README.md) (also `README.ko.md`, `README.ja.md`).
 
 ## 1. API surface
@@ -130,7 +130,7 @@ This package ships **no analyzer and no source generator**, so it defines no dia
 ### Daily reset with crossing detection
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 var seoul = TimeZoneInfo.FindSystemTimeZoneById("Asia/Seoul");
 var dailyReset = RecurrenceSchedule.Daily(new TimeOnly(4, 30), seoul);
@@ -148,7 +148,7 @@ TimeSpan remaining = dailyReset.UntilNext(now);                          // alwa
 ### Windows tile the timeline
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 TimeWindow today = dailyReset.CurrentWindow(now);
 TimeWindow yesterday = dailyReset.WindowAt(now, -1);          // O(1) at any offset
@@ -165,7 +165,7 @@ DateTimeOffset capped = today.Clamp(overrunInstant);          // == today.End
 ### Weekly and monthly, with the month-end clamp
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 var weekly = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(9, 0));   // UTC by default
 var monthly = RecurrenceSchedule.Monthly(31, new TimeOnly(0, 0));
@@ -177,7 +177,7 @@ DateTimeOffset feb = monthly.NextBoundary(new DateTimeOffset(2026, 2, 1, 0, 0, 0
 ### Daylight saving, both directions (America/New_York, 2026)
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 var newYork = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
 var est = TimeSpan.FromHours(-5);
@@ -202,7 +202,7 @@ int firedTwice = autumn.CountBoundaries(first, second);        // 0
 ### With an injected clock
 
 ```csharp
-using SsalKit.RecurrenceSchedule;
+using SsalKit.Timekeeping;
 
 public sealed class QuotaService(TimeProvider timeProvider)
 {

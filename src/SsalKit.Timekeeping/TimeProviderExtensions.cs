@@ -1,4 +1,4 @@
-namespace SsalKit.RecurrenceSchedule;
+namespace SsalKit.Timekeeping;
 
 /// <summary>
 /// Convenience overloads that read the current instant from a <see cref="TimeProvider"/> instead of
