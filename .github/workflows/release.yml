@@ -48,7 +48,9 @@ jobs:
             src/SsalKit.Generators.Toolkit \
             src/SsalKit.Generators.Toolkit.Testing \
             src/SsalKit.Guard \
-            src/SsalKit.Timekeeping
+            src/SsalKit.Timekeeping \
+            src/SsalKit.StableHashing \
+            src/SsalKit.Determinism
           do
             dotnet pack "$project" \
               --configuration Release \
