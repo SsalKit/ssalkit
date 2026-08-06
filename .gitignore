@@ -62,6 +62,12 @@ claude.local.md
 # 로컬 설계 문서 (git 미추적)
 .design/
 
+# 로컬 리서치 문서 (git 미추적)
+.research/
+
+# 로컬 계획 문서 (git 미추적)
+.plan/
+
 # Verify snapshot testing scratch output
 *.received.*
 
