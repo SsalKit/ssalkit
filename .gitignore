@@ -1,13 +1,13 @@
-## Visual Studio / .NET 표준 .gitignore
+## Standard Visual Studio / .NET .gitignore
 
-# 사용자별 파일
+# User-specific files
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
 *.userprefs
 
-# 빌드 결과물
+# Build output
 [Bb]in/
 [Oo]bj/
 [Oo]ut/
@@ -15,7 +15,7 @@ msbuild.log
 msbuild.err
 msbuild.wrn
 
-# Visual Studio 캐시/옵션 디렉터리
+# Visual Studio cache / options directories
 .vs/
 .vscode/
 
@@ -23,7 +23,7 @@ msbuild.wrn
 .idea/
 *.sln.iml
 
-# NuGet 관련
+# NuGet
 *.nupkg
 *.snupkg
 **/[Pp]ackages/*
@@ -34,7 +34,7 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
-# 테스트 결과
+# Test results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
 *.trx
@@ -44,7 +44,7 @@ artifacts/
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 
-# 기타 임시/백업 파일
+# Misc temporary / backup files
 *.tmp
 *.bak
 *.swp
@@ -56,11 +56,17 @@ Thumbs.db
 # StyleCop
 StyleCopReport.xml
 
-# 로컬 개발용 문서 (git 미추적)
+# Local development notes (local only)
 claude.local.md
 
-# 로컬 설계 문서 (git 미추적)
+# Local design docs (local only)
 .design/
+
+# Local research docs (local only)
+.research/
+
+# Local plan docs (local only)
+.plan/
 
 # Verify snapshot testing scratch output
 *.received.*
