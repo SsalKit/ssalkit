@@ -181,12 +181,13 @@ GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); 
 | `SSALR004` | メンバー・宣言側の型・外側の型のいずれかが生成されたクラスからアクセスできない（`private`、`protected`、file-local）。 |
 | `SSALR005` | 宣言側の型がジェネリック、またはジェネリック型の中にネストされている。 |
 | `SSALR006` | 宣言側の型が `ref struct` であり、ジェネリック型引数として使えない。 |
+| `SSALR007` | 属性を `field:` ターゲットで書いたため、コンパイラー生成の backing field に付いている。 |
 
-6 つはいずれもエラーであり、ある型で 1 つでも発生するとその型については何も生成されません — 部分的な生成はありません。
+7 つはいずれもエラーであり、ある型で 1 つでも発生するとその型については何も生成されません — 部分的な生成はありません。
 
 ### 知っておくべきこと
 
-- **重みは通常のプロパティかフィールドとして宣言してください。** ターゲットをリダイレクトする属性表記 — positional record のパラメーターに付ける `[property: RandomWeight]` や、自動プロパティの `[field: RandomWeight]` — はジェネレーターから認識されず、診断も生成コードもないまま静かに無視されます。代わりに `public long Weight { get; init; }`（または通常のフィールド）と書いてください。
+- **属性を付ける場所。** プロパティやフィールドの宣言にはターゲット指定子なしで付けます。positional record のパラメーターには `property:` ターゲットを使ってください — `public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight)` — record がそのパラメーターのために合成するプロパティに付く形で、手書きのプロパティとまったく同じコードが生成されます。`field:` ターゲットは `SSALR007` で拒否されます。属性がコンパイラー生成の backing field へ移り、その名前は生成されたセレクターから書けないからです。
 - **継承はたどりません。** base 型に `[RandomWeight]` を付けると、その base 型用の拡張だけが生成されます。`IReadOnlyList<out T>` の共変性のおかげで `List<Derived>` からも呼び出せますが、返される静的な型は base 型なので、`Derived` に戻すにはキャストが必要です。
 - **サンプラーは一度だけビルドしてください。** `ToWeightedSampler()` は `O(n)` で、`O(1)` なのは抽選だけです。抽選ループの中で呼ぶと反復のたびに alias テーブルを作り直すことになり、サンプラーを使う意味そのものがなくなります。重みテーブルごとに 1 つビルドして保持し（不変でスレッドセーフです）、そこから繰り返し引いてください。1 回だけ引くなら `PickWeighted` を使います。
 

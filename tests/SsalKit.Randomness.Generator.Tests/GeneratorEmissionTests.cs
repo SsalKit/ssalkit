@@ -209,29 +209,66 @@ public class GeneratorEmissionTests
         Assert.Contains("static x => (long)x.Weight", generated, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A positional record parameter's <c>[property: RandomWeight]</c> yields exactly what a
+    /// hand-written weight property does. The attribute provider never sees this application -- the
+    /// <c>property:</c> target moves the attribute onto the property the record synthesizes, which is
+    /// not the symbol the parameter's own syntax declares -- so it is the syntax-driven branch that
+    /// models it, and the point of that branch reusing the shared parser is that nothing downstream
+    /// can tell the difference.
+    /// </summary>
     [Theory]
-    [InlineData("[property: RandomWeight]")]
-    [InlineData("[field: RandomWeight]")]
-    public void TargetRedirectedAttribute_IsNotSeenByTheGenerator(string attribute)
+    [InlineData("public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight);")]
+    [InlineData("public readonly record struct LootEntry(string ItemId, [property: RandomWeight] long Weight);")]
+    public void PositionalRecordParameter_WithPropertyTarget_GeneratesTheFullSurface(string declaration)
     {
-        // A known ForAttributeWithMetadataName limitation, pinned here so a Roslyn upgrade that
-        // changes it is noticed: the provider matches an attribute against the symbol the *node*
-        // declares, and a redirected target puts the attribute on a different symbol -- the
-        // synthesized property of a positional record parameter, or an auto-property's backing
-        // field -- which the node's own symbol does not carry. The result is silence rather than a
-        // diagnostic; the workaround is to declare the weight as an ordinary property or field.
-        var source = $$"""
+        var source = $"""
             using SsalKit.Randomness;
 
             namespace Game.Loot;
 
-            public sealed record LootEntry(string ItemId, {{attribute}} long Weight);
+            {declaration}
+            """;
+
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
+
+        foreach (var methodName in FullSurface.Split('\n').Select(name => name.Trim()))
+        {
+            Assert.Contains(" " + methodName + "(", generated, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("static x => (long)x.Weight", generated, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other half of the redirected-target story: <c>[field: RandomWeight]</c> puts the attribute
+    /// on a compiler-generated backing field, whose name cannot be written in C# at all, so it is
+    /// reported (SSALR007) rather than honoured -- on a positional record parameter and on an
+    /// auto-property alike.
+    /// </summary>
+    [Theory]
+    [InlineData("public sealed record LootEntry(string ItemId, [field: RandomWeight] long Weight);")]
+    [InlineData("""
+        public sealed class LootEntry
+        {
+            [field: RandomWeight]
+            public long Weight { get; init; }
+        }
+        """)]
+    public void TargetRedirectedToABackingField_IsReported(string declaration)
+    {
+        var source = $"""
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            {declaration}
             """;
 
         var result = GeneratorTestSupport.RunGenerator(source);
 
         Assert.Empty(result.GeneratedSources);
-        Assert.Empty(result.Diagnostics);
+        Assert.Equal("SSALR007", Assert.Single(result.Diagnostics).Id);
     }
 
     [Fact]

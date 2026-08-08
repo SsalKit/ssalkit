@@ -50,6 +50,33 @@ public class GeneratorIncrementalTests
         }
         """;
 
+    private const string PositionalRecordSource = """
+        using SsalKit.Randomness;
+
+        namespace Game.Loot;
+
+        public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight);
+        """;
+
+    private const string PositionalRecordSourceWithSharedSourceOverloads = """
+        using SsalKit.Randomness;
+
+        namespace Game.Loot;
+
+        public sealed record LootEntry(string ItemId, [property: RandomWeight(SharedSourceOverloads = true)] long Weight);
+        """;
+
+    private const string PositionalRecordSourceWithAddedMember = """
+        using SsalKit.Randomness;
+
+        namespace Game.Loot;
+
+        public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight)
+        {
+            public bool IsRare => Weight <= 1;
+        }
+        """;
+
     private const string ValidSourceWithEditedBody = """
         using SsalKit.Randomness;
 
@@ -113,6 +140,67 @@ public class GeneratorIncrementalTests
         IncrementalAssert.SomeOutputRecomputed(second, RandomWeightGenerator.TrackingNames.Types);
     }
 
+    /// <summary>
+    /// The syntax-driven branch has to cache like the attribute-driven one. It cannot lean on
+    /// <c>ForAttributeWithMetadataName</c>'s per-tree filtering, so its transform runs wherever a
+    /// redirected <c>[RandomWeight]</c> is written, and only the value equality of the model it
+    /// produces keeps the stages behind it from recomputing.
+    /// </summary>
+    [Fact]
+    public void PositionalRecordSource_UnrelatedSyntaxTreeAddition_ReusesEveryCollectedStage()
+    {
+        var (_, second) = RunWithUnrelatedSyntaxTreeAdded(PositionalRecordSource);
+
+        AssertEveryCollectedStageReused(second);
+    }
+
+    [Fact]
+    public void PositionalRecordSource_UnrelatedMemberAddedToTheRecord_ReusesEveryCollectedStage()
+    {
+        // The redirected transform necessarily re-runs (its syntax tree changed), but the promoted
+        // property resolves to the same model, so nothing downstream may recompute.
+        var (_, second) = GeneratorTest.RunTwice<RandomWeightGenerator>(
+            PositionalRecordSource, _ => PositionalRecordSourceWithAddedMember, GeneratorTestSupport.Options);
+
+        AssertEveryCollectedStageReused(second);
+    }
+
+    /// <summary>
+    /// The other half of the contract for the new branch: a named argument written on the redirected
+    /// attribute has to reach the emission model. It is read from the <c>AttributeData</c> the branch
+    /// resolves by matching application syntax, so a branch that found the right symbol but the wrong
+    /// application would leave the previous output in place.
+    /// </summary>
+    [Fact]
+    public void PositionalRecordSource_SharedSourceOverloadsFlagFlip_InvalidatesTheEmissionModel()
+    {
+        var (_, second) = GeneratorTest.RunTwice<RandomWeightGenerator>(
+            PositionalRecordSource,
+            _ => PositionalRecordSourceWithSharedSourceOverloads,
+            GeneratorTestSupport.Options);
+
+        IncrementalAssert.SomeOutputRecomputed(second, RandomWeightGenerator.TrackingNames.Types);
+    }
+
+    /// <summary>
+    /// Switching the target specifier switches which branch models the member and turns generation
+    /// into SSALR007, so both projections off the analysis node have to recompute.
+    /// </summary>
+    [Fact]
+    public void PositionalRecordSource_TargetSpecifierChange_InvalidatesBothProjections()
+    {
+        var (_, second) = GeneratorTest.RunTwice<RandomWeightGenerator>(
+            PositionalRecordSource,
+            source => source.Replace("[property:", "[field:", StringComparison.Ordinal),
+            GeneratorTestSupport.Options);
+
+        IncrementalAssert.SomeOutputRecomputed(
+            second,
+            RandomWeightGenerator.TrackingNames.CollectedRedirectedMembers,
+            RandomWeightGenerator.TrackingNames.Types,
+            RandomWeightGenerator.TrackingNames.Diagnostics);
+    }
+
     private static (GeneratorTestResult First, GeneratorTestResult Second) RunWithUnrelatedSyntaxTreeAdded(
         string source) =>
         GeneratorTest.RunTwiceWithCompilationChange<RandomWeightGenerator>(
@@ -121,10 +209,16 @@ public class GeneratorIncrementalTests
                 CSharpSyntaxTree.ParseText("// unrelated comment", new CSharpParseOptions(LanguageVersion.Latest))),
             GeneratorTestSupport.Options);
 
+    /// <summary>
+    /// Both branches' batched stages and everything behind them. The per-member transforms are
+    /// deliberately left out: they re-run whenever their syntax tree changes, which is normal and not
+    /// what these tests are about -- what matters is that the batches they feed compare equal.
+    /// </summary>
     private static void AssertEveryCollectedStageReused(GeneratorTestResult secondRun) =>
         IncrementalAssert.AllCachedOrUnchanged(
             secondRun,
             RandomWeightGenerator.TrackingNames.CollectedMembers,
+            RandomWeightGenerator.TrackingNames.CollectedRedirectedMembers,
             RandomWeightGenerator.TrackingNames.Analysis,
             RandomWeightGenerator.TrackingNames.Types,
             RandomWeightGenerator.TrackingNames.Diagnostics);

@@ -52,6 +52,56 @@ public class GeneratedPickParityTests
         Assert.Equal(selectorRng.ExportState(), generatedRng.ExportState());
     }
 
+    /// <summary>
+    /// The positional-record shape, whose <c>[property: RandomWeight]</c> reaches the generator
+    /// through the syntax-driven branch rather than the attribute provider. The promoted property is
+    /// meant to be indistinguishable downstream, so the same parity that holds for a hand-written
+    /// property has to hold here -- results and consumed random state alike.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(WeightedTables.Seeds), MemberType = typeof(WeightedTables))]
+    public void PickWeighted_PositionalRecord_MatchesSelectorOverload(ulong seed)
+    {
+        var items = WeightedTables.Positional();
+        var generatedRng = new DeterministicRandom(seed);
+        var selectorRng = new DeterministicRandom(seed);
+
+        for (int i = 0; i < Draws; i++)
+        {
+            Assert.Same(
+                selectorRng.PickWeighted(items, WeightedTables.PositionalWeight), items.PickWeighted(generatedRng));
+        }
+
+        Assert.Equal(selectorRng.ExportState(), generatedRng.ExportState());
+    }
+
+    /// <summary>
+    /// The rest of the surface on the same model: an integral weight member yields all four methods
+    /// through the promoted property, each delegating exactly as the hand-written selector call does.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(WeightedTables.Seeds), MemberType = typeof(WeightedTables))]
+    public void PositionalRecord_BatchedDrawsAndSampler_MatchSelectorOverloads(ulong seed)
+    {
+        var items = WeightedTables.Positional();
+        var generatedRng = new DeterministicRandom(seed);
+        var selectorRng = new DeterministicRandom(seed);
+
+        AssertSameSequence(
+            selectorRng.PickManyWeighted(items, WeightedTables.PositionalWeight, Draws),
+            items.PickManyWeighted(generatedRng, Draws));
+
+        AssertSameSequence(
+            selectorRng.PickManyWeightedDistinct(items, WeightedTables.PositionalWeight, 4),
+            items.PickManyWeightedDistinct(generatedRng, 4));
+
+        AssertSameSequence(
+            items.ToWeightedSampler(WeightedTables.PositionalWeight).PickMany(selectorRng, Draws),
+            items.ToWeightedSampler().PickMany(generatedRng, Draws));
+
+        Assert.Equal(selectorRng.ExportState(), generatedRng.ExportState());
+    }
+
     [Theory]
     [MemberData(nameof(WeightedTables.Seeds), MemberType = typeof(WeightedTables))]
     public void PickWeighted_Field_MatchesSelectorOverload(ulong seed)

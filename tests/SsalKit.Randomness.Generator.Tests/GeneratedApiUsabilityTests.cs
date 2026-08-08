@@ -52,6 +52,46 @@ public class GeneratedApiUsabilityTests
         Assert.Empty(result.GetCompilationErrors());
     }
 
+    /// <summary>
+    /// The positional-record shape, with an <c>int</c> weight so the generated selector's cast to the
+    /// runtime API's <c>long</c> is exercised too. Nothing about the call sites differs from the
+    /// hand-written-property case, which is the whole promise of supporting the
+    /// <c>[property:]</c> target.
+    /// </summary>
+    [Fact]
+    public void PositionalRecordParameter_AllFourGeneratedMethodsBindFromACallSite()
+    {
+        const string source = """
+            using System.Collections.Generic;
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed record LootEntry(string ItemId, [property: RandomWeight] int Weight);
+
+            public static class Consumer
+            {
+                public static void Use(IReadOnlyList<LootEntry> table)
+                {
+                    IRandomSource random = new DeterministicRandom(42);
+
+                    LootEntry single = table.PickWeighted(random);
+                    LootEntry[] many = table.PickManyWeighted(random, 3);
+                    LootEntry[] distinct = table.PickManyWeightedDistinct(random, 2);
+                    WeightedSampler<LootEntry> sampler = table.ToWeightedSampler();
+                    LootEntry fromSampler = sampler.Pick(random);
+
+                    _ = (single, many, distinct, fromSampler);
+                }
+            }
+            """;
+
+        var result = GeneratorTestSupport.RunGenerator(source);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(result.GetCompilationErrors());
+    }
+
     [Fact]
     public void ArrayAndListReceivers_BothBind()
     {

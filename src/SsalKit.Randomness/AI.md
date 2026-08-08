@@ -103,6 +103,8 @@ Round-trips losslessly through `System.Text.Json` with no converter.
 | `bool InternalExtensions` | `false` | Forces the generated extension class `internal` even for a `public` declaring type. No effect when the type is already `internal` or narrower (the class is capped at the type's effective accessibility either way). |
 | `bool SharedSourceOverloads` | `false` | Additionally generates argument-less overloads drawing from `SharedRandomSource.Instance`. **Opt-in; unreproducible by construction.** |
 
+Where it may be written: on a property or field declaration with no target specifier, or on a positional record parameter with the `property:` target — `record LootEntry(string ItemId, [property: RandomWeight] long Weight)`. The `field:` target is an error (`SSALR007`).
+
 Generated per decorated type, into that type's own namespace, receiver `IReadOnlyList<T>`:
 
 | Weight member type | Generated |
@@ -154,7 +156,7 @@ Generated per decorated type, into that type's own namespace, receiver `IReadOnl
 - **DO NOT assume `PickManyWeightedDistinct` gives inclusion probabilities proportional to weight.** Only the first draw is; every later draw renormalizes over the remaining items. For `count > 1`, light items are over-represented relative to `count * weight / total`. This is successive sampling, not πps; the library implements no πps design.
 - **DO NOT use `double` weights when the ratio between largest and smallest positive weight is extreme.** Use the `long` overloads (or `WeightedSampler<T>`) — see the 53-bit limit in §2.
 - **DO NOT expect `ulong` or `decimal` weights to work with `[RandomWeight]`.** Both are rejected with `SSALR001` — `ulong`→`long` can overflow, and no runtime overload accepts `decimal`. Same for enums, nullable numerics, and non-numeric types.
-- **DO NOT write `[property: RandomWeight]` on a positional record parameter or `[field: RandomWeight]` on an auto-property.** Target-redirecting forms are never seen by the generator: nothing is generated and **no diagnostic is reported**. Declare a plain property or field (`public long Weight { get; init; }`).
+- **DO NOT write `[field: RandomWeight]`** — on an auto-property or a positional record parameter. It lands on the compiler-generated backing field, whose name (`<Weight>k__BackingField`) the generated selector cannot write, and is rejected with `SSALR007`. `[property: RandomWeight]` on a positional record parameter **is** supported and generates exactly what a plain property does.
 - **DO NOT expect argument-less `list.PickWeighted()` to exist by default.** `SharedSourceOverloads` is opt-in per type, and turning it on makes those draws unreproducible (the shared source is not seedable). Leave it off wherever draws must be replayable.
 - **DO NOT share a `DeterministicRandom` across threads.** It is the one non-thread-safe type here. `WeightedSampler<T>` is safe to share; give each thread its own source.
 - **DO NOT write `state.IsValid` — it is `IsValid()`, a method.**
@@ -165,7 +167,7 @@ Generated per decorated type, into that type's own namespace, receiver `IReadOnl
 
 ## 4. Diagnostics
 
-Prefix `SSALR`, category `SsalKit.Randomness`. All six are **errors**, and when any fires for a type, **no extension class is generated for that type at all** (no partial generation).
+Prefix `SSALR`, category `SsalKit.Randomness`. All seven are **errors**, and when any fires for a type, **no extension class is generated for that type at all** (no partial generation).
 
 | ID | Trigger | Fix |
 |---|---|---|
@@ -175,6 +177,7 @@ Prefix `SSALR`, category `SsalKit.Randomness`. All six are **errors**, and when 
 | `SSALR004` | The member, its declaring type, or a containing type is not reachable from the generated top-level class (`private`, `protected`, `private protected`, or `file`-local). | Make the whole chain at least `internal` and not file-local. |
 | `SSALR005` | The declaring type is generic or nested inside a generic type. | Use a concrete type, or call the selector-based runtime overloads directly. |
 | `SSALR006` | The declaring type is a `ref struct`. | Use a normal class/struct — a `ref struct` cannot be a generic type argument. |
+| `SSALR007` | The attribute was written with the `field:` target, so it landed on a compiler-generated backing field (auto-property, or positional record parameter). | Apply `[RandomWeight]` to the property itself with no target specifier, or use `[property: RandomWeight]` on a positional record parameter. |
 
 ## 5. Canonical snippets
 
@@ -218,7 +221,7 @@ for (int i = 0; i < 1000; i++)
 WeightedSampler<(string Name, long Weight)> lootSampler = loot.ToWeightedSampler(entry => entry.Weight);
 ```
 
-### `[RandomWeight]` — plain property, explicit source
+### `[RandomWeight]` — property or positional record parameter, explicit source
 
 ```csharp
 using SsalKit.Randomness;
@@ -229,9 +232,12 @@ public sealed class LootEntry
 {
     public required string ItemId { get; init; }
 
-    [RandomWeight]                       // plain property; NOT [property: RandomWeight]
+    [RandomWeight]                       // no target specifier on a property or field
     public long Weight { get; init; }
 }
+
+// A positional record parameter needs the property: target ([field:] is SSALR007).
+public sealed record MobEntry(string MobId, [property: RandomWeight] long Weight);
 
 public static class Drops
 {
