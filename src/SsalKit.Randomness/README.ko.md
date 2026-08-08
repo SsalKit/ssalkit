@@ -181,12 +181,13 @@ GachaEntry replayable = banner.PickWeighted(new DeterministicRandom(seed: 42)); 
 | `SSALR004` | 멤버·선언 타입·바깥 타입 중 하나가 생성된 클래스에서 접근 불가(`private`, `protected`, file-local). |
 | `SSALR005` | 선언 타입이 제네릭이거나 제네릭 타입 안에 중첩되어 있음. |
 | `SSALR006` | 선언 타입이 `ref struct`라서 제네릭 타입 인자로 쓸 수 없음. |
+| `SSALR007` | 특성을 `field:` 타깃으로 써서 컴파일러가 생성한 backing field에 붙음. |
 
-여섯 가지 모두 오류이며, 어떤 타입에서 하나라도 발생하면 그 타입에 대해서는 아무것도 생성되지 않습니다 — 부분 생성은 없습니다.
+일곱 가지 모두 오류이며, 어떤 타입에서 하나라도 발생하면 그 타입에 대해서는 아무것도 생성되지 않습니다 — 부분 생성은 없습니다.
 
 ### 알아 둘 점
 
-- **가중치는 일반 프로퍼티나 필드로 선언하세요.** 대상을 리다이렉트하는 특성 표기 — positional record 매개변수의 `[property: RandomWeight]`나 자동 프로퍼티의 `[field: RandomWeight]` — 는 생성기가 인식하지 못하며, 진단도 생성 코드도 없이 조용히 무시됩니다. 대신 `public long Weight { get; init; }`(또는 일반 필드)로 선언하세요.
+- **특성을 어디에 붙이는가.** 프로퍼티나 필드 선언에는 타깃 지정자 없이 붙입니다. positional record 매개변수에는 `property:` 타깃을 쓰세요 — `public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight)` — record가 그 매개변수에 대해 합성하는 프로퍼티에 붙는 형태이며, 직접 선언한 프로퍼티와 완전히 같은 코드가 생성됩니다. `field:` 타깃은 `SSALR007`로 거부됩니다. 특성이 컴파일러가 만든 backing field로 옮겨가고, 그 이름은 생성된 셀렉터가 쓸 수 없기 때문입니다.
 - **상속은 따라가지 않습니다.** base 타입에 `[RandomWeight]`를 붙이면 그 base 타입용 확장만 생성됩니다. `IReadOnlyList<out T>`의 공변성 덕분에 `List<Derived>`에서도 호출할 수 있지만, 반환되는 정적 타입은 base 타입이므로 `Derived`로 되돌리려면 캐스트가 필요합니다.
 - **샘플러는 한 번만 빌드하세요.** `ToWeightedSampler()`는 `O(n)`이고 `O(1)`인 것은 추첨뿐입니다. 추첨 루프 안에서 호출하면 매 반복마다 alias 테이블을 다시 만들게 되어 샘플러를 쓰는 이유 자체가 사라집니다. 가중치 테이블당 하나만 빌드해 두고(불변이며 스레드 안전합니다) 반복해서 뽑으세요. 한 번만 뽑을 거라면 `PickWeighted`를 쓰면 됩니다.
 

@@ -181,12 +181,13 @@ It is off by default because `SharedRandomSource` is not seedable and cannot rep
 | `SSALR004` | The member, its declaring type, or a containing type is not accessible from the generated class (`private`, `protected`, or file-local). |
 | `SSALR005` | The declaring type is generic, or is nested inside a generic type. |
 | `SSALR006` | The declaring type is a `ref struct`, which cannot be used as a generic type argument. |
+| `SSALR007` | The attribute was written with the `field:` target, so it landed on a compiler-generated backing field. |
 
-All six are errors, and when one fires for a type, nothing at all is generated for that type — there is no partial generation.
+All seven are errors, and when one fires for a type, nothing at all is generated for that type — there is no partial generation.
 
 ### Things to know
 
-- **Declare the weight as a plain property or field.** Attribute forms that redirect the target — `[property: RandomWeight]` on a positional record parameter, or `[field: RandomWeight]` on an auto-property — are not seen by the generator and are ignored silently, with no diagnostic and no generated code. Write `public long Weight { get; init; }` (or a plain field) instead.
+- **Where the attribute goes.** On a property or field declaration, with no target specifier. On a positional record parameter, use the `property:` target — `public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight)` — which decorates the property the record synthesizes for that parameter and generates exactly what a hand-written property does. The `field:` target is rejected with `SSALR007`: it moves the attribute onto the compiler-generated backing field, whose name the generated selector cannot write.
 - **Inheritance isn't walked.** `[RandomWeight]` on a base type generates extensions for that base type only. Thanks to `IReadOnlyList<out T>` covariance a `List<Derived>` can still call them, but the returned static type is the base type, so you'll need a cast to get back to `Derived`.
 - **Build the sampler once.** `ToWeightedSampler()` is `O(n)` and only the draws are `O(1)`, so calling it inside a draw loop rebuilds the alias table on every iteration and negates the reason to use a sampler at all. Build one per weighted table, keep it (it's immutable and thread-safe), and draw from it repeatedly; for a single draw, call `PickWeighted` instead.
 

@@ -208,6 +208,23 @@ LootEntry[] sharedDrops = lootTable.PickManyWeighted(count: 3);
 Console.WriteLine($"                 PickWeighted()              -> {sharedDrop.ItemId}  (shared source, varies every run)");
 Console.WriteLine($"                 PickManyWeighted(3)         -> [{string.Join(", ", sharedDrops.Select(drop => drop.ItemId))}]  (shared source)");
 
+// The attribute also works on a positional record parameter, where it needs the `property:` target
+// so that it lands on the property the record synthesizes (see MobEntry at the bottom of this file).
+// Everything generated is identical to the hand-written-property case above.
+List<MobEntry> spawnTable =
+[
+    new("slime", 70),
+    new("wolf", 25),
+    new("wyvern", 5),
+];
+
+var spawnRng = new DeterministicRandom(Seed);
+var spawnSelectorRng = new DeterministicRandom(Seed);
+
+MobEntry spawn = spawnTable.PickWeighted(spawnRng);
+MobEntry spawnViaSelector = spawnSelectorRng.PickWeighted(spawnTable, static mob => (long)mob.Weight);
+Console.WriteLine($"                 positional record: {spawn.MobId,-16}  selector: {spawnViaSelector.MobId,-16}  match: {ReferenceEquals(spawn, spawnViaSelector)}");
+
 // Build once, draw many: ToWeightedSampler() is O(n), the draws are O(1). Building it here --
 // outside the draw loop -- is the whole point; calling it inside one would rebuild the alias
 // table on every iteration.
@@ -297,3 +314,11 @@ sealed class LootEntry
     [RandomWeight(SharedSourceOverloads = true)]
     public long Weight { get; init; }
 }
+
+// A monster spawn row, used by section 8, declared as a positional record. A positional parameter
+// needs the `property:` target: an untargeted [RandomWeight] there would be a compile error (the
+// attribute does not allow parameters), and [field: RandomWeight] is reported as SSALR007 because it
+// would land on the compiler-generated backing field, which the generated selector cannot name. With
+// `property:` the attribute reaches the property the record synthesizes, and the generated extensions
+// are exactly the ones LootEntry above gets.
+sealed record MobEntry(string MobId, [property: RandomWeight] long Weight);
