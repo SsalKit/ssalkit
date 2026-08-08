@@ -16,10 +16,20 @@ namespace SsalKit.Determinism.Analyzer.Diagnostics;
 /// than reported under one -- the id <em>is</em> the tuning knob.
 /// </para>
 /// <para>
-/// Every message follows one shape: <c>'{0}' is non-deterministic: &lt;why&gt;. &lt;what to do
-/// instead&gt;.</c> The offending member always appears as <c>{0}</c>, and the replacement clause is
-/// fixed per category, naming the concrete SsalKit construct that solves it -- which is the whole
-/// difference between this package and a generic banned-API list.
+/// The catalog messages -- <see cref="AmbientTime"/> through <see cref="SchedulingAndParallelism"/>
+/// -- follow one shape: <c>'{0}' is non-deterministic: &lt;why&gt;. &lt;what to do instead&gt;.</c>
+/// The offending member always appears as <c>{0}</c>, and the replacement clause is fixed per
+/// category, naming the concrete SsalKit construct that solves it -- which is the whole difference
+/// between this package and a generic banned-API list.
+/// </para>
+/// <para>
+/// The two rules about markings rather than APIs --
+/// <see cref="OrphanAllowNonDeterminism"/> and <see cref="UnmarkedCallFromStrictScope"/> -- break
+/// that shape on purpose. Neither of them has looked inside the member it names, so opening with
+/// "is non-deterministic" would be a claim this analyzer is in no position to make; they report a
+/// marking that does nothing and a marking that is missing, and say so in those words. They also
+/// share one predicate, so that the fix one of them asks for can never be the thing the other
+/// reports.
 /// </para>
 /// </remarks>
 internal static class DiagnosticDescriptors
@@ -92,4 +102,21 @@ internal static class DiagnosticDescriptors
         "[AllowNonDeterminism] outside a [Deterministic] scope",
         "'{0}' has [AllowNonDeterminism] but neither it nor any type or member containing it has [Deterministic], so the attribute suppresses nothing",
         "[AllowNonDeterminism] only has an effect inside a [Deterministic] scope, because that is the only place a diagnostic exists to suppress. An orphan application therefore reads as a deliberate exemption while doing nothing at all -- typically because the [Deterministic] marking it was paired with was removed, or was never added. Remove the attribute, or mark the enclosing type or member [Deterministic].");
+
+    /// <summary>
+    /// SSALD008: a member of this assembly that no <c>[Deterministic]</c> marking covers is
+    /// referenced directly from a <c>[Deterministic(Strict = true)]</c> scope.
+    /// </summary>
+    /// <remarks>
+    /// Opt-in per scope, via the <c>Strict</c> property, rather than on by default. The other seven
+    /// rules name an API that is non-deterministic; this one names an absence, and an absence is
+    /// noisy in a way a fixed catalog is not. Leaving it off by default is what keeps a codebase
+    /// from turning the whole category off in <c>.editorconfig</c> and losing the other seven with
+    /// it.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnmarkedCallFromStrictScope = Factory.Warning(
+        8,
+        "Uncovered member called from a strict [Deterministic] scope",
+        "'{0}' is called from a [Deterministic(Strict = true)] scope but no [Deterministic] marking covers it, so its body is never analyzed. Mark '{1}' [Deterministic] to bring it into the contract, exempting individual members inside it with [AllowNonDeterminism] where they need it -- or mark the calling member [AllowNonDeterminism] if this call is itself the deliberate non-determinism",
+        "This rule does not claim the member is non-deterministic -- nothing here has looked inside it, which is exactly the problem being reported. The analysis only ever sees direct calls, so a member no [Deterministic] marking covers is code that runs inside a deterministic core while no rule has ever been applied to it, and the wall clock or process randomness it may acquire next month will pass through in silence. The question is coverage, one hop deep: does any [Deterministic] sit on the member or on a type containing it? An [AllowNonDeterminism] on the member alone does not answer it -- with no [Deterministic] above it that attribute is an orphan, which SSALD007 reports for suppressing nothing. Exemptions belong in one of the two places that stay coherent: nested inside a [Deterministic] type, where they carve a member out of a contract that does cover it, or on the calling member, where the deliberate non-determinism actually is. What cannot be marked is never reported -- another assembly's members, interface members, compiler-synthesized members, and source-generated code -- and neither is a declaration with no body of its own, which covers auto-implemented properties, abstract and extern members, and everything about a positional record. Marking everything this reports still does not make silence a proof of determinism; it makes the shallow analysis cover the code that actually runs.");
 }

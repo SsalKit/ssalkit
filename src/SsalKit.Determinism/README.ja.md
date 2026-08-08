@@ -31,7 +31,7 @@ SsalKit.Determinism は 2 つの性質でこの空白を埋めます。そして
 
 | 検出されないもの | 理由 |
 |---|---|
-| **間接呼び出し** — マークされていないヘルパー経由で禁止 API に到達する場合 | アナライザーはマークしたスコープの外へは出ません。**ヘルパー型にも `[Deterministic]` を付けてください** — これは回避策ではなく、意図された利用パターンです（クイックスタート参照）。 |
+| **間接呼び出し** — マークされていないヘルパー経由で禁止 API に到達する場合 | アナライザーはマークしたスコープの外へは出ません。**ヘルパー型にも `[Deterministic]` を付けてください** — これは回避策ではなく、意図された利用パターンです（クイックスタート参照）。`Strict = true` は実際に付けたかどうかを検査してくれますが（下記 *Strict モード* 参照）、それでもヘルパーの中身は覗きません。 |
 | `Dictionary`/`HashSet` の列挙順序 | 意図的に対象外です。非順序コレクションを順序に依存して消費しているかどうかを区別できず、この領域のルールはほとんどが誤検出になります。 |
 | プラットフォーム間の浮動小数点の差異（FMA の縮約、x87 の過剰精度、ベクトル化） | 静的解析の範囲外です — 同じ IL が異なるハードウェアで異なる結果を出します。 |
 | カルチャ依存の書式化・解析（`ToString()`、`Parse`、`ToUpper`） | BCL 自身の `CA1304`/`CA1305`/`CA1310` がすでに、しかもより適切に担当しています。このパッケージに重複実装を期待せず、それらを有効にしてください。 |
@@ -111,6 +111,7 @@ public sealed class BattleSimulation
 | `SSALD005` | 環境の識別子 | `Environment.MachineName`/`.UserName`/`.UserDomainName`/`.ProcessId`/`.CurrentManagedThreadId`/`.ProcessorCount`/`.WorkingSet`/`.CommandLine`/`.CurrentDirectory`/`.GetEnvironmentVariable(…)`/`.GetEnvironmentVariables(…)`; `Process.GetCurrentProcess()`; `Thread.CurrentThread`; `Path.GetTempPath()`/`.GetTempFileName()` | 値を明示的な構成として渡してください。結果が実行されたホストではなく入力に依存するようになります。 |
 | `SSALD006` | スケジューリング・並列性 | `Task.Run`/`.Delay`/`.WhenAny`/`.Yield`; `TaskFactory.StartNew`（`TaskFactory<T>` を含む）; `Thread.Sleep`; `ThreadPool.QueueUserWorkItem`; `Parallel.For`/`.ForEach`/`.Invoke`/`.ForAsync`/`.ForEachAsync`; `ParallelEnumerable.AsParallel`; `new System.Threading.Timer(…)`; `new System.Timers.Timer(…)` | そのまま差し替えられる代替がない唯一のカテゴリです。非決定性の原因が特定の呼び出しではなく並行性そのものだからです。本当に順序に依存しない並列処理ならスコープの外に置いて結果だけを渡し、そうでなければ逐次実行に作り替える必要があります。 |
 | `SSALD007` | 孤立した例外指定 | 自身にも、自身を含むどこにも `[Deterministic]` がないのに `[AllowNonDeterminism]` が付いている | 属性を削除するか、囲んでいる型／メンバーに `[Deterministic]` を付けてください。静かに何もしないマークは、マークがないことより悪いからです。 |
+| `SSALD008` | 欠けているカバレッジ（**オプトイン**、下記参照） | `[Deterministic(Strict = true)]` スコープから直接呼ばれた同一アセンブリのメンバーで、自身にも自身を囲むどの型にも `[Deterministic]` がない | そのメンバー（または囲んでいる型）に `[Deterministic]` を付け、時計が必要なメンバーはその中で `[AllowNonDeterminism]` を使って切り出してください。あるいは*呼び出す側*のメンバーを例外にします。ヘルパーに `[AllowNonDeterminism]` を単独で付けるのは孤立したマークで、何も黙らせません。 |
 
 `new Random(seed)` がなぜこのリストにあるのか、そして何が意図的に**入っていない**のかの補足です。
 
@@ -122,6 +123,67 @@ public sealed class BattleSimulation
 - **ファイル／ネットワーク I/O、`Console`、一般的な `await` は v1 のカタログにありません** — これは意図的な範囲の限定であって、問題ないという意味ではありません。
 
 カタログはコンパイルごとに一度 metadata name で解決され、そのコンパイルが参照していない型は静かにスキップされます。上の表の `SsalKit.Randomness` の行が、このパッケージの依存関係ゼロという契約と両立できるのはそのためです — それらはそのパッケージをすでに参照している場所でのみ禁止リストに加わります。そして自分のエコシステムの非決定的な入口にも例外はありません。dogfooding は両方向に効きます。
+
+## Strict モード: ヘルパーにマークが付いているかを検査する
+
+解析が直接呼び出ししか見ないため、決定的なコアを正直に保てるかどうかは、結局そのコアが頼っているヘルパー型にマークを付け忘れないかにかかっています。それは規律であり、規律はすり減ります。書かれた当初は純粋だったヘルパーが半年後に `DateTime.UtcNow` を 1 行手に入れても、誰も何も言いません。
+
+`Strict = true` は、その規律をコンパイラーに引き渡します。
+
+```csharp
+[Deterministic(Strict = true)]
+public sealed class ReplayRunner
+{
+    // SSALD008: DamageTable を覆う [Deterministic] がないので、その中身は誰も覗いたことがありません。
+    public int Apply(int roll, int armor) => DamageTable.Lookup(roll, armor);
+}
+
+internal static class DamageTable
+{
+    public static int Lookup(int roll, int armor) => Math.Max(0, roll - armor);
+}
+```
+
+> warning SSALD008: 'DamageTable.Lookup' is called from a [Deterministic(Strict = true)] scope but no [Deterministic] marking covers it, so its body is never analyzed. Mark 'DamageTable' [Deterministic] to bring it into the contract, exempting individual members inside it with [AllowNonDeterminism] where they need it -- or mark the calling member [AllowNonDeterminism] if this call is itself the deliberate non-determinism
+
+**このルールが問うのは「これは決定的か」ではなく「これを覆う `[Deterministic]` があるか」です。** 呼び出し先の本体は読みません。上の例は `DamageTable` にマークを付ければ解決し、10 回のうち 9 回はそれが答えです。ヘルパーが本当に時計を必要とする場合、それを表明できる場所は 2 つあります。
+
+```csharp
+// 1. 契約の中に留める: 型は覆われていて、時計が必要なメンバーだけを切り出します。
+//    まず手を伸ばすべき形です。
+[Deterministic]
+internal static class Progress
+{
+    public static int Percent(int done, int total) => total == 0 ? 0 : done * 100 / total;
+
+    [AllowNonDeterminism(Justification = "console output only; never feeds replayed state")]
+    public static void Log(int tick) => Console.WriteLine($"{DateTime.UtcNow:O} tick {tick}");
+}
+
+// 2. 呼び出す側で: その呼び出し自体が意図した非決定性である場合で、直接書いた
+//    DateTime.UtcNow を例外にするのとまったく同じやり方です。
+[Deterministic(Strict = true)]
+public sealed class ReplayRunner
+{
+    [AllowNonDeterminism(Justification = "diagnostics path; outside the replayed sequence")]
+    private static void Report(int tick) => Telemetry.Emit(tick);
+}
+```
+
+**うまくいかないのは、単独で置かれたヘルパーに `[AllowNonDeterminism]` を付けることです。** その上に `[Deterministic]` がなければこの属性は何も抑制しません — それこそが `SSALD007` がその属性について報告している内容です — したがって `SSALD008` を黙らせることもできません。2 つのルールは同じカバレッジの問いの上で動くので、一方がもう一方を静かに打ち消すのではなく、両方が同じ方向を指して一緒に出ます。例外指定が呼び出し先から手を伸ばして、見えてもいない呼び出し箇所を黙らせてしまうことがないのも同じ理由です。例外は、判断が下された場所にあるべきものです。
+
+**解析が深くなるわけではなく、このパッケージが今後もやらない interprocedural な伝播でもありません。** 呼び出し先の本体は読みません。検査はちょうど 1 ホップで、入力はマークがどこに置かれているかだけです。上の *このアナライザーが検出できないもの* の節は Strict を入れてもすべてそのままです — 沈黙は依然として決定性の証明ではありません。変わるのは、あの表の 1 行目の裏にあった手作業の規律が、信頼するものから検査されるものになるという点だけです。
+
+有効にする前に知っておくべき帰結が 2 つあります。
+
+- **オプトインの単位はプロジェクトではなくスコープです。** これが正しい粒度です。1 つのソリューションには、この検査に見合うリプレイ経路やシミュレーションコアがたいてい 1 つあり、残りの決定的なコードはカタログの 7 種だけで十分です。既定でオフなのも意図的です — このルールは名前のある API ではなく「不在」を報告するので 8 種の中でいちばんうるさく、うるさいルールが 1 つあると `.editorconfig` でカテゴリごと切られてしまうのがよくある道筋だからです。
+- **マークをメンバーではなく型のほうへ押しやります。** メソッド 1 つだけを Strict にすると同じ型の private ヘルパーが報告対象になり、型に付ければ静かになります。これは意図した圧力です。決定性の契約の自然な単位はメンバーではなく型であり、ヘルパーがいちばんよく住んでいる場所もその型だからです。
+
+Strict はスコープの一部なので、ほかと同じく最も近いマークが勝ちます — ネストした `[Deterministic]` に `Strict` がなければその中では無効になり、それが局所的に厳しさを緩める方法です。
+
+直しようのないものは決して報告されません。ほかのアセンブリ（BCL、そしてほかの SsalKit パッケージ — それらはこのパッケージを参照しておらず、今後もしません）、インターフェイスのメンバー、コンパイラーが合成したメンバー、ソースジェネレーターが生成したコード、positional record、自動実装プロパティ、`abstract`・`extern` の宣言、フィールドはすべてそのままにします。いずれも属性を書く場所がないか、その裏に解析すべきものがないからです。
+
+> このうち生成されたコードは、わざわざ挙げておく価値があります。実際にいちばん出会いやすい除外だからです。生成された拡張クラス — `ComputeStableHash()` もその 1 つです — は決定的なコアが呼ぶヘルパーの典型であり、ビルドのたびに作り直されるファイルに属性を書き込むことはできません。一方、ジェネレーターがあなたの `[Deterministic] partial` 型の**中に**コードを差し込む場合はまったく別の話で、もともと扱われています。そのコードはあなたのスコープの中にあり、そこで解析されます。
 
 ## 意図して書いたコードを例外にする
 
@@ -155,7 +217,7 @@ var traceStartedAt = DateTime.UtcNow;
 
 ## `.editorconfig` での重大度の調整
 
-すべてのルールは Warning として出荷されます。カタログがカテゴリごとの 7 つの ID に分かれているので、1 つのカテゴリを締めるのも緩めるのも 1 行です。
+すべてのルールは Warning として出荷されます。ルールがカテゴリごとの 8 つの ID に分かれているので、1 つのカテゴリを締めるのも緩めるのも 1 行です。
 
 ```ini
 # .editorconfig
@@ -170,7 +232,7 @@ dotnet_diagnostic.SSALD004.severity = error
 dotnet_diagnostic.SSALD006.severity = suggestion
 ```
 
-7 つは 1 つのカテゴリを共有しているので、まとめて動かすこともできます。
+8 つは 1 つのカテゴリを共有しているので、まとめて動かすこともできます。
 
 ```ini
 dotnet_analyzer_diagnostic.category-SsalKit.Determinism.severity = error
@@ -208,4 +270,3 @@ MIT — 詳細は [LICENSE](https://github.com/ssalkit/ssalkit/blob/main/LICENSE
 ---
 
 **AI に関する開示:** 本プロジェクトは AI（Claude）を活用して制作されました。
-</content>

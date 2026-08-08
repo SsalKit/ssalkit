@@ -3,8 +3,9 @@ using Microsoft.CodeAnalysis;
 namespace SsalKit.Determinism.Analyzer;
 
 /// <summary>
-/// Answers the one question every <c>SSALD</c> diagnostic depends on: is this code inside a
-/// <c>[Deterministic]</c> scope?
+/// Answers the question every <c>SSALD</c> diagnostic starts from -- is this code inside a
+/// <c>[Deterministic]</c> scope? -- and the weaker variant of it that SSALD007 and SSALD008 ask
+/// about a symbol instead of about a scope.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,17 +33,36 @@ namespace SsalKit.Determinism.Analyzer;
 internal static class DeterministicScope
 {
     /// <summary>
-    /// Whether code belonging to <paramref name="symbol"/> is inside a <c>[Deterministic]</c> scope.
+    /// The name of <c>DeterministicAttribute.Strict</c>. It is an <c>init</c>-only property, so it
+    /// can only ever reach an application as a named argument.
     /// </summary>
+    private const string StrictPropertyName = "Strict";
+
+    /// <summary>
+    /// Whether code belonging to <paramref name="symbol"/> is inside a <c>[Deterministic]</c> scope,
+    /// and whether that scope asked for strict mode.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="strict"/> is carried out of the same single walk rather than resolved by a
+    /// second one, because it is a property of the marking that <em>won</em>: strict mode obeys the
+    /// nearest-wins rule like everything else about a scope, so a nested <c>[Deterministic]</c>
+    /// without <c>Strict</c> switches it off inside that nested scope. Deliberately narrowing there
+    /// is the point -- it keeps the scope rule to one sentence ("the nearest marking decides")
+    /// instead of introducing a third, inherited state.
+    /// </remarks>
     /// <param name="symbol">The containing symbol of the operation under analysis.</param>
     /// <param name="attributes">The resolved attribute symbols for this compilation.</param>
+    /// <param name="strict">Whether the winning <c>[Deterministic]</c> set <c>Strict = true</c>.
+    /// Always <see langword="false"/> when the return value is <see langword="false"/>.</param>
     /// <returns><see langword="true"/> when the nearest marking is <c>[Deterministic]</c>.</returns>
-    public static bool IsInsideDeterministicScope(ISymbol? symbol, ScopeAttributes attributes)
+    public static bool IsInsideDeterministicScope(ISymbol? symbol, ScopeAttributes attributes, out bool strict)
     {
         for (var current = symbol; current is not null && !(current is INamespaceSymbol); current = Enclosing(current))
         {
-            switch (Classify(current, attributes))
+            switch (Classify(current, attributes, out strict))
             {
+                // Classify already reports strict as false for an exemption, however the
+                // [Deterministic] half of a contradictory pair was written.
                 case ScopeMarking.Exempt:
                     return false;
 
@@ -54,23 +74,38 @@ internal static class DeterministicScope
             }
         }
 
+        strict = false;
         return false;
     }
 
     /// <summary>
     /// Whether <paramref name="symbol"/> or any symbol lexically containing it declares
-    /// <c>[Deterministic]</c> -- the test behind SSALD007.
+    /// <c>[Deterministic]</c> -- the test behind both SSALD007 and SSALD008.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This asks a deliberately weaker question than
-    /// <see cref="IsInsideDeterministicScope(ISymbol, ScopeAttributes)"/>: it looks for a
-    /// <c>[Deterministic]</c> anywhere in the chain rather than for the nearest marking. An
-    /// <c>[AllowNonDeterminism]</c> nested inside another one is redundant, not orphaned, and
-    /// redundant markings are not reported (design §5.1) -- only ones with no <c>[Deterministic]</c>
-    /// above them at all, which is what makes them do nothing whatsoever. The symbol itself is part
-    /// of the chain so that carrying both attributes at once does not read as an orphan.
+    /// <see cref="IsInsideDeterministicScope(ISymbol, ScopeAttributes, out bool)"/>: it looks for a
+    /// <c>[Deterministic]</c> anywhere in the chain rather than for the nearest marking. The two
+    /// rules that use it pass different symbols in and read the answer in opposite directions, but
+    /// it is one question -- <em>is this covered by the contract at all?</em>
+    /// </para>
+    /// <para>
+    /// <b>SSALD007</b> asks it about a symbol carrying <c>[AllowNonDeterminism]</c>, and reports
+    /// when the answer is no. An <c>[AllowNonDeterminism]</c> nested inside another one is
+    /// redundant, not orphaned, and redundant markings are not reported (design §5.1) -- only ones
+    /// with no <c>[Deterministic]</c> above them at all, which is what makes them do nothing
+    /// whatsoever. The symbol itself is part of the chain so that carrying both attributes at once
+    /// does not read as an orphan.
+    /// </para>
+    /// <para>
+    /// <b>SSALD008</b> asks it about a member a strict scope calls, and reports when the answer is
+    /// no. Sharing the predicate is what keeps the two rules from contradicting each other: a bare
+    /// <c>[AllowNonDeterminism]</c> on a standalone helper is an orphan to one rule and no coverage
+    /// to the other, so both point the same way instead of one silencing what the other reports.
+    /// </para>
     /// </remarks>
-    /// <param name="symbol">The symbol carrying <c>[AllowNonDeterminism]</c>.</param>
+    /// <param name="symbol">The symbol whose coverage is in question.</param>
     /// <param name="attributes">The resolved attribute symbols for this compilation.</param>
     /// <returns><see langword="true"/> when some enclosing symbol declares <c>[Deterministic]</c>.</returns>
     public static bool HasDeterministicMarkingInChain(ISymbol symbol, ScopeAttributes attributes)
@@ -137,11 +172,14 @@ internal static class DeterministicScope
     /// A symbol carrying both attributes is classified as <see cref="ScopeMarking.Exempt"/>. The
     /// combination is contradictory and nothing sensible can be read from it, so the tie goes to the
     /// quieter outcome: the pair almost always arises from an exemption being added later to silence
-    /// an existing marking, and choosing silence cannot produce a false positive.
+    /// an existing marking, and choosing silence cannot produce a false positive. For the same
+    /// reason <paramref name="strict"/> comes back <see langword="false"/> there, however the
+    /// <c>[Deterministic]</c> half was written.
     /// </remarks>
-    private static ScopeMarking Classify(ISymbol symbol, ScopeAttributes attributes)
+    private static ScopeMarking Classify(ISymbol symbol, ScopeAttributes attributes, out bool strict)
     {
         var marking = ScopeMarking.None;
+        strict = false;
 
         foreach (var attribute in symbol.GetAttributes())
         {
@@ -149,16 +187,40 @@ internal static class DeterministicScope
 
             if (SymbolEqualityComparer.Default.Equals(attributeClass, attributes.AllowNonDeterminism))
             {
+                strict = false;
                 return ScopeMarking.Exempt;
             }
 
             if (SymbolEqualityComparer.Default.Equals(attributeClass, attributes.Deterministic))
             {
                 marking = ScopeMarking.Deterministic;
+                strict = IsStrict(attribute);
             }
         }
 
         return marking;
+    }
+
+    /// <summary>
+    /// Whether a <c>[Deterministic]</c> application set <c>Strict = true</c>.
+    /// </summary>
+    /// <remarks>
+    /// An absent argument, an explicit <c>false</c>, and a value the compiler could not bind (an
+    /// erroneous application, whose <see cref="TypedConstant.Value"/> is not a
+    /// <see cref="bool"/>) all mean the same thing here: the default, which is the existing
+    /// behaviour of every scope written before strict mode existed.
+    /// </remarks>
+    private static bool IsStrict(AttributeData attribute)
+    {
+        foreach (var argument in attribute.NamedArguments)
+        {
+            if (string.Equals(argument.Key, StrictPropertyName, StringComparison.Ordinal))
+            {
+                return argument.Value.Value is bool strict && strict;
+            }
+        }
+
+        return false;
     }
 
     private static bool HasAttribute(ISymbol symbol, INamedTypeSymbol attributeType)

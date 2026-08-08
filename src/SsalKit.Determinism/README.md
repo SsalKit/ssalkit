@@ -31,7 +31,7 @@ The most important consequence is the first row of this table. A `[Deterministic
 
 | Not detected | Why |
 |---|---|
-| **Indirect calls** — a banned API reached through an unmarked helper | The analyzer never leaves the scope you marked. **Mark the helper types `[Deterministic]` too** — that is the intended usage pattern, not a workaround (see the Quick Start). |
+| **Indirect calls** — a banned API reached through an unmarked helper | The analyzer never leaves the scope you marked. **Mark the helper types `[Deterministic]` too** — that is the intended usage pattern, not a workaround (see the Quick Start). `Strict = true` checks that you did (see *Strict mode* below); it still never looks inside them. |
 | `Dictionary`/`HashSet` enumeration order | Deliberately out of scope: order-dependent consumption of an unordered collection cannot be told apart from order-independent consumption, so any rule here would be mostly false positives. |
 | Floating-point differences across platforms (FMA contraction, x87 excess precision, vectorization) | Outside static analysis entirely — the same IL produces different results on different hardware. |
 | Culture-dependent formatting and parsing (`ToString()`, `Parse`, `ToUpper`) | Already covered, and covered better, by the BCL's own `CA1304`/`CA1305`/`CA1310`. Enable those rather than expecting this package to duplicate them. |
@@ -111,6 +111,7 @@ The catalog is fixed and not user-extensible: extending a ban list per project i
 | `SSALD005` | Environment identity | `Environment.MachineName`/`.UserName`/`.UserDomainName`/`.ProcessId`/`.CurrentManagedThreadId`/`.ProcessorCount`/`.WorkingSet`/`.CommandLine`/`.CurrentDirectory`/`.GetEnvironmentVariable(…)`/`.GetEnvironmentVariables(…)`; `Process.GetCurrentProcess()`; `Thread.CurrentThread`; `Path.GetTempPath()`/`.GetTempFileName()` | Pass the value in as explicit configuration, so the result depends on its inputs rather than on the host it landed on. |
 | `SSALD006` | Scheduling and parallelism | `Task.Run`/`.Delay`/`.WhenAny`/`.Yield`; `TaskFactory.StartNew` (including `TaskFactory<T>`); `Thread.Sleep`; `ThreadPool.QueueUserWorkItem`; `Parallel.For`/`.ForEach`/`.Invoke`/`.ForAsync`/`.ForEachAsync`; `ParallelEnumerable.AsParallel`; `new System.Threading.Timer(…)`; `new System.Timers.Timer(…)` | Nothing drop-in — this is the one category with no substitute API, because the non-determinism is the concurrency itself. Keep genuinely order-independent parallel work outside the scope and feed its result in; otherwise it has to become sequential. |
 | `SSALD007` | Orphan exemption | `[AllowNonDeterminism]` where neither the symbol nor anything containing it has `[Deterministic]` | Remove the attribute, or mark the enclosing type or member `[Deterministic]`. A marking that silently does nothing is worse than no marking. |
+| `SSALD008` | Missing coverage (**opt-in**, see below) | A member of this assembly, called directly from a `[Deterministic(Strict = true)]` scope, where no `[Deterministic]` sits on it or on any type containing it | Mark it (or its containing type) `[Deterministic]`, carving out members that need the clock with a nested `[AllowNonDeterminism]` — or exempt the *calling* member. A bare `[AllowNonDeterminism]` on the helper is an orphan and silences nothing. |
 
 A few notes on why `new Random(seed)` is on that list, and on what deliberately is **not**:
 
@@ -122,6 +123,67 @@ A few notes on why `new Random(seed)` is on that list, and on what deliberately 
 - **File and network I/O, `Console`, and `await` in general are not in the v1 catalog** — a deliberate scope limit, not an endorsement.
 
 The catalog resolves by metadata name once per compilation, and a type the compilation does not reference is silently skipped. That is what lets the `SsalKit.Randomness` rows above coexist with this package's zero-dependency contract: they join the ban list only where that package is already referenced. Their own non-deterministic entry points get no exemption — dogfooding cuts both ways.
+
+## Strict mode: checking that the helpers are marked
+
+Because the analysis only sees direct calls, keeping a deterministic core honest comes down to remembering to mark the helper types it leans on. That is a discipline, and disciplines decay — the helper that was pure when it was written acquires a `DateTime.UtcNow` six months later, and nothing says a word.
+
+`Strict = true` hands that discipline to the compiler:
+
+```csharp
+[Deterministic(Strict = true)]
+public sealed class ReplayRunner
+{
+    // SSALD008: no [Deterministic] covers DamageTable, so nothing has ever looked inside it.
+    public int Apply(int roll, int armor) => DamageTable.Lookup(roll, armor);
+}
+
+internal static class DamageTable
+{
+    public static int Lookup(int roll, int armor) => Math.Max(0, roll - armor);
+}
+```
+
+> warning SSALD008: 'DamageTable.Lookup' is called from a [Deterministic(Strict = true)] scope but no [Deterministic] marking covers it, so its body is never analyzed. Mark 'DamageTable' [Deterministic] to bring it into the contract, exempting individual members inside it with [AllowNonDeterminism] where they need it -- or mark the calling member [AllowNonDeterminism] if this call is itself the deliberate non-determinism
+
+**The question it asks is "does a `[Deterministic]` cover this?", not "is this deterministic?"** — it never reads the callee's body. Marking `DamageTable` fixes the example above, and that is the answer nine times out of ten. When a helper genuinely needs the clock, there are two coherent places to say so:
+
+```csharp
+// 1. Anchored inside the contract: the type is covered, the one member that needs the
+//    clock is carved back out. This is the shape to reach for.
+[Deterministic]
+internal static class Progress
+{
+    public static int Percent(int done, int total) => total == 0 ? 0 : done * 100 / total;
+
+    [AllowNonDeterminism(Justification = "console output only; never feeds replayed state")]
+    public static void Log(int tick) => Console.WriteLine($"{DateTime.UtcNow:O} tick {tick}");
+}
+
+// 2. Caller-side: the call itself is the deliberate non-determinism, exempted exactly the
+//    way a direct DateTime.UtcNow would be.
+[Deterministic(Strict = true)]
+public sealed class ReplayRunner
+{
+    [AllowNonDeterminism(Justification = "diagnostics path; outside the replayed sequence")]
+    private static void Report(int tick) => Telemetry.Emit(tick);
+}
+```
+
+**What does not work is `[AllowNonDeterminism]` on a standalone helper.** With no `[Deterministic]` above it the attribute suppresses nothing — that is exactly what `SSALD007` reports about it — so it cannot be what silences `SSALD008` either. Both rules run off the same coverage question, so you get both diagnostics, pointing the same way, instead of one quietly cancelling the other. It is also why an exemption never reaches out of a callee to silence call sites it cannot see: the exemption lives where the decision was made.
+
+**It does not make the analysis any deeper, and it is not the interprocedural propagation this package will never do.** The callee's body is never read; the check is exactly one hop and its only input is where the markings sit. Everything in the *What this cannot catch* section above still holds with strict mode on — silence still is not a proof of determinism. What changes is that the manual discipline behind the first row of that table is now checked instead of trusted.
+
+Two consequences worth knowing before you switch it on:
+
+- **It is opt-in per scope, not per project.** A scope-level switch is the right granularity: a solution usually has one replay path or one simulation core that earns this, while the rest of its deterministic code is better served by the seven catalog rules alone. It is also deliberately *not* on by default — this rule reports an absence rather than a named API, so it is the noisiest of the eight, and one noisy rule is how a whole category ends up disabled in `.editorconfig`.
+- **It pushes markings towards types rather than members.** Marking a single method strict makes its own type's private helpers reportable; marking the type silences them. That is intended: the natural unit of a determinism contract is a type, and a type is where its helpers usually live.
+
+Strict is part of the scope, so it obeys the same nearest-wins rule as everything else — a nested `[Deterministic]` without `Strict` turns it off inside that nested scope, which is how you relax it locally.
+
+Nothing you cannot fix is ever reported. Other assemblies (the BCL, and the other SsalKit packages — they do not reference this one and never will), interface members, compiler-synthesized members, source-generated code, positional records, auto-implemented properties, `abstract` and `extern` declarations, and fields are all left alone, because in each case there is either nowhere to write the attribute or nothing behind it to analyze.
+
+> Source-generated callees are worth calling out, because they are the exclusion you are most likely to meet: a generated extension class — `ComputeStableHash()` among them — is exactly the kind of helper a deterministic core calls, and no attribute can be written into a file the build regenerates. A generator that emits *into* your own `[Deterministic] partial` type is a different thing entirely and was always covered: that code is inside your scope, and it is analyzed there.
 
 ## Exempting code you meant to write
 
@@ -155,7 +217,7 @@ Deleting the `[Deterministic]` marking to silence a category is the one thing no
 
 ## Tuning severity in `.editorconfig`
 
-Every rule ships as a Warning. Because the catalog is split across seven ids by category, tightening or relaxing one category is a single line:
+Every rule ships as a Warning. Because the rules are split across eight ids by category, tightening or relaxing one category is a single line:
 
 ```ini
 # .editorconfig
@@ -170,7 +232,7 @@ dotnet_diagnostic.SSALD004.severity = error
 dotnet_diagnostic.SSALD006.severity = suggestion
 ```
 
-All seven share one category, so they can also be moved together:
+All eight share one category, so they can also be moved together:
 
 ```ini
 dotnet_analyzer_diagnostic.category-SsalKit.Determinism.severity = error
@@ -208,5 +270,3 @@ MIT — see [LICENSE](https://github.com/ssalkit/ssalkit/blob/main/LICENSE).
 ---
 
 **AI disclosure:** This project was built with AI assistance (Claude).
-</content>
-</invoke>
