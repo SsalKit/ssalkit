@@ -14,6 +14,7 @@ SsalKit.Timekeeping computes deterministic, persistable time state without ever 
 | [`RecurrenceSchedule`](#quick-start-recurrenceschedule) + [`TimeWindow`](#timewindow-one-containment-rule) | Calendar wall-clock boundaries — daily / weekly / monthly resets, with a permanently fixed daylight-saving contract | Original |
 | [`Cooldown`](#quick-start-cooldowns) + [`RechargePool`](#cooldowns) | Elapsed-time state — a single cooldown, or a capacity-bounded recharging pool | New |
 | [`TickSchedule`](#quick-start-tickschedule) | Logical-tick state — a deterministic, serializable queue of events due at simulation tick numbers | New |
+| [`TickCooldown`](#quick-start-tickcooldown) | Logical-tick state — a single cooldown measured in simulation ticks rather than in elapsed wall-clock time | New |
 
 ### Where the boundary is
 
@@ -22,6 +23,7 @@ SsalKit.Timekeeping computes deterministic, persistable time state without ever 
 | Calendar wall-clock (daily / weekly / monthly reset, DST) | `RecurrenceSchedule` |
 | Elapsed time since an event (ability cooldown, stamina / charge pool) | `Cooldown` / `RechargePool` |
 | Logical simulation tick (deterministic event dispatch by tick number, not by clock) | `TickSchedule` |
+| Elapsed logical ticks since an action (the same ability cooldown, counted in ticks) | `TickCooldown` |
 | In-process resource throttling (concurrent request limits, token buckets) | Not this package — see [`System.Threading.RateLimiting`](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) |
 
 ## Why SsalKit.Timekeeping?
@@ -490,6 +492,139 @@ Both `Add` and `PopDue` are sized for game- and simulation-scale entry counts (h
 - **`==` compares storage order, not logical content.** Two schedules holding the same entries in a different `Entries` order compare unequal even though `PopDue` would treat them identically — and `ImmutableArray<T>`'s own equality compares backing-array *identity*, so even two schedules built by separately `Add`-ing the same entries in the same order can compare unequal. Compare `PopDue` results (or `Entries` converted to a plain list) instead of comparing `TickSchedule` values directly.
 - **There is no `TimeProvider` overload, and there will not be one.** A logical tick is not a wall-clock reading; sugar that reads `TimeProvider.GetUtcNow()` would not produce a tick number at all. Advance `currentTick` from whatever your simulation already uses to count ticks.
 
+## TickCooldown
+
+`TickCooldown` is `Cooldown` moved onto the tick axis: the same immutable `record struct`, the same pure-function-of-`(state, tick)` shape, the same inclusive boundary — measured in the `long` your simulation already counts instead of in elapsed wall-clock time. Which of the four components you want falls out of one line:
+
+> **A wall-clock cooldown is `Cooldown`; a tick-scheduled event is `TickSchedule`; a tick cooldown is `TickCooldown`.**
+
+A fixed-tick-rate loop that wanted "this dash is usable again 300 ticks from now" previously had to hand-roll it, because the elapsed-time family only spoke `DateTimeOffset`, and converting ticks to instants just to ask a cooldown a question puts a wall clock back into a simulation that had deliberately removed it.
+
+### Quick Start: TickCooldown
+
+```csharp
+using SsalKit.Timekeeping;
+
+// A dash on a 300-tick cooldown, immediately usable at the tick it was created at.
+var dash = TickCooldown.Create(durationTicks: 300, asOfTick: currentTick);
+
+if (dash.TryUse(currentTick, out var updated))
+{
+    player.DashCooldown = updated;   // save this back to storage
+}
+
+long ticksLeft = dash.Remaining(currentTick);
+bool ready = dash.IsReady(currentTick);
+```
+
+The state is just `(DurationTicks, ReadyAtTick)`, so a save file, a database column, or a snapshot round-trips it as written, and the next `IsReady` re-derives everything from the stored struct and whichever tick you pass it. Catching up across a skipped stretch of ticks is not a special case either — it is the same query at a larger tick, with nothing to replay.
+
+### API Overview: TickCooldown
+
+| Member | Purpose |
+|---|---|
+| `static TickCooldown Create(long durationTicks, long asOfTick)` | An immediately-usable cooldown; `durationTicks` is how long a future `TryUse` puts it into. `durationTicks < 0` throws `ArgumentOutOfRangeException`; `0` is legal and produces a cooldown that is ready at every tick at or after `asOfTick`. Performs no arithmetic, so no tick value can overflow here. |
+| `IsReady(long asOfTick)` | `asOfTick >= ReadyAtTick`. |
+| `Remaining(long asOfTick)` | `ReadyAtTick - asOfTick`, clamped into `[0, long.MaxValue]`. Never negative, and never throws — see [Overflow](#overflow-tickcooldown) below. |
+| `TryUse(long asOfTick, out TickCooldown updated)` | On success, starts a fresh `DurationTicks`-long wait (`ReadyAtTick = asOfTick + DurationTicks`). On failure, `updated` is this instance unchanged — assigning it back is always safe. |
+| `Reset(long asOfTick)` | Immediately usable again at `asOfTick`, discarding any remaining wait. |
+| `DurationTicks` / `ReadyAtTick` | The configured wait length in ticks, and the tick the cooldown next becomes usable at. |
+
+**Ticks are opaque to this type.** Any `long` is a legal `ReadyAtTick` or `asOfTick`, negative values included — the type only ever compares ticks and adds `DurationTicks` to them, and never assigns them meaning. It converts between ticks and wall-clock time in neither direction, and, exactly like `TickSchedule`, it has **no `TimeProvider` overload and will not get one**: a logical tick is not a clock reading.
+
+Ticks running backwards is total, not exceptional: an `asOfTick` earlier than one used before is simply answered honestly, and `TryUse` returns `false` rather than throwing.
+
+### Boundary semantics: TickCooldown
+
+The package's single boundary rule, on the tick axis — the same permanent, versioned-contract status it has for `Cooldown` and `RecurrenceSchedule`, and for the same reason: this state gets persisted, so the comparison can never change meaning between releases without breaking a stored `ReadyAtTick`.
+
+> **A cooldown is usable at the tick it completes, not only strictly after it.**
+
+```csharp
+cooldown.IsReady(cooldown.ReadyAtTick);     // true
+cooldown.Remaining(cooldown.ReadyAtTick);   // 0
+```
+
+### `default(TickCooldown)`, and the negative tick domain
+
+`default(TickCooldown)` is a **legal** value, exactly equal to `TickCooldown.Create(0, 0)` — a value you could just as well construct on purpose — so no member guards against it. Note what that does *not* say:
+
+```csharp
+default(TickCooldown) == TickCooldown.Create(0, 0);   // true
+default(TickCooldown).IsReady(0);                     // true  -- ready from tick 0, inclusive
+default(TickCooldown).IsReady(-1);                    // false -- and NOT before it
+```
+
+Unlike `default(Cooldown)`, whose `ReadyAt` is `DateTimeOffset.MinValue` and is therefore ready across the whole timeline, this type's default is ready from tick `0` onward only, because `0` is `long`'s default without being its minimum. That is a real difference between the two domains rather than an oversight, so it is documented and pinned by tests instead of papered over — and it is invisible to the overwhelmingly common case of a simulation whose ticks start at `0`.
+
+If you want a cooldown that is ready across the *entire* tick domain, negative ticks included, construct it at the bottom of the range — every representable tick is at or after `long.MinValue`, so the comparison alone gives the property, with no special support needed from the type:
+
+```csharp
+var alwaysReady = TickCooldown.Create(durationTicks, long.MinValue);   // ready at every tick
+```
+
+There is deliberately no `AlwaysReady` static for this: one `TryUse` advances `ReadyAtTick` to the use tick, so the name would over-promise its own lifetime.
+
+### Overflow: TickCooldown
+
+`Create` and `Reset` only ever *assign* `ReadyAtTick`, so the two arithmetic sites are `TryUse`'s success path and `Remaining`'s not-ready path — and they dispose of an out-of-range result differently. Both dispositions are contracts:
+
+| Where | Arithmetic | Behavior |
+|---|---|---|
+| `TryUse`, on success | `asOfTick + DurationTicks` | **Throws `OverflowException`** (checked), rather than wrapping a cooldown into the far past. Nothing is assigned to `updated`, so the caller's value is left untouched. |
+| `Remaining`, when not ready | `ReadyAtTick - asOfTick` | **Never throws** — the true difference is clamped into `[0, long.MaxValue]`. |
+
+`TryUse` matches `TickSchedule.Add`, which guards its own `long` counter the same way: this is the tick domain, and `OverflowException` is what `long` arithmetic raises there, just as `Cooldown` surfaces whatever `DateTimeOffset` arithmetic raises in its own.
+
+`Remaining` clamps instead because a `ReadyAtTick` of `long.MaxValue` is a perfectly legal "effectively never ready" sentinel — any `long` is a legal tick — and measuring it from a negative tick asks for a difference wider than `long` can hold. Throwing there would cost totality for a legal `(state, tick)` pair; the clamp keeps the answer honest in direction and magnitude, unlike a wrapped negative that would read as "ready":
+
+```csharp
+var neverReady = new TickCooldown { DurationTicks = 0, ReadyAtTick = long.MaxValue };
+
+neverReady.Remaining(1);    // long.MaxValue - 1  -- exact
+neverReady.Remaining(0);    // long.MaxValue      -- exact; the boundary itself
+neverReady.Remaining(-1);   // long.MaxValue      -- clamped, not wrapped
+```
+
+### Serialization and the one invalid state
+
+`DurationTicks` and `ReadyAtTick` are the entire serialization surface — two public `init` properties, so System.Text.Json (or anything else) round-trips a `TickCooldown` with no custom converter.
+
+A **negative `DurationTicks`** is the type's only invalid state. `Create` rejects it, but an object initializer or a corrupted payload can still produce one, and left unguarded it would let a successful `TryUse` push `ReadyAtTick` *backwards*, silently defeating the cooldown. Every member therefore throws `InvalidOperationException` when `DurationTicks` is negative, the same way `Cooldown` guards its own negative `Duration`.
+
+| Condition | Behavior |
+|---|---|
+| `Create` with `durationTicks < 0` | `ArgumentOutOfRangeException` |
+| `Create` with `durationTicks == 0` | Legal — a degenerate cooldown that is ready at every tick at or after `ReadyAtTick` |
+| A negative `DurationTicks` via `init` or deserialization | Every member throws `InvalidOperationException` |
+| `default(TickCooldown)` (including a corrupted or truncated deserialized payload) | Legal — behaves exactly like `TickCooldown.Create(0, 0)` |
+| A tick going backwards | No exception — answered honestly; `TryUse` returns `false` |
+| `TryUse` whose `asOfTick + DurationTicks` leaves `long`'s range | `OverflowException` |
+| `Remaining` whose true difference exceeds `long.MaxValue` | No exception — clamped to `long.MaxValue` |
+
+### Combining with `TickSchedule`
+
+The two tick-axis types are orthogonal — neither knows about the other — so one loop counter driving both is ordinary calling code:
+
+```csharp
+using SsalKit.Timekeeping;
+
+for (long tick = world.LastTick + 1; tick <= currentTick; tick++)
+{
+    foreach (var entry in world.Schedule.PopDue(tick, out world.Schedule))
+    {
+        Dispatch(entry.Event);   // the schedule answers *what is due*
+    }
+
+    if (ShouldDash(tick) && player.DashCooldown.TryUse(tick, out var updated))
+    {
+        player.DashCooldown = updated;   // the cooldown answers *may this be used*
+    }
+}
+```
+
+Both use the same inclusive boundary, so an event popped at tick `N` and a `Reset(N)` it triggers make the ability usable at that very tick. A runnable walkthrough is in [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample) (the `tickcooldown` group).
+
 ## Testing
 
 Because the core API takes the instant as an argument, most tests need no clock at all — just pass the instant you want to test. Where a class under test holds an injected `TimeProvider`, hand it a fake:
@@ -509,7 +644,7 @@ Assert.True(dailyReset.HasCrossed(lastReset, clock));
 Assert.Equal(5, dailyReset.CountBoundaries(lastLogin, clock));
 ```
 
-The extension methods only ever call `GetUtcNow()`, so there is nothing else to fake. `Cooldown` and `RechargePool` test the same way — pass the instant directly, or hand the same fake `TimeProvider` to their extension methods. `TickSchedule` needs no fake at all — `Add`/`PopDue` take a plain `long` tick, not a clock reading.
+The extension methods only ever call `GetUtcNow()`, so there is nothing else to fake. `Cooldown` and `RechargePool` test the same way — pass the instant directly, or hand the same fake `TimeProvider` to their extension methods. `TickSchedule` and `TickCooldown` need no fake at all — they take a plain `long` tick, not a clock reading.
 
 ## Performance
 
@@ -520,7 +655,7 @@ Two things are not O(1) and are not meant to be:
 - `EnumerateBoundaries` is O(number of boundaries), one time-zone resolution each — reach for `CountBoundaries` when the count is all that is wanted.
 - Resolving a boundary that falls on a daylight-saving gap or a base-offset seam (rules 1 and 3) searches for the instant the wall clock reaches the scheduled time, which costs perhaps a hundred times an ordinary resolution. That is one or two days a year per zone, and it never touches the ordinary path.
 
-Every `Cooldown` and `RechargePool` member is likewise O(1) — the [`FullAt` model](#the-fullat-model) above is precisely what makes that true regardless of how long a pool has been offline.
+Every `Cooldown` and `RechargePool` member is likewise O(1) — the [`FullAt` model](#the-fullat-model) above is precisely what makes that true regardless of how long a pool has been offline. So is every `TickCooldown` member, for the same structural reason: the state is two `long`s, and a skipped stretch of ten thousand ticks is answered by the same comparison as a single one.
 
 `TickSchedule.Add` and `.PopDue` are not O(1) — see [Complexity: TickSchedule](#complexity-tickschedule) — but the same "not worth benchmarking at this scale" reasoning applies: they cost the same whether the schedule has been idle for one tick or caught up across ten thousand.
 

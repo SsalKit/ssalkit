@@ -14,6 +14,7 @@ SsalKit.Timekeeping은 시계를 직접 읽지 않고 결정적이고 저장 가
 | [`RecurrenceSchedule`](#빠른-시작-recurrenceschedule) + [`TimeWindow`](#timewindow-포함-규칙은-하나) | 달력 벽시계 경계 — 일간/주간/월간 리셋, 영구히 고정된 DST 계약 | 기존 |
 | [`Cooldown`](#빠른-시작-cooldowns) + [`RechargePool`](#cooldowns) | 경과 시간 상태 — 단일 쿨다운, 또는 용량 제한이 있는 충전 풀 | 신규 |
 | [`TickSchedule`](#빠른-시작-tickschedule) | 논리적 틱 상태 — 시뮬레이션 틱 번호에 예정된 이벤트를 담는 결정적이고 직렬화 가능한 큐 | 신규 |
+| [`TickCooldown`](#빠른-시작-tickcooldown) | 논리적 틱 상태 — 벽시계 경과 시간이 아니라 시뮬레이션 틱으로 재는 단일 쿨다운 | 신규 |
 
 ### 경계의 소재
 
@@ -22,6 +23,7 @@ SsalKit.Timekeeping은 시계를 직접 읽지 않고 결정적이고 저장 가
 | 달력 벽시계 (일간/주간/월간 리셋, DST) | `RecurrenceSchedule` |
 | 이벤트로부터 경과한 시간 (능력 쿨다운, 스태미나/충전 풀) | `Cooldown` / `RechargePool` |
 | 논리적 시뮬레이션 틱 (시계가 아니라 틱 번호를 기준으로 한 결정적 이벤트 디스패치) | `TickSchedule` |
+| 행동 이후 경과한 논리적 틱 (같은 능력 쿨다운을 틱으로 셀 때) | `TickCooldown` |
 | 프로세스 내 자원 스로틀링 (동시 요청 제한, 토큰 버킷) | 이 패키지 담당 아님 — [`System.Threading.RateLimiting`](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) 참고 |
 
 ## 왜 SsalKit.Timekeeping인가
@@ -490,6 +492,139 @@ foreach (var entry in schedule.PopDue(currentTick, out schedule))
 - **`==`는 저장 순서를 비교하지, 논리적 내용을 비교하지 않습니다.** 같은 엔트리를 다른 `Entries` 순서로 담은 두 스케줄은 `PopDue`가 동일하게 취급하더라도 `==`로는 다르게 나옵니다 — 게다가 `ImmutableArray<T>`의 자체 동등성은 배킹 배열의 *식별자*를 비교하므로, 같은 엔트리를 같은 순서로 각각 `Add`해 만든 두 스케줄조차 다르게 나올 수 있습니다. `TickSchedule` 값을 직접 비교하는 대신 `PopDue` 결과(또는 평범한 리스트로 변환한 `Entries`)를 비교하십시오.
 - **`TimeProvider` 오버로드는 없으며, 앞으로도 없을 것입니다.** 논리적 틱은 벽시계 값이 아닙니다. `TimeProvider.GetUtcNow()`를 읽는 당의정을 만들어봐야 애초에 틱 번호가 나오지 않습니다. `currentTick`은 여러분의 시뮬레이션이 이미 틱을 세는 방식 그대로 진행시키십시오.
 
+## TickCooldown
+
+`TickCooldown`은 `Cooldown`을 틱 축으로 옮긴 것입니다. 같은 불변 `record struct`, 같은 `(상태, 틱)`의 순수 함수 형태, 같은 경계 포함 규칙을 — 벽시계 경과 시간이 아니라 시뮬레이션이 이미 세고 있는 `long`으로 잽니다. 네 구성 요소 중 무엇이 필요한지는 한 줄로 갈립니다.
+
+> **벽시계 쿨다운은 `Cooldown`, 틱에 예약된 이벤트는 `TickSchedule`, 틱 쿨다운은 `TickCooldown`.**
+
+"이 대시는 지금부터 300틱 뒤에 다시 쓸 수 있다"를 고정 틱레이트 루프에서 표현하려면 지금까지는 손으로 짜야 했습니다. 경과 시간 가족이 `DateTimeOffset`만 말했기 때문인데, 쿨다운에게 질문 하나 하자고 틱을 시각으로 변환하는 것은 일부러 벽시계를 걷어낸 시뮬레이션에 벽시계를 도로 집어넣는 일입니다.
+
+### 빠른 시작: TickCooldown
+
+```csharp
+using SsalKit.Timekeeping;
+
+// 300틱짜리 대시 쿨다운. 생성된 틱에 곧바로 사용 가능하다.
+var dash = TickCooldown.Create(durationTicks: 300, asOfTick: currentTick);
+
+if (dash.TryUse(currentTick, out var updated))
+{
+    player.DashCooldown = updated;   // 이 값을 저장소에 다시 저장
+}
+
+long ticksLeft = dash.Remaining(currentTick);
+bool ready = dash.IsReady(currentTick);
+```
+
+상태는 `(DurationTicks, ReadyAtTick)`뿐이므로 세이브 파일이든 DB 컬럼이든 스냅샷이든 쓴 그대로 왕복하고, 다음 `IsReady` 호출은 저장된 구조체와 그때 넘긴 틱만으로 전부를 다시 유도합니다. 건너뛴 틱 구간을 따라잡는 것도 특수한 경우가 아닙니다 — 더 큰 틱으로 같은 질의를 한 번 하면 되고, 재생할 것이 없습니다.
+
+### API 개요: TickCooldown
+
+| 멤버 | 용도 |
+|---|---|
+| `static TickCooldown Create(long durationTicks, long asOfTick)` | 즉시 사용 가능한 쿨다운. `durationTicks`는 이후 `TryUse`가 걸 대기 길이. `durationTicks < 0`이면 `ArgumentOutOfRangeException`, `0`은 합법이며 `asOfTick` 이후의 모든 틱에서 준비된 쿨다운이 됨. 산술을 전혀 하지 않으므로 여기서 틱이 오버플로할 수 없음. |
+| `IsReady(long asOfTick)` | `asOfTick >= ReadyAtTick`. |
+| `Remaining(long asOfTick)` | `ReadyAtTick - asOfTick`을 `[0, long.MaxValue]`로 클램프한 값. 음수가 되지 않고, 절대 던지지 않음 — 아래 [오버플로](#오버플로-tickcooldown) 참고. |
+| `TryUse(long asOfTick, out TickCooldown updated)` | 성공하면 `DurationTicks`만큼의 새 대기를 시작(`ReadyAtTick = asOfTick + DurationTicks`). 실패하면 `updated`는 이 인스턴스 그대로 — 되받아 대입해도 언제나 안전. |
+| `Reset(long asOfTick)` | 남은 대기를 버리고 `asOfTick`에 다시 즉시 사용 가능하게 함. |
+| `DurationTicks` / `ReadyAtTick` | 설정된 대기 길이(틱), 그리고 쿨다운이 다시 사용 가능해지는 틱. |
+
+**이 타입에게 틱은 불투명합니다.** 임의의 `long`이 합법적인 `ReadyAtTick`·`asOfTick`이며 음수도 포함됩니다 — 이 타입은 틱을 비교하고 거기에 `DurationTicks`를 더할 뿐, 의미를 부여하지 않습니다. 틱과 벽시계 사이를 어느 방향으로도 변환하지 않으며, `TickSchedule`과 똑같이 **`TimeProvider` 오버로드가 없고 앞으로도 없습니다** — 논리적 틱은 시계 값이 아니기 때문입니다.
+
+틱이 거꾸로 가는 것도 예외가 아니라 총함수입니다. 앞서 쓴 것보다 이른 `asOfTick`에는 정직하게 답하고, `TryUse`는 던지는 대신 `false`를 돌려줍니다.
+
+### 경계 시맨틱: TickCooldown
+
+패키지의 단일 경계 규칙을 틱 축에 적용한 것으로, `Cooldown`·`RecurrenceSchedule`에서와 같은 영구 버전 계약의 지위를 가집니다. 이유도 같습니다. 이 상태는 저장되므로, 저장된 `ReadyAtTick`을 깨뜨리지 않고서는 릴리스 사이에 비교의 의미가 달라질 수 없습니다.
+
+> **쿨다운은 완료되는 틱에 사용 가능하며, 그 이후부터만 사용 가능한 것이 아니다.**
+
+```csharp
+cooldown.IsReady(cooldown.ReadyAtTick);     // true
+cooldown.Remaining(cooldown.ReadyAtTick);   // 0
+```
+
+### `default(TickCooldown)`과 음수 틱 도메인
+
+`default(TickCooldown)`은 **합법적인** 값이며 `TickCooldown.Create(0, 0)`과 정확히 같습니다 — 호출자가 의도적으로 구성할 수도 있는 값이므로, 어떤 멤버도 이를 가드하지 않습니다. 다만 이 말이 뜻하지 *않는* 것에 주의하십시오.
+
+```csharp
+default(TickCooldown) == TickCooldown.Create(0, 0);   // true
+default(TickCooldown).IsReady(0);                     // true  -- 틱 0부터(포함) 준비됨
+default(TickCooldown).IsReady(-1);                    // false -- 그 이전에는 준비되지 않음
+```
+
+`ReadyAt`이 `DateTimeOffset.MinValue`라 전 시간축에서 준비 상태인 `default(Cooldown)`과 달리, 이 타입의 default는 틱 `0`부터만 준비됩니다. `0`은 `long`의 default이지만 최솟값은 아니기 때문입니다. 이는 실수가 아니라 두 도메인의 실제 차이이므로, 감추는 대신 문서화하고 테스트로 고정했습니다 — 그리고 틱이 `0`에서 시작하는 압도적 다수의 시뮬레이션에서는 관측되지 않는 차이입니다.
+
+음수 틱까지 포함해 *전* 틱 도메인에서 준비된 쿨다운이 필요하면 범위의 바닥에서 구성하십시오. 표현 가능한 모든 틱이 `long.MinValue` 이상이므로 비교만으로 그 성질이 나오며, 타입 쪽의 특별한 지원이 필요하지 않습니다.
+
+```csharp
+var alwaysReady = TickCooldown.Create(durationTicks, long.MinValue);   // 모든 틱에서 준비됨
+```
+
+이를 위한 `AlwaysReady` 정적 프로퍼티는 의도적으로 두지 않았습니다. `TryUse` 한 번이면 `ReadyAtTick`이 사용 틱으로 전진하므로, 그 이름은 자기 수명을 과약속하게 됩니다.
+
+### 오버플로: TickCooldown
+
+`Create`와 `Reset`은 `ReadyAtTick`을 *대입*할 뿐이므로, 산술은 `TryUse`의 성공 경로와 `Remaining`의 미준비 경로 두 곳뿐입니다 — 그리고 범위를 벗어난 결과를 처분하는 방식이 서로 다릅니다. 두 처분 모두 계약입니다.
+
+| 지점 | 산술 | 동작 |
+|---|---|---|
+| `TryUse`, 성공 시 | `asOfTick + DurationTicks` | **`OverflowException`을 던짐**(checked). 쿨다운을 먼 과거로 감아버리지 않음. `updated`에는 아무것도 대입되지 않으므로 호출자의 값은 그대로 남음. |
+| `Remaining`, 미준비 시 | `ReadyAtTick - asOfTick` | **절대 던지지 않음** — 참 차이를 `[0, long.MaxValue]`로 클램프. |
+
+`TryUse`는 자신의 `long` 카운터를 같은 방식으로 지키는 `TickSchedule.Add`와 짝을 이룹니다. 여기는 틱 도메인이고, 그 도메인에서 `long` 산술이 내는 예외가 `OverflowException`입니다 — `Cooldown`이 자기 도메인에서 `DateTimeOffset` 산술이 내는 예외를 그대로 표면화하는 것과 같습니다.
+
+`Remaining`이 대신 클램프하는 이유는, `ReadyAtTick`이 `long.MaxValue`인 상태가 "사실상 영원히 미준비"를 뜻하는 완전히 합법적인 sentinel이고(임의의 `long`이 합법적인 틱이므로), 그것을 음수 틱에서 재면 `long`이 담을 수 없는 폭의 차이를 묻게 되기 때문입니다. 여기서 던지면 합법적인 `(상태, 틱)` 쌍에 대해 총함수성을 잃습니다. 클램프는 "준비됨"으로 오독될 감긴 음수와 달리 방향과 크기가 정직합니다.
+
+```csharp
+var neverReady = new TickCooldown { DurationTicks = 0, ReadyAtTick = long.MaxValue };
+
+neverReady.Remaining(1);    // long.MaxValue - 1  -- 정확값
+neverReady.Remaining(0);    // long.MaxValue      -- 정확값이자 경계 그 자체
+neverReady.Remaining(-1);   // long.MaxValue      -- 감긴 것이 아니라 클램프된 값
+```
+
+### 직렬화와 유일한 불법 상태
+
+`DurationTicks`와 `ReadyAtTick`이 직렬화 표면 전체입니다 — public `init` 속성 둘뿐이므로 System.Text.Json(또는 그 밖의 무엇이든)이 커스텀 컨버터 없이 `TickCooldown`을 왕복시킵니다.
+
+**음수 `DurationTicks`** 가 이 타입의 유일한 불법 상태입니다. `Create`는 이를 거부하지만 객체 이니셜라이저나 손상된 페이로드는 여전히 만들어낼 수 있고, 가드하지 않으면 성공한 `TryUse`가 `ReadyAtTick`을 *뒤로* 당겨 쿨다운을 조용히 무력화합니다. 그래서 `DurationTicks`가 음수이면 모든 멤버가 `InvalidOperationException`을 던집니다 — `Cooldown`이 자신의 음수 `Duration`을 가드하는 방식 그대로입니다.
+
+| 조건 | 동작 |
+|---|---|
+| `durationTicks < 0`으로 `Create` | `ArgumentOutOfRangeException` |
+| `durationTicks == 0`으로 `Create` | 합법 — `ReadyAtTick` 이후의 모든 틱에서 준비된 퇴화형 쿨다운 |
+| `init`이나 역직렬화로 들어온 음수 `DurationTicks` | 모든 멤버가 `InvalidOperationException`을 던짐 |
+| `default(TickCooldown)` (손상되거나 잘린 역직렬화 페이로드 포함) | 합법 — `TickCooldown.Create(0, 0)`과 정확히 같게 동작 |
+| 틱이 거꾸로 가는 경우 | 예외 없음 — 정직하게 답하고 `TryUse`는 `false`를 돌려줌 |
+| `asOfTick + DurationTicks`가 `long` 범위를 벗어나는 `TryUse` | `OverflowException` |
+| 참 차이가 `long.MaxValue`를 넘는 `Remaining` | 예외 없음 — `long.MaxValue`로 클램프 |
+
+### `TickSchedule`과 조합하기
+
+두 틱 축 타입은 서로 직교합니다 — 어느 쪽도 상대를 알지 못하므로, 루프 카운터 하나로 둘을 함께 굴리는 것은 평범한 호출부 코드입니다.
+
+```csharp
+using SsalKit.Timekeeping;
+
+for (long tick = world.LastTick + 1; tick <= currentTick; tick++)
+{
+    foreach (var entry in world.Schedule.PopDue(tick, out world.Schedule))
+    {
+        Dispatch(entry.Event);   // 스케줄은 *무엇이 도달했는지* 에 답한다
+    }
+
+    if (ShouldDash(tick) && player.DashCooldown.TryUse(tick, out var updated))
+    {
+        player.DashCooldown = updated;   // 쿨다운은 *지금 써도 되는지* 에 답한다
+    }
+}
+```
+
+둘 다 같은 경계 포함 규칙을 쓰므로, 틱 `N`에 팝된 이벤트가 촉발한 `Reset(N)`은 바로 그 틱에 능력을 사용 가능하게 만듭니다. 실행해 볼 수 있는 예제는 [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample)의 `tickcooldown` 그룹에 있습니다.
+
 ## 테스트
 
 코어 API가 시각을 인자로 받기 때문에, 대부분의 테스트에는 시계가 아예 필요 없습니다. 검증하고 싶은 시각을 그냥 넘기면 됩니다. 테스트 대상 클래스가 주입된 `TimeProvider`를 들고 있는 경우에는 가짜 시계를 넘기세요.
@@ -509,7 +644,7 @@ Assert.True(dailyReset.HasCrossed(lastReset, clock));
 Assert.Equal(5, dailyReset.CountBoundaries(lastLogin, clock));
 ```
 
-확장 메서드는 `GetUtcNow()`만 호출하므로, 그 밖에 가짜로 만들 것이 없습니다. `Cooldown`과 `RechargePool`도 같은 방식으로 테스트합니다 — 시각을 직접 넘기거나, 같은 가짜 `TimeProvider`를 확장 메서드에 넘기세요. `TickSchedule`은 가짜가 아예 필요 없습니다 — `Add`/`PopDue`는 시계 값이 아니라 평범한 `long` 틱을 받습니다.
+확장 메서드는 `GetUtcNow()`만 호출하므로, 그 밖에 가짜로 만들 것이 없습니다. `Cooldown`과 `RechargePool`도 같은 방식으로 테스트합니다 — 시각을 직접 넘기거나, 같은 가짜 `TimeProvider`를 확장 메서드에 넘기세요. `TickSchedule`과 `TickCooldown`은 가짜가 아예 필요 없습니다 — 시계 값이 아니라 평범한 `long` 틱을 받기 때문입니다.
 
 ## 성능
 
@@ -520,7 +655,7 @@ O(1)이 아니고, 그럴 의도도 없는 것이 둘 있습니다.
 - `EnumerateBoundaries`는 경계 개수에 비례하고, 경계마다 타임존 해석이 한 번씩 듭니다. 개수만 알면 되는 상황이라면 `CountBoundaries`를 쓰십시오.
 - DST 갭이나 기준 오프셋 이음새에 놓인 경계(규칙 1과 규칙 3)를 해석하는 일은 벽시계가 스케줄 시각에 도달하는 순간을 탐색하므로, 평범한 해석의 백 배쯤 듭니다. 존마다 1년에 하루이틀 있는 일이고, 평범한 경로에는 전혀 닿지 않습니다.
 
-`Cooldown`과 `RechargePool`의 모든 멤버도 마찬가지로 O(1)입니다 — 위의 [`FullAt` 모델](#fullat-모델)이 풀이 얼마나 오래 오프라인이었든 이를 보장하는 바로 그 원천입니다.
+`Cooldown`과 `RechargePool`의 모든 멤버도 마찬가지로 O(1)입니다 — 위의 [`FullAt` 모델](#fullat-모델)이 풀이 얼마나 오래 오프라인이었든 이를 보장하는 바로 그 원천입니다. `TickCooldown`의 모든 멤버도 같은 구조적 이유로 O(1)입니다. 상태가 `long` 두 개뿐이라, 만 틱을 건너뛴 경우도 한 틱을 진행한 경우와 똑같은 비교 한 번으로 답이 나옵니다.
 
 `TickSchedule.Add`와 `.PopDue`는 O(1)이 아닙니다 — [복잡도: TickSchedule](#복잡도-tickschedule) 참고 — 하지만 "이 규모에서는 벤치마크할 가치가 없다"는 같은 논리가 적용됩니다. 스케줄이 한 틱만 대기했든 만 틱을 밀려서 따라잡든 비용은 같습니다.
 

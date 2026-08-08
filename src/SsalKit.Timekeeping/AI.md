@@ -1,9 +1,9 @@
 # SsalKit.Timekeeping — AI contract sheet
 
-Deterministic, persistable time state computed without ever reading the clock itself: every member is a **pure function of `(state, instant)`** (or, for `TickSchedule`, `(state, tick)`), every state type is an immutable, serializable `record struct`. Three families: `RecurrenceSchedule` + `TimeWindow` (calendar wall-clock boundaries, with a permanently fixed daylight-saving contract), `Cooldown` + `RechargePool` (elapsed-time state — a single cooldown, or a capacity-bounded recharging pool), and `TickSchedule` (a deterministic, serializable queue of events due at logical simulation tick numbers — never a wall-clock reading). The first two families expose `TimeProvider` overloads for code that already holds a clock; `TickSchedule` deliberately does not (see §3).
+Deterministic, persistable time state computed without ever reading the clock itself: every member is a **pure function of `(state, instant)`** (or, for the tick-axis types, `(state, tick)`), every state type is an immutable, serializable `record struct`. Three families: `RecurrenceSchedule` + `TimeWindow` (calendar wall-clock boundaries, with a permanently fixed daylight-saving contract), `Cooldown` + `RechargePool` (elapsed-time state — a single cooldown, or a capacity-bounded recharging pool), and `TickSchedule` + `TickCooldown` (logical simulation tick state — a deterministic queue of events due at tick numbers, and a single cooldown measured in ticks — never a wall-clock reading). The first two families expose `TimeProvider` overloads for code that already holds a clock; the tick family deliberately does not (see §3).
 
 - **TFM:** `net10.0`. **Package dependencies:** none (BCL only). No source generator, no analyzer.
-- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — the `RecurrenceSchedule`/`TimeWindow` types and contracts are unchanged; only the package id and namespace changed. `Cooldown`/`RechargePool` and `TickSchedule`/`TickScheduleEntry` are new in this package.
+- **Namespace:** `SsalKit.Timekeeping`. Formerly published as `SsalKit.RecurrenceSchedule` (deprecated) — the `RecurrenceSchedule`/`TimeWindow` types and contracts are unchanged; only the package id and namespace changed. `Cooldown`/`RechargePool`, `TickSchedule`/`TickScheduleEntry`, and `TickCooldown` are new in this package.
 - This file is written for AI coding agents. Human-facing docs: [`README.md`](README.md) (also `README.ko.md`, `README.ja.md`).
 
 ## 0. Which family do I need?
@@ -13,7 +13,10 @@ Deterministic, persistable time state computed without ever reading the clock it
 | Calendar wall-clock (daily / weekly / monthly reset, DST) | `RecurrenceSchedule` |
 | Elapsed time since an event (ability cooldown, stamina / charge pool) | `Cooldown` / `RechargePool` |
 | Logical simulation tick (deterministic event dispatch by tick number, not by clock) | `TickSchedule` |
+| Elapsed logical ticks since an action (an ability cooldown counted in ticks, not in wall-clock time) | `TickCooldown` |
 | In-process resource throttling (concurrent request limits, token buckets) | Not this package — `System.Threading.RateLimiting` |
+
+One line settles the choice within the two cooldown/tick components: **wall-clock cooldown = `Cooldown`, tick-scheduled event = `TickSchedule`, tick cooldown = `TickCooldown`.**
 
 ## 1. API surface
 
@@ -42,6 +45,9 @@ Deterministic, persistable time state computed without ever reading the clock it
 | "Which events are due now (or were missed while offline)?" | `TickSchedule<TEvent>.PopDue(currentTick, out updated)` |
 | "Cancel a previously scheduled event" | `TickSchedule<TEvent>.RemoveAll(event)` |
 | "How far can the simulation fast-forward before anything is due?" | `TickSchedule<TEvent>.NextDueTick` |
+| "Is this ability usable at this simulation tick?" | `TickCooldown.IsReady(asOfTick)` |
+| "Use it at this tick if possible" | `TickCooldown.TryUse(asOfTick, out updated)` |
+| "How many ticks are left on it?" | `TickCooldown.Remaining(asOfTick)` |
 
 ### `RecurrenceSchedule` — `sealed class`
 
@@ -132,6 +138,21 @@ One overload per member above whose only "now"-shaped argument is `asOf`: `Coold
 | `Sequence` | Insertion order `Add` assigned; the FIFO tie-break for entries sharing a `DueTick`. Not the same as position in `Entries` — entries are never reordered in storage. |
 | `Event` | The value passed to `Add`, handed back unexecuted by `PopDue`. No type constraint; a `notnull` type (enum, id, record) is recommended for predictable `RemoveAll`/serializer behavior. **Never a delegate** — see §3. |
 
+### `TickCooldown` — `readonly record struct`
+
+`Cooldown`'s contract on the tick axis. Same shape, same inclusive boundary, `long` ticks instead of `DateTimeOffset`/`TimeSpan`.
+
+| Member | Contract |
+|---|---|
+| `static TickCooldown Create(long durationTicks, long asOfTick)` | Immediately usable (`ReadyAtTick = asOfTick`, an **assignment — no arithmetic, so it cannot overflow**). `durationTicks < 0` → `ArgumentOutOfRangeException`. `0` is **legal** — a degenerate cooldown ready at every tick at or after `ReadyAtTick`. |
+| `bool IsReady(long asOfTick)` | `asOfTick >= ReadyAtTick`. |
+| `long Remaining(long asOfTick)` | `clamp(ReadyAtTick - asOfTick, 0, long.MaxValue)`. Never negative, **never throws for an out-of-range difference** — see §2. |
+| `bool TryUse(long asOfTick, out TickCooldown updated)` | Success: `updated.ReadyAtTick = checked(asOfTick + DurationTicks)`. Failure: `updated = this` — always safe to assign back. `OverflowException` when the sum leaves `long`'s range (nothing is assigned to `updated`). |
+| `TickCooldown Reset(long asOfTick)` | `ReadyAtTick = asOfTick`, discarding remaining wait. Assignment only — cannot overflow. |
+| `long DurationTicks { get; init; }` / `long ReadyAtTick { get; init; }` | Configured wait length in ticks; the tick the cooldown next becomes usable at. The entire serialization surface. |
+| `default(TickCooldown)` | **Legal.** `DurationTicks = 0`, `ReadyAtTick = 0` — exactly `TickCooldown.Create(0, 0)`. Ready from tick `0` **inclusive**, and **not ready at any negative tick** (unlike `default(Cooldown)`, which is ready across the whole timeline). No member guards against it. |
+| A negative `DurationTicks` (via `init` or deserialization) | The type's **only** invalid state: every member throws `InvalidOperationException`. |
+
 ## 2. Contracts (versioned / immutable)
 
 ### Boundary semantics — one rule (RecurrenceSchedule)
@@ -150,7 +171,7 @@ Same status as the rule above — a permanent, versioned contract, because the s
 
 > **A cooldown or a recharge unit is usable at the instant it completes, not only strictly after it.**
 
-`cooldown.IsReady(cooldown.ReadyAt) == true`, `cooldown.Remaining(cooldown.ReadyAt) == TimeSpan.Zero`, `pool.AvailableAt(pool.FullAt) == Capacity` (not `Capacity - 1`).
+`cooldown.IsReady(cooldown.ReadyAt) == true`, `cooldown.Remaining(cooldown.ReadyAt) == TimeSpan.Zero`, `pool.AvailableAt(pool.FullAt) == Capacity` (not `Capacity - 1`). The tick axis reads identically: `tickCooldown.IsReady(tickCooldown.ReadyAtTick) == true`, `tickCooldown.Remaining(tickCooldown.ReadyAtTick) == 0`.
 
 ### Determinism — one rule (TickSchedule)
 
@@ -163,6 +184,21 @@ Same permanent, versioned-contract status as the two rules above:
 - `default(TickSchedule<TEvent>)` is **legal** — `Entries` default-normalizes to empty, `NextSequence` is `0`, identical to `Empty`. No `EnsureValid` guard exists because no invalid state exists.
 - If a corrupted payload produces duplicate `Sequence` values or a regressed `NextSequence`, `PopDue` stays fully deterministic by breaking any remaining tie with each entry's storage position as an implementation-only third sort key — the *observable* contract stays `(DueTick, Sequence)` for any payload `Add` could legitimately have produced.
 - `Entries` + `NextSequence` are the entire serialization surface (both public `init`); STJ round-trips with no custom converter, and dispatch order after restore matches the order before saving regardless of the order the deserializer reconstructs `Entries` in.
+
+### `TickCooldown`: the `default` value, and overflow per arithmetic site
+
+Two contracts that have no wall-clock counterpart, because `long` behaves differently from `DateTimeOffset` at the extremes. Both are pinned by tests.
+
+**`default(TickCooldown)` is legal and equals `Create(0, 0)`** — but that is *not* the same as `default(Cooldown)`'s "always ready". `DateTimeOffset`'s default is its **minimum**, so `default(Cooldown)` is ready across the whole timeline; `long`'s default is `0`, which is not its minimum, so `default(TickCooldown)` is ready from tick `0` inclusive and **not ready at any negative tick**. That difference is a documented contract, not an oversight. The value that is ready across the entire tick domain is `TickCooldown.Create(durationTicks, long.MinValue)` — every representable tick is at or after `long.MinValue`, so the comparison alone gives it, with no special-casing inside the type. There is deliberately no `AlwaysReady` static (one `TryUse` advances `ReadyAtTick`, so the name would over-promise).
+
+**`Create` and `Reset` only assign `ReadyAtTick`**, so exactly two sites do arithmetic, and they dispose of an out-of-range result differently:
+
+| Site | Arithmetic | Disposition |
+|---|---|---|
+| `TryUse`, success path | `asOfTick + DurationTicks` | `checked` → **`OverflowException`**. Never wraps a cooldown into the far past. `updated` is not assigned, so the caller's variable is untouched. |
+| `Remaining`, not-ready path | `ReadyAtTick - asOfTick` | **Never throws** — clamped to `[0, long.MaxValue]`, a total function. |
+
+`TryUse` matches `TickSchedule.Add`: the rule is "overflow surfaces as the exception the time representation's own arithmetic raises", which is `OverflowException` for `long` and whatever `DateTimeOffset` arithmetic raises for `Cooldown`. `Remaining` clamps because `ReadyAtTick == long.MaxValue` is a legal "effectively never ready" sentinel (any `long` is a legal tick) and measuring it from a negative tick asks for a difference wider than `long`; throwing there would cost totality for a legal `(state, tick)` pair. The clamp is only observable for pairs whose true difference exceeds `long.MaxValue`: `Remaining(0) == long.MaxValue` is exact, `Remaining(1) == long.MaxValue - 1` is exact, `Remaining(-1) == long.MaxValue` is clamped.
 
 ### `RechargePool` state = `FullAt` (the O(1) source)
 
@@ -206,6 +242,7 @@ These rules are **a versioned contract**: boundaries get persisted, and comparin
 | `TickSchedule<TEvent>.PopDue` | **O(n + k log k)** — `n` = total entries (full scan to select the due subset), `k` = due entries (sort of only that subset). |
 | `TickSchedule<TEvent>.RemoveAll` / `NextDueTick` | **O(n)**. |
 | `TickSchedule<TEvent>.Count` / `IsEmpty` | **O(1)** — read straight off the normalized `Entries`' `Length`/`IsEmpty`. |
+| Every `TickCooldown` member | **O(1)** — comparison and at most one addition on two `long`s; a ten-thousand-tick catch-up costs what a one-tick step costs. |
 
 Both `TickSchedule` costs are for game-/simulation-scale entry counts (hundreds to low thousands); the public contract is storage-order independence, not this specific representation, so a future release could change the internal layout without breaking callers.
 
@@ -234,6 +271,12 @@ Both `TickSchedule` costs are for game-/simulation-scale entry counts (hundreds 
 | `TickSchedule<TEvent>.PopDue`: nothing due | Not an error — empty result array, `updated == this`; a total function |
 | `default(TickSchedule<TEvent>)` (incl. corrupted/truncated deserialized payload) | **Legal** — behaves like `TickSchedule<TEvent>.Empty`; every member operates normally, no guard needed |
 | `TickSchedule<TEvent>` payload with duplicate `Sequence` values or a regressed `NextSequence` | No exception — `PopDue` stays deterministic via the storage-position tie-break (§2) |
+| `TickCooldown.Create`: `durationTicks < 0` | `ArgumentOutOfRangeException` (`durationTicks`) |
+| `TickCooldown` with a negative `DurationTicks` via `init` or deserialization | Every member throws `InvalidOperationException` |
+| `default(TickCooldown)` (incl. corrupted/truncated deserialized payload) | **Legal** — behaves like `TickCooldown.Create(0, 0)`; ready from tick `0` on, not before it |
+| `TickCooldown.TryUse`: `asOfTick + DurationTicks` leaves `long`'s range | `OverflowException` (checked); `updated` is left unassigned |
+| `TickCooldown.Remaining`: true difference exceeds `long.MaxValue` | No exception — clamped to `long.MaxValue` (§2) |
+| `TickCooldown` with an `asOfTick` earlier than a previously used tick | No exception — answered honestly; `TryUse` returns `false` |
 
 ## 3. DO NOT
 
@@ -257,7 +300,11 @@ Both `TickSchedule` costs are for game-/simulation-scale entry counts (hundreds 
 - **DO NOT treat `TickSchedule` as an execution engine.** It only ever tells you what is due; dispatching `entry.Event` (a `switch`, a lookup table, a queue push) is entirely the caller's job, the same as `RecurrenceSchedule` only ever answering *when*.
 - **DO NOT store a delegate as `TEvent`.** Callbacks cannot survive a serialize/deserialize round trip the way a value can — store an enum, an id, or a record, and look it up or switch on it at dispatch time.
 - **DO NOT compare two `TickSchedule<TEvent>` values with `==` expecting "same logical schedule".** Equality is sensitive to storage order (`Entries` in a different order compares unequal even when `PopDue` would treat the schedules identically) and, independently, to `ImmutableArray<T>`'s own identity-based equality (two schedules built by separately `Add`-ing the same entries in the same order can still compare unequal). Compare `PopDue` results, or `Entries` converted to a plain list, instead.
-- **DO NOT look for a `TimeProvider` overload on `TickSchedule`.** There is none, and there will not be one — a logical tick is not a wall-clock reading. Advance `currentTick` from whatever the simulation already uses to count ticks.
+- **DO NOT look for a `TimeProvider` overload on `TickSchedule` or `TickCooldown`.** There is none on either, and there will not be one — a logical tick is not a wall-clock reading. Advance the tick from whatever the simulation already uses to count ticks, and do not convert instants to ticks (or back) just to call one of these types.
+- **DO NOT assume `default(TickCooldown)` is ready at every tick the way `default(Cooldown)` is.** It is ready from tick `0` inclusive and **not** before it, because `long`'s default is not its minimum (§2). In a simulation whose ticks start at `0` the two read identically; in one with negative ticks they do not. Use `TickCooldown.Create(durationTicks, long.MinValue)` when "ready across the entire tick domain" is what is actually wanted.
+- **DO NOT expect `TickCooldown.TryUse` and `.Remaining` to treat an out-of-range result the same way.** `TryUse` throws `OverflowException`; `Remaining` clamps and never throws (§2). Catching around `Remaining`, or assuming `TryUse` returns `false` on overflow, both encode the wrong contract — a `false` there would be a lie about readiness that a retry loop would spin on forever.
+- **DO NOT hand-roll a tick cooldown out of `Cooldown` by converting ticks to instants.** That puts a wall clock back into a simulation that removed it on purpose, and the conversion factor becomes a second, unversioned contract. `TickCooldown` is the tick-axis type.
+- **DO NOT look for `TickCooldown.AlwaysReady`, or for a keyed collection of cooldowns.** Neither exists: `AlwaysReady` would over-promise (one `TryUse` advances `ReadyAtTick`), and a per-key bundle is out of scope — hold `TickCooldown` values in whatever dictionary or component storage the simulation already uses.
 - **DO NOT assume `TickSchedule<TEvent>` serializes `TEvent` for you beyond what your serializer already handles.** The schedule only guarantees `Entries` + `NextSequence` round-trip through STJ/etc. with no custom converter *for the schedule itself*; `TEvent` still needs to be a type your chosen serializer can handle (an enum, primitive id, or `[JsonSerializable]`-annotated record — the same responsibility as serializing any other application type).
 - **DO NOT expect `TickSchedule` to reorder `Entries` for you, or to maintain a sorted invariant.** Storage is deliberately append-only; only `PopDue` sorts, and only the due subset, at the moment it is called.
 
@@ -428,4 +475,37 @@ foreach (var entry in missed)
         world.Schedule = world.Schedule.Add(entry.Event, entry.DueTick + WaveInterval);
     }
 }
+```
+
+### TickCooldown: a tick-axis cooldown, alone and alongside a TickSchedule
+
+```csharp
+using SsalKit.Timekeeping;
+
+// A dash on a 300-tick cooldown; state is (DurationTicks, ReadyAtTick) and persists as written.
+var dash = TickCooldown.Create(durationTicks: 300, asOfTick: currentTick);
+
+if (dash.TryUse(currentTick, out var updated))
+{
+    player.DashCooldown = updated;   // save this back; a failed TryUse leaves it unchanged
+}
+
+long ticksLeft = player.DashCooldown.Remaining(currentTick);   // 0 once ready; never negative
+
+// One loop counter drives both tick-axis types -- neither knows about the other.
+for (long tick = world.LastTick + 1; tick <= currentTick; tick++)
+{
+    foreach (var entry in world.Schedule.PopDue(tick, out world.Schedule))
+    {
+        Dispatch(entry.Event);                                     // what is due
+    }
+
+    if (ShouldDash(tick) && player.DashCooldown.TryUse(tick, out var used))
+    {
+        player.DashCooldown = used;                                // may it be used
+    }
+}
+
+// "Ready at every tick, including negative ones" is a construction, not a special member:
+var alwaysReady = TickCooldown.Create(durationTicks: 300, asOfTick: long.MinValue);
 ```
