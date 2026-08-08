@@ -7,7 +7,7 @@ internal static class CombinedSamples
     public static void Run()
     {
         // ---------------------------------------------------------------------------------------
-        // 16. Combining the two halves of the package: RecurrenceSchedule.HasCrossed detects a calendar
+        // 20. Combining the two halves of the package: RecurrenceSchedule.HasCrossed detects a calendar
         //     reset, and RechargePool.Refill applies it -- a daily stamina top-up that fires on the wall
         //     clock rather than waiting for the pool's own (much slower) recharge rate to catch up.
         // ---------------------------------------------------------------------------------------

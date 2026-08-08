@@ -5,10 +5,12 @@
 // weekly and monthly cadences look like (including the month-end clamp), what happens on the two
 // days a year a wall clock misbehaves, how the half-open TimeWindow arithmetic composes, how the
 // TimeProvider overloads read "now" for code that already holds a clock, the elapsed-time half of
-// the package -- a single skill Cooldown, a capacity-bounded RechargePool -- and finally the
+// the package -- a single skill Cooldown, a capacity-bounded RechargePool -- and then the
 // logical-tick half: a deterministic TickSchedule driving a battle timeline, catching up after a
-// gap, a re-Add recurring pattern, and a save/restore round trip, before the two calendar and
-// elapsed-time halves are combined with a calendar reset.
+// gap, a re-Add recurring pattern, and a save/restore round trip, followed by a TickCooldown --
+// the same cooldown contract on the tick axis, its default and overflow contracts, and one loop
+// driving it alongside a TickSchedule -- before the calendar and elapsed-time halves are combined
+// with a calendar reset.
 //
 // Every instant (or tick) used below is a fixed literal rather than DateTimeOffset.UtcNow or a
 // wall-clock reading (see SampleContext.cs): the whole API is a pure function of (schedule/state,
@@ -16,7 +18,8 @@
 // daylight-saving section can sit on the exact 2026 transition dates.
 //
 // The sample is split by topic, one group per file: RecurrenceSamples, DstSamples,
-// TimeWindowSamples, TimeProviderSamples, CooldownSamples, TickScheduleSamples, CombinedSamples. Run
+// TimeWindowSamples, TimeProviderSamples, CooldownSamples, TickScheduleSamples, TickCooldownSamples,
+// CombinedSamples. Run
 // without arguments to execute every group, in the canonical order below. Pass one or more group
 // names (case-insensitive, any order) to run only those groups, e.g.:
 //   dotnet run -- cooldowns
@@ -39,6 +42,7 @@ var groups = new (string Name, Action Run)[]
     ("timeprovider", TimeProviderSamples.Run),
     ("cooldowns", CooldownSamples.Run),
     ("tickschedule", TickScheduleSamples.Run),
+    ("tickcooldown", TickCooldownSamples.Run),
     ("combined", CombinedSamples.Run),
 };
 

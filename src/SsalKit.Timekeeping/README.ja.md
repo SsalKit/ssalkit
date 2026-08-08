@@ -14,6 +14,7 @@ SsalKit.Timekeeping は、時計そのものを一切読まずに決定的で永
 | [`RecurrenceSchedule`](#クイックスタート-recurrenceschedule) + [`TimeWindow`](#timewindow-包含ルールは-1-つだけ) | カレンダーの壁時計境界 — 日次/週次/月次のリセット、恒久的に固定された DST 契約 | 既存 |
 | [`Cooldown`](#クイックスタート-cooldowns) + [`RechargePool`](#cooldowns) | 経過時間の状態 — 単一のクールダウン、または容量制限付きの充電プール | 新規 |
 | [`TickSchedule`](#クイックスタート-tickschedule) | 論理ティックの状態 — シミュレーションのティック番号に予定されたイベントを保持する、決定的でシリアライズ可能なキュー | 新規 |
+| [`TickCooldown`](#クイックスタート-tickcooldown) | 論理ティックの状態 — 壁時計の経過時間ではなくシミュレーションのティックで測る単一のクールダウン | 新規 |
 
 ### 境界の所在
 
@@ -22,6 +23,7 @@ SsalKit.Timekeeping は、時計そのものを一切読まずに決定的で永
 | カレンダーの壁時計（日次/週次/月次リセット、DST） | `RecurrenceSchedule` |
 | イベントからの経過時間（アビリティのクールダウン、スタミナ/チャージプール） | `Cooldown` / `RechargePool` |
 | 論理的なシミュレーションティック（時計ではなくティック番号による決定的なイベントディスパッチ） | `TickSchedule` |
+| 行動からの経過論理ティック（同じアビリティのクールダウンをティックで数える場合） | `TickCooldown` |
 | プロセス内リソースのスロットリング（同時リクエスト数制限、トークンバケット） | このパッケージの対象外 — [`System.Threading.RateLimiting`](https://learn.microsoft.com/dotnet/api/system.threading.ratelimiting) を参照 |
 
 ## なぜ SsalKit.Timekeeping なのか
@@ -490,6 +492,139 @@ foreach (var entry in schedule.PopDue(currentTick, out schedule))
 - **`==` は格納順を比較するのであって、論理的な内容を比較するのではありません。** 同じエントリーを異なる `Entries` 順で保持する 2 つのスケジュールは、`PopDue` が同一に扱うにもかかわらず `==` では等しくありません — さらに `ImmutableArray<T>` 自体の等価性はバッキング配列の *identity* を比較するため、同じエントリーを同じ順序でそれぞれ `Add` して作った 2 つのスケジュールですら等しくない場合があります。`TickSchedule` の値を直接比較する代わりに、`PopDue` の結果（あるいは普通のリストに変換した `Entries`）を比較してください。
 - **`TimeProvider` オーバーロードはなく、今後も追加されません。** 論理ティックは壁時計の値ではありません。`TimeProvider.GetUtcNow()` を読む糖衣を用意しても、そもそもティック番号は得られません。`currentTick` は、シミュレーションがすでにティックを数えている方法でそのまま進めてください。
 
+## TickCooldown
+
+`TickCooldown` は `Cooldown` をティック軸に移したものです。同じ不変の `record struct`、同じ `(状態, ティック)` の純粋関数という形、同じ境界包含ルールを — 壁時計の経過時間ではなく、シミュレーションがすでに数えている `long` で測ります。4 つのコンポーネントのどれが必要かは 1 行で決まります。
+
+> **壁時計のクールダウンは `Cooldown`、ティックに予定されたイベントは `TickSchedule`、ティックのクールダウンは `TickCooldown`。**
+
+「このダッシュは今から 300 ティック後にまた使える」を固定ティックレートのループで表現するには、これまで手書きするしかありませんでした。経過時間のファミリーが `DateTimeOffset` しか話さなかったからですが、クールダウンに 1 つ問うためだけにティックを時刻へ変換するのは、意図的に壁時計を取り除いたシミュレーションに壁時計を戻す行為です。
+
+### クイックスタート: TickCooldown
+
+```csharp
+using SsalKit.Timekeeping;
+
+// 300 ティックのダッシュクールダウン。生成されたティックで直ちに使用可能。
+var dash = TickCooldown.Create(durationTicks: 300, asOfTick: currentTick);
+
+if (dash.TryUse(currentTick, out var updated))
+{
+    player.DashCooldown = updated;   // この値をストレージに書き戻す
+}
+
+long ticksLeft = dash.Remaining(currentTick);
+bool ready = dash.IsReady(currentTick);
+```
+
+状態は `(DurationTicks, ReadyAtTick)` だけなので、セーブファイルでも DB のカラムでもスナップショットでも書いたとおりに往復し、次の `IsReady` は保存された構造体とそのとき渡したティックだけからすべてを導き直します。飛ばしたティック区間のキャッチアップも特別なケースではありません — より大きなティックで同じ問い合わせを 1 回すれば済み、再生するものは何もありません。
+
+### API 概要: TickCooldown
+
+| メンバー | 用途 |
+|---|---|
+| `static TickCooldown Create(long durationTicks, long asOfTick)` | 直ちに使用可能なクールダウン。`durationTicks` は以後の `TryUse` が課す待ちの長さ。`durationTicks < 0` は `ArgumentOutOfRangeException`、`0` は合法で `asOfTick` 以降のあらゆるティックで準備済みになる。演算を一切行わないため、ここでティック値がオーバーフローすることはない。 |
+| `IsReady(long asOfTick)` | `asOfTick >= ReadyAtTick`。 |
+| `Remaining(long asOfTick)` | `ReadyAtTick - asOfTick` を `[0, long.MaxValue]` にクランプした値。負にならず、決して投げない — 下記 [オーバーフロー](#オーバーフロー-tickcooldown) を参照。 |
+| `TryUse(long asOfTick, out TickCooldown updated)` | 成功時は `DurationTicks` 分の新しい待ちを開始（`ReadyAtTick = asOfTick + DurationTicks`）。失敗時の `updated` はこのインスタンスそのまま — 書き戻しても常に安全。 |
+| `Reset(long asOfTick)` | 残りの待ちを捨てて、`asOfTick` で再び直ちに使用可能にする。 |
+| `DurationTicks` / `ReadyAtTick` | 設定された待ちの長さ（ティック）と、クールダウンが次に使用可能になるティック。 |
+
+**この型にとってティックは不透明です。** 任意の `long` が合法な `ReadyAtTick`・`asOfTick` であり、負の値も含みます — この型はティックを比較し、そこに `DurationTicks` を足すだけで、意味を与えることはありません。ティックと壁時計をどちらの方向にも変換せず、`TickSchedule` とまったく同じく **`TimeProvider` オーバーロードはなく、今後も追加されません** — 論理ティックは時計の値ではないからです。
+
+ティックが逆行することも例外ではなく全域的です。以前使ったより早い `asOfTick` にも正直に答え、`TryUse` は投げる代わりに `false` を返します。
+
+### 境界のセマンティクス: TickCooldown
+
+パッケージ唯一の境界ルールをティック軸に適用したもので、`Cooldown` や `RecurrenceSchedule` におけるのと同じ、恒久的でバージョンをまたぐ契約の地位を持ちます。理由も同じです。この状態は永続化されるので、保存済みの `ReadyAtTick` を壊さずにリリース間で比較の意味が変わることはありません。
+
+> **クールダウンはそれが完了するティックで使用可能であり、その後からのみ使用可能なのではない。**
+
+```csharp
+cooldown.IsReady(cooldown.ReadyAtTick);     // true
+cooldown.Remaining(cooldown.ReadyAtTick);   // 0
+```
+
+### `default(TickCooldown)` と負のティック領域
+
+`default(TickCooldown)` は **合法な** 値であり、`TickCooldown.Create(0, 0)` と厳密に等しい — 呼び出し側が意図して構成し得る値なので、どのメンバーもこれをガードしません。ただし、これが意味 *しない* ことに注意してください。
+
+```csharp
+default(TickCooldown) == TickCooldown.Create(0, 0);   // true
+default(TickCooldown).IsReady(0);                     // true  -- ティック 0 から（含む）準備済み
+default(TickCooldown).IsReady(-1);                    // false -- その手前では準備済みではない
+```
+
+`ReadyAt` が `DateTimeOffset.MinValue` であり全時間軸で準備済みになる `default(Cooldown)` と違い、この型の default はティック `0` 以降でのみ準備済みです。`0` は `long` の default ではあっても最小値ではないからです。これは見落としではなく 2 つの領域の実際の差なので、覆い隠さずに文書化しテストで固定しています — そしてティックが `0` から始まる圧倒的多数のシミュレーションでは観測されない差でもあります。
+
+負のティックまで含めて *全* ティック領域で準備済みのクールダウンが欲しい場合は、範囲の底で構成してください。表現可能なあらゆるティックが `long.MinValue` 以上なので、比較だけでその性質が得られ、型側の特別な支援は要りません。
+
+```csharp
+var alwaysReady = TickCooldown.Create(durationTicks, long.MinValue);   // あらゆるティックで準備済み
+```
+
+このための `AlwaysReady` 静的プロパティは意図的に用意していません。`TryUse` 1 回で `ReadyAtTick` が使用ティックまで進むため、その名前は自身の寿命を約束しすぎることになります。
+
+### オーバーフロー: TickCooldown
+
+`Create` と `Reset` は `ReadyAtTick` を *代入* するだけなので、演算箇所は `TryUse` の成功パスと `Remaining` の未準備パスの 2 つだけです — そして範囲外の結果の処し方が異なります。どちらの処し方も契約です。
+
+| 箇所 | 演算 | 挙動 |
+|---|---|---|
+| `TryUse`、成功時 | `asOfTick + DurationTicks` | **`OverflowException` を投げる**（checked）。クールダウンを遠い過去へ巻き戻さない。`updated` には何も代入されないので、呼び出し側の値はそのまま残る。 |
+| `Remaining`、未準備時 | `ReadyAtTick - asOfTick` | **決して投げない** — 真の差を `[0, long.MaxValue]` にクランプする。 |
+
+`TryUse` は、自身の `long` カウンターを同じやり方で守る `TickSchedule.Add` と対をなします。ここはティック領域であり、その領域で `long` 演算が上げる例外が `OverflowException` です — `Cooldown` が自分の領域で `DateTimeOffset` 演算の上げる例外をそのまま表面化させるのと同じことです。
+
+`Remaining` が代わりにクランプするのは、`ReadyAtTick` が `long.MaxValue` の状態が「事実上永遠に未準備」を意味する完全に合法なセンチネルであり（任意の `long` が合法なティックです）、それを負のティックから測ると `long` に収まらない幅の差を問うことになるからです。ここで投げれば、合法な `(状態, ティック)` の組に対して全域性を失います。クランプは、「準備済み」と誤読される巻き戻った負値と違い、方向と大きさの点で正直です。
+
+```csharp
+var neverReady = new TickCooldown { DurationTicks = 0, ReadyAtTick = long.MaxValue };
+
+neverReady.Remaining(1);    // long.MaxValue - 1  -- 正確値
+neverReady.Remaining(0);    // long.MaxValue      -- 正確値であり、境界そのもの
+neverReady.Remaining(-1);   // long.MaxValue      -- 巻き戻りではなくクランプ
+```
+
+### シリアライズと唯一の不正状態
+
+`DurationTicks` と `ReadyAtTick` が直列化表面のすべてです — public な `init` プロパティが 2 つだけなので、System.Text.Json（あるいはその他何であれ）はカスタムコンバーターなしに `TickCooldown` を往復させられます。
+
+**負の `DurationTicks`** がこの型の唯一の不正状態です。`Create` はこれを拒否しますが、オブジェクト初期化子や破損したペイロードは依然として生み出せますし、ガードしなければ成功した `TryUse` が `ReadyAtTick` を *後ろへ* 押し戻し、クールダウンを黙って無効化してしまいます。そのため `DurationTicks` が負のときはすべてのメンバーが `InvalidOperationException` を投げます — `Cooldown` が自身の負の `Duration` をガードするのとまったく同じやり方です。
+
+| 条件 | 挙動 |
+|---|---|
+| `durationTicks < 0` での `Create` | `ArgumentOutOfRangeException` |
+| `durationTicks == 0` での `Create` | 合法 — `ReadyAtTick` 以降のあらゆるティックで準備済みの縮退クールダウン |
+| `init` やデシリアライズ経由の負の `DurationTicks` | すべてのメンバーが `InvalidOperationException` を投げる |
+| `default(TickCooldown)`（破損・切り詰められたデシリアライズ済みペイロードを含む） | 合法 — `TickCooldown.Create(0, 0)` とまったく同じに振る舞う |
+| ティックが逆行する場合 | 例外なし — 正直に答え、`TryUse` は `false` を返す |
+| `asOfTick + DurationTicks` が `long` の範囲を出る `TryUse` | `OverflowException` |
+| 真の差が `long.MaxValue` を超える `Remaining` | 例外なし — `long.MaxValue` にクランプ |
+
+### `TickSchedule` との組み合わせ
+
+2 つのティック軸の型は直交しています — どちらも相手を知らないので、1 つのループカウンターで両方を回すのはごく普通の呼び出し側コードです。
+
+```csharp
+using SsalKit.Timekeeping;
+
+for (long tick = world.LastTick + 1; tick <= currentTick; tick++)
+{
+    foreach (var entry in world.Schedule.PopDue(tick, out world.Schedule))
+    {
+        Dispatch(entry.Event);   // スケジュールは *何が到達したか* に答える
+    }
+
+    if (ShouldDash(tick) && player.DashCooldown.TryUse(tick, out var updated))
+    {
+        player.DashCooldown = updated;   // クールダウンは *今使ってよいか* に答える
+    }
+}
+```
+
+どちらも同じ境界包含ルールなので、ティック `N` でポップされたイベントが引き起こす `Reset(N)` は、まさにそのティックでアビリティを使用可能にします。実行できるサンプルは [samples/SsalKit.Timekeeping.Sample](https://github.com/ssalkit/ssalkit/tree/main/samples/SsalKit.Timekeeping.Sample) の `tickcooldown` グループにあります。
+
 ## テスト
 
 コア API が時刻を引数で受け取るので、ほとんどのテストには時計がまったく必要ありません。検証したい時刻をそのまま渡すだけです。テスト対象のクラスが注入された `TimeProvider` を保持している場合は、フェイクを渡してください。
@@ -509,7 +644,7 @@ Assert.True(dailyReset.HasCrossed(lastReset, clock));
 Assert.Equal(5, dailyReset.CountBoundaries(lastLogin, clock));
 ```
 
-拡張メソッドは `GetUtcNow()` しか呼ばないので、他にフェイクにするものはありません。`Cooldown` と `RechargePool` も同じ方法でテストできます — 時刻を直接渡すか、同じフェイクの `TimeProvider` を拡張メソッドに渡してください。`TickSchedule` はフェイクがまったく不要です — `Add`/`PopDue` は時計の値ではなく、ただの `long` ティックを受け取ります。
+拡張メソッドは `GetUtcNow()` しか呼ばないので、他にフェイクにするものはありません。`Cooldown` と `RechargePool` も同じ方法でテストできます — 時刻を直接渡すか、同じフェイクの `TimeProvider` を拡張メソッドに渡してください。`TickSchedule` と `TickCooldown` はフェイクがまったく不要です — 時計の値ではなく、ただの `long` ティックを受け取るからです。
 
 ## パフォーマンス
 
@@ -520,7 +655,7 @@ O(1) ではなく、そのつもりもないものが 2 つあります。
 - `EnumerateBoundaries` は境界の個数に比例し、境界ごとにタイムゾーン解決が 1 回ずつかかります。個数だけが必要なら `CountBoundaries` を使ってください。
 - DST のギャップや基準オフセットの継ぎ目に落ちる境界（規則 1 と規則 3）の解決は、壁時計がスケジュール時刻に到達する瞬間を探索するため、通常の解決の百倍ほどかかります。ゾーンごとに年 1〜2 日の話であり、通常の経路には一切触れません。
 
-`Cooldown` と `RechargePool` の各メンバーも同様に O(1) です — 上記の [`FullAt` モデル](#fullat-モデル) こそが、プールがどれだけ長くオフラインだったかに関わらずこれを成り立たせている源泉です。
+`Cooldown` と `RechargePool` の各メンバーも同様に O(1) です — 上記の [`FullAt` モデル](#fullat-モデル) こそが、プールがどれだけ長くオフラインだったかに関わらずこれを成り立たせている源泉です。`TickCooldown` の各メンバーも同じ構造的理由で O(1) です。状態が `long` 2 つだけなので、1 万ティック飛ばした場合も 1 ティック進めた場合と同じ比較 1 回で答えが出ます。
 
 `TickSchedule.Add` と `.PopDue` は O(1) ではありません — [計算量: TickSchedule](#計算量-tickschedule) を参照 — ですが「この規模ではベンチマークするに値しない」という同じ理屈が当てはまります。スケジュールが 1 ティックしか待っていなくても、1 万ティック分のキャッチアップをしていても、コストは変わりません。
 
