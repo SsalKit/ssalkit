@@ -1,6 +1,6 @@
 # SsalKit.Guard — AI contract sheet
 
-Error-code-based domain exceptions: a side-effect-free `ErrorCodedException` base, static `Guard.` clauses that capture the caller's expression text, and a compile-time generated exception→code mapping table ordered derived-before-base.
+Error-code-based domain exceptions: a side-effect-free `ErrorCodedException` base, static `Guard.` clauses that capture the caller's expression text, a compile-time generated exception→code mapping table ordered derived-before-base, and `Judgement`, the non-throwing half that hands the same codes back instead of throwing them.
 
 - **TFM:** `net10.0`. **Package dependencies:** none (BCL only). Generic attributes require C# 11+.
 - **Bundled analyzer:** `SsalKit.Guard.Generator` (`netstandard2.0`) ships inside the package under `analyzers/dotnet/cs`. No separate package.
@@ -20,6 +20,7 @@ Error-code-based domain exceptions: a side-effect-free `ErrorCodedException` bas
 | Give a BCL/third-party exception a code | `[ExternalErrorCode<TCode>(typeof(Foo), TCode.X)]` on the **container** |
 | Get a mapping table + throw helpers | `[ErrorCodes<TCode>]` on a `static partial class` |
 | Map at a boundary | `Container.TryMap(exception, out code)` (or `MapOrDefault`) |
+| Non-throwing verdict sharing the code enum (no-exception zones: actor message loops, per-item batch results, rules whose job is to say no) | `Judgement<TCode>` (yes/no) or `Judgement<T, TCode>` (new state / no), produced with `Judgement.Grant` / `Judgement.Reject` |
 
 ### `Guard` — `static class`
 
@@ -42,6 +43,27 @@ Error-code-based domain exceptions: a side-effect-free `ErrorCodedException` bas
 |---|---|
 | `abstract class ErrorCodedException : Exception` | Protected ctors `()`, `(string?)`, `(string?, Exception?)`. **No side effects** — no `Activity` tagging, no logging, no metrics. Carries **no code field**. Doubles as a single `catch (ErrorCodedException)` target. |
 | `sealed class GuardViolationException : ErrorCodedException` | Thrown by every non-factory `Guard` clause. Public ctors `()`, `(string?)`, `(string?, Exception?)`. Carries no extra state. |
+
+### Judgements — the non-throwing verdicts
+
+Judgement types have private constructors. `static class Judgement` is the only way to build one, and it returns **carriers**, not judgements:
+
+```csharp
+static GrantedJudgement          Grant();
+static GrantedJudgement<T>       Grant<T>(T granted) where T : class;              // null → ArgumentNullException
+static RejectedJudgement<TCode>  Reject<TCode>(TCode code, string message)         // null message → ArgumentNullException
+    where TCode : struct, Enum;                                                    // "" is a legal message
+```
+
+| Type | Contract |
+|---|---|
+| `sealed record Judgement<TCode> where TCode : struct, Enum` | `TCode? RejectedWith` (`null` ⟺ granted), `string RejectionMessage` (`""` when granted, never null), `bool IsGranted`, `bool TryGetRejection(out TCode code, out string message)`, `static Judgement<TCode> Granted { get; }`. `Granted` is one cached instance per closed `TCode`, reference-equal on every read and on every conversion from `Judgement.Grant()`. `ToString()` → `Granted` \| `Rejected(Code): message`. |
+| `sealed record Judgement<T, TCode> where T : class where TCode : struct, Enum` | `T? Granted` (non-`null` ⟺ granted), `TCode? RejectedWith`, `string RejectionMessage`, `[MemberNotNullWhen(true, nameof(Granted))] bool IsGranted`, `[MemberNotNullWhen(false, nameof(Granted))] bool TryGetRejection(out TCode code, out string message)`. No `Granted` singleton — every grant carries state. `ToString()` → `Granted(state)` \| `Rejected(Code): message`. |
+| `readonly struct GrantedJudgement` | Carrier, no public members. Converts **only** to `Judgement<TCode>`, for any `TCode`, yielding that type's cached `Granted`. `default` is legal: it holds nothing either way. |
+| `readonly struct GrantedJudgement<T> where T : class` | Carrier, no public members. Converts **only** to `Judgement<T, TCode>`, for any `TCode`. Converting a `default` throws `InvalidOperationException`. |
+| `readonly struct RejectedJudgement<TCode> where TCode : struct, Enum` | Carrier, no public members. Converts to **both** `Judgement<TCode>` and `Judgement<T, TCode>`, for any `T` — this is what keeps the payload type off the rejecting call site. Converting a `default` throws `InvalidOperationException`. |
+
+All conversions are implicit, so any position with a target type supplies the type arguments: `return Judgement.Reject(code, message);`, `Judgement<Inventory, ShopCode> j = Judgement.Grant(state);`, and `cond ? Judgement.Grant(state) : Judgement.Reject(code, message)` all compile with no type argument written. Equality is the record default over the declared members (`Granted` via `T`'s own equality); the computed `IsGranted` does not take part, and `with` is meaningless since there are no `init` setters.
 
 ### Attributes
 
@@ -85,6 +107,12 @@ Accessibility: the generated part re-declares the container with its own accessi
 - **Externally registered types never get helpers** — this library cannot vouch for the constructor contract of a type it does not own. They take part in the lookup only.
 - **Failure-message contract.** `Guard.{Clause} ({expression}) failed.` for `That`; `Guard.{Clause} ({expression}) failed: {detail}` for the rest. When the expression text is unavailable (a caller explicitly passing `null`/`""`, or a language that ignores `[CallerArgumentExpression]`) the placeholder is `<expression unavailable>`.
 - **The success path allocates nothing.** Messages are composed only after a check has failed, and `Func<Exception>` factories are invoked only on failure.
+- **A judgement has two outcomes and no third.** `Judgement.Grant`/`Judgement.Reject` are the only entry points and both judgement types have private constructors, so "granted and rejected at once" and "neither" are states that cannot be built. For `Judgement<T, TCode>`, `Granted is null` ⟺ `RejectedWith is not null`; on the granted side `RejectionMessage` is `string.Empty`, never null.
+- **A missed rejection check is a nullable-reference violation, not a guarantee.** The payload of `Judgement<T, TCode>` is reachable only through a `T?`, so forgetting the check stops the build **only** where the consuming project has `Nullable` enabled *and* warnings as errors; elsewhere it is a warning or nothing. `Judgement<TCode>` has no payload and therefore no enforcement at all — model a rule whose omission must fail the build so that it returns new state.
+- **`where T : class` is the enforcement device.** The null check is the whole mechanism, so a payload that cannot be null would remove the reason the type exists. Multi-value or value-type payloads are bundled into a `sealed record` — which also rules out the half-states a bag of individually nullable fields would allow.
+- **Carriers are return-position values.** They expose no public members and are meant to convert immediately. A `default` carrier never went through a factory and is missing state the contract requires, so converting one throws `InvalidOperationException` — except payload-free `GrantedJudgement`, whose `default` is indistinguishable from a real grant and equally valid.
+- **Judgements have no wire contract.** Private constructors and get-only properties, no serializer round-trip: they are in-process values. The `TCode` crosses process boundaries; the judgement carrying it does not.
+- **No railway surface, and no bridge to the mapping table.** Deliberately absent: `Match`/`Map`/`Bind`/`Select`/`OrElse`/LINQ, implicit `T → Judgement`, re-wrapping helpers (`Judgement<A>` rejection → `Judgement<B>`; use `TryGetRejection` + `Judgement.Reject`), and any automatic conversion between exceptions and judgements. v1 also ships no diagnostic for a discarded judgement or a discarded `TryGetRejection` result.
 
 ### Diagnostic consequences
 
@@ -108,6 +136,11 @@ Accessibility: the generated part re-declares the container with its own accessi
 - **DO NOT declare an `[ErrorCodes]` container as anything but a non-generic `static partial class`** that is not `file`-local and is nested only inside `partial` types (`SSALG002`, `SSALG007`) — the generated part must be able to attach to it and re-declare the whole nesting chain.
 - **DO NOT apply `[ErrorCode]` to a type that is abstract, generic, nested in a generic type, not derived from `ErrorCodedException`, or not nameable from a separate file** (`SSALG001`, `SSALG005`, `SSALG009`).
 - **DO NOT rely on declaration order for match precedence.** Order is generated from inheritance depth; there is nothing to maintain, and nothing you can override.
+- **DO NOT implement or expect a railway surface on judgements.** No `Match`, `Map`, `Bind`, `Select`, `OrElse`, `GetValueOrDefault`, or LINQ operators — not in this package, and not as extension methods bolted on beside it. A judgement is read with one `if` and then it is done; composition pipelines are a different library's job.
+- **DO NOT expect `T` to convert to a judgement implicitly.** There is no ErrorOr-style `return state;` shortcut. Go through `Judgement.Grant(state)` / `Judgement.Reject(code, message)`, which are the only entry points.
+- **DO NOT store a carrier.** `var pending = Judgement.Grant(state);` compiles into a value with no public members. Write the factory call in a position that has a target type (a `return`, a variable with a written-out type, either branch of a conditional), and never hand a `default(GrantedJudgement<T>)` or `default(RejectedJudgement<TCode>)` to a conversion — that is an `InvalidOperationException`.
+- **DO NOT read `TryGetRejection`'s outputs without reading its return value.** They are non-nullable so the rejection branch needs no `??`; on the granted branch they are `default` and `string.Empty`. Using them unconditionally is outside the contract and nothing catches it.
+- **DO NOT expect `Judgement<TCode>` to force a check.** With no payload to unwrap, a caller that ignores it just carries on. If the omission must fail the build, redesign the rule to return new state as `Judgement<T, TCode>`.
 
 ## 4. Diagnostics
 
@@ -210,4 +243,84 @@ public Response Handle(Func<Response> operation)
     }
     // Unmapped exceptions keep unwinding — TryMap in the filter does not swallow them.
 }
+```
+
+### Producing a judgement — no type argument at any call site
+
+```csharp
+using SsalKit.Guard;
+
+namespace Game;
+
+public sealed record Roster(string MatchId, int Enlisted, int Capacity, int LevelFloor);
+
+// A multi-value payload (an int included) is bundled into a record, because `where T : class`.
+public sealed record Enlistment(Roster Roster, int Slot);
+
+public static class RosterRules
+{
+    // With a payload. Neither rejection names Enlistment: a rejection carries none, so the same
+    // carrier converts to either judgement form and the return type supplies the rest.
+    public static Judgement<Enlistment, GameStatusCode> Enlist(Roster roster, Player player)
+    {
+        if (player.Level < roster.LevelFloor)
+        {
+            return Judgement.Reject(GameStatusCode.LevelTooLow, $"player {player.Id} is level {player.Level}");
+        }
+
+        if (roster.Enlisted >= roster.Capacity)
+        {
+            return Judgement.Reject(GameStatusCode.RosterFull, $"{roster.MatchId} is full");
+        }
+
+        return Judgement.Grant(new Enlistment(roster with { Enlisted = roster.Enlisted + 1 }, Slot: roster.Enlisted + 1));
+    }
+
+    // Without one. Both branches of a conditional are target-typed to the return type.
+    public static Judgement<GameStatusCode> CanQueue(Roster roster) =>
+        roster.Enlisted < roster.Capacity
+            ? Judgement.Grant()
+            : Judgement.Reject(GameStatusCode.RosterFull, $"{roster.MatchId} is full");
+}
+```
+
+### Reading one — no `??`, no `!`
+
+```csharp
+Judgement<Enlistment, GameStatusCode> judgement = RosterRules.Enlist(roster, player);
+
+if (judgement.TryGetRejection(out GameStatusCode code, out string message))
+{
+    // `code` is GameStatusCode, not GameStatusCode? — no `?? Unspecified` fallback.
+    sender.Tell(new RequestRejected(code, message));
+    return;
+}
+
+// [MemberNotNullWhen(false, nameof(Granted))]: no `!` and no second null test.
+Enlistment enlistment = judgement.Granted;
+roster = enlistment.Roster;
+
+// Payload-free: there is nothing to unwrap, so match the nullable code instead.
+Judgement<GameStatusCode> verdict = RosterRules.CanQueue(roster);
+if (verdict.RejectedWith is { } why)
+{
+    sender.Tell(new RequestRejected(why, verdict.RejectionMessage));
+    return;
+}
+```
+
+### One code for a whole domain — three lines, no library surface
+
+```csharp
+internal static class TitleJudgements
+{
+    public static RejectedJudgement<GameStatusCode> NotEarned(string message) =>
+        Judgement.Reject(GameStatusCode.TitleNotEarned, message);
+}
+
+// The carrier fits either return type, exactly like Judgement.Reject does.
+public static Judgement<GameStatusCode> CanClaimTitle(Player player) =>
+    player.Level >= 40
+        ? Judgement.Grant()
+        : TitleJudgements.NotEarned($"player {player.Id} is level {player.Level}; the title is earned at 40");
 ```

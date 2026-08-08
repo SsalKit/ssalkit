@@ -247,6 +247,129 @@ public Response Handle(Func<Response> operation)
 - **`when` 필터의 `TryMap`은 매핑되지 않은 예외를 그냥 흘려보냅니다.** 해줄 말도 없는 핸들러가 삼켜 버리는 대신 계속 위로 전파되며, 경계에서는 보통 그쪽이 원하는 동작입니다. 폴백 코드로 충분한 상황이라면 `MapOrDefault(exception, GameStatusCode.Unspecified)`가 더 짧은 형태입니다.
 - **매핑은 여러분의 enum에서 멈춥니다.** `GameStatusCode`를 HTTP 상태 코드나 gRPC 코드, 와이어 정수로 바꾸는 것은 전송 계층의 일입니다. 생성된 조회가 `TCode`를 반환하고 이 라이브러리에 전송 계층 냄새가 전혀 없는 이유가 바로 그것입니다.
 
+## 판정 (Judgement)
+
+여기까지는 전부 던지는 이야기였습니다. 도메인이 예외를 올리면 경계가 그것을 잡아 코드로 바꿉니다. 하지만 던질 수 없는 자리가 있습니다. 액터의 메시지 루프 안, 거절하는 것 자체가 일인 규칙, 첫 실패에서 멈추지 않고 항목마다 결과를 알려야 하는 일괄 처리 같은 곳이죠. **판정(judgement)** 은 같은 계약의 나머지 반쪽입니다. 예외가 실어 날랐을 바로 그 코드를, 같은 `TCode` enum에서 꺼내, 던지지 않고 돌려줍니다.
+
+```csharp
+// 던지기: 경계가 예외를 코드로 바꿉니다.
+throw GameErrors.UserNotFound($"player {id} no longer exists");
+
+// 판정하기: 규칙이 코드를 그대로 돌려주고, 무엇을 할지는 호출자가 정합니다.
+return Judgement.Reject(GameStatusCode.UserNotFound, $"player {id} no longer exists");
+```
+
+**이것은 `Result<T>`가 아닙니다.** `Match`, `Map`, `Bind`, `Select`, `OrElse`도, LINQ도, `T`로부터의 암시적 변환도 없습니다. 판정은 `if` 하나로 읽고 나면 끝입니다. 레일웨이 지향 합성은 다른 라이브러리의 몫이고, 이쪽은 에러 코드 계약의 던지지 않는 반쪽이며 거기서 멈춥니다.
+
+### 두 가지 형태
+
+| 타입 | 알려 주는 것 | payload |
+|---|---|---|
+| `Judgement<TCode>` | 통과, 또는 코드 하나와 메시지 하나 | 없음 |
+| `Judgement<T, TCode>` | 새 상태, 또는 코드 하나와 메시지 하나 | `T? Granted` — 거절일 때만 정확히 `null` |
+
+`TCode`가 마지막에 오는 것은 `Func<T, TResult>` 관례를 따른 것이고, 제약도 특성 3종과 같은 `where TCode : struct, Enum`입니다. 실제로는 매핑 테이블이 반환하는 그 enum을 그대로 쓰게 됩니다. `T`가 참조 타입인 것은 제약이 아니라 강제 장치입니다 — 아래 **한계**를 참고하세요.
+
+두 형태 모두, 호출부에 타입 인자가 하나도 나오지 않습니다.
+
+```csharp
+// payload 있는 쪽: 새 상태, 아니면 거절한 단 하나의 이유.
+public static Judgement<Enlistment, GameStatusCode> Enlist(Roster roster, Player player)
+{
+    if (player.Level < roster.LevelFloor)
+    {
+        return Judgement.Reject(GameStatusCode.LevelTooLow, $"player {player.Id} is level {player.Level}");
+    }
+
+    if (roster.Enlisted >= roster.Capacity)
+    {
+        return Judgement.Reject(GameStatusCode.RosterFull, $"{roster.MatchId} is full");
+    }
+
+    return Judgement.Grant(new Enlistment(roster with { Enlisted = roster.Enlisted + 1 }, Slot: roster.Enlisted + 1));
+}
+
+// payload 없는 쪽 — 삼항 연산자의 양쪽 가지도 대상 타입으로 변환되므로, 규칙 하나가 식 하나에 들어갑니다.
+public static Judgement<GameStatusCode> CanTrade(Player player) =>
+    player.IsBanned
+        ? Judgement.Reject(GameStatusCode.Banned, "trading is suspended for this account")
+        : Judgement.Grant();
+```
+
+`Judgement.Grant`와 `Judgement.Reject`가 반환하는 것은 판정이 아닙니다. 작고 불투명한 **캐리어**를 반환하고, 암시 변환이 그것을 대상 타입이 요구하는 판정으로 바꿉니다. 거절에는 payload가 없으므로 그 캐리어는 *두 형태 모두*로 변환됩니다 — `Reject`가 `T`를 명시할 일이 없는 이유가 바로 이것이고, 실제로 통과 쪽보다 훨씬 자주 쓰이는 가지가 그쪽입니다. 대상 타입이 존재하는 자리(`return` 문, 타입을 적은 변수로의 대입, 삼항의 양쪽 가지)에 팩터리를 쓰면 타입 인자는 아예 등장하지 않습니다.
+
+payload가 `null`이거나 메시지가 `null`이면 `ArgumentNullException`입니다. 빈 문자열은 합법적인 메시지입니다.
+
+### 읽는 법
+
+`TryGetRejection` 한 번이면 양쪽 흐름이 함께 좁혀집니다.
+
+```csharp
+Judgement<Enlistment, GameStatusCode> judgement = Enlist(roster, player);
+
+if (judgement.TryGetRejection(out GameStatusCode code, out string message))
+{
+    // 여기서 `code`는 GameStatusCode? 가 아니라 GameStatusCode입니다 — 언제나 존재하는 코드에 `?? Unspecified`를 붙일 일이 없습니다.
+    Sender.Tell(new RequestRejected(code, message));
+    return;
+}
+
+// `!`도, 두 번째 null 검사도 없습니다. 거절을 걸러낸 것이 곧 Granted를 non-null로 좁힌 것이니까요.
+Enlistment enlistment = judgement.Granted;
+```
+
+양쪽 모두 `[MemberNotNullWhen]` 덕분입니다. `false`를 반환했다는 것은 `Granted`가 null이 아니라는 뜻입니다. 거절 상세가 필요 없을 때를 위해 `IsGranted`에도 반대 방향의 같은 어노테이션이 붙어 있습니다.
+
+멤버를 직접 패턴 매칭해도 똑같이 합법이며, payload 없는 형태에서는 그쪽이 유일한 방법입니다.
+
+```csharp
+if (judgement.Granted is not { } enlistment)
+{
+    // 여기서 RejectedWith는 GameStatusCode? 입니다 — TryGetRejection이 덜어 주는 것이 바로 이 한 칸입니다.
+    logger.LogWarning("refused with {Code}: {Reason}", judgement.RejectedWith, judgement.RejectionMessage);
+    return;
+}
+
+// payload 없는 쪽: 열어 볼 것이 없으므로 nullable 코드를 매칭합니다.
+if (verdict.RejectedWith is { } code)
+{
+    Reply(code, verdict.RejectionMessage);
+    return;
+}
+```
+
+`ToString()`은 짧고 안정적입니다 — `Granted`, `Granted(state)`, `Rejected(Code): message`. payload 전체를 로그 줄에 쏟아붓는 record 기본 구현을 일부러 쓰지 않았습니다.
+
+### 한 도메인의 거절이 언제나 같은 코드일 때
+
+캐리어가 public이므로, 거절 코드가 늘 하나뿐인 규칙 묶음은 세 줄이면 되고 라이브러리에서 더 받아올 것이 없습니다.
+
+```csharp
+internal static class TitleJudgements
+{
+    public static RejectedJudgement<GameStatusCode> NotEarned(string message) =>
+        Judgement.Reject(GameStatusCode.TitleNotEarned, message);
+}
+
+// Judgement.Reject와 똑같이 어느 반환 타입에나 꽂힙니다.
+return TitleJudgements.NotEarned($"take part in defeating {target} to earn this title");
+```
+
+### 한계
+
+`Judgement<T, TCode>`는 거절 검사를 빠뜨리면 빌드를 멈추게 합니다. 새 상태에는 `T?`를 통해서만 닿을 수 있으므로, 거절을 먼저 걸러내지 않고 쓰면 그것은 null 역참조이기 때문입니다. 다만 이는 보장이 아니라 올바른 방향으로의 보조이며, 어디까지가 그 범위인지는 분명히 해 둘 만합니다.
+
+- **소비하는 프로젝트의 설정에 달려 있습니다.** 검사 누락이 빌드 오류가 되는 것은 `Nullable`이 켜져 있고 *동시에* 경고가 오류인 경우입니다. 앞의 조건만 참이면 경고로 끝나고, 둘 다 아니면 아무 일도 일어나지 않습니다.
+- **`Judgement<TCode>`에는 강제력이 없습니다.** 열어 볼 payload가 없으므로, 판정을 무시한 호출자는 그냥 진행합니다. 검사 누락이 반드시 빌드를 멈춰야 하는 규칙이라면, 새 상태를 반환하도록 설계해 payload 있는 형태를 쓰세요.
+- **`TryGetRejection`의 반환값을 버리는 것도 잡히지 않습니다.** out 매개변수를 non-nullable로 둔 것은 거절 갈래에서 `??`가 필요 없게 하기 위해서이고, 그 대가로 반환값을 읽기 전에는 두 값에 의미가 없습니다. 반환값을 무시한 채 out만 읽는 것은 계약 밖이며, v1은 이를 잡는 진단을 제공하지 않습니다.
+- **payload가 참조 타입인 것은 의도입니다.** `where T : class`는 제약이 아니라 장치입니다. null 검사가 강제의 전부이므로, null이 될 수 없는 payload는 이 타입의 존재 이유를 지워 버립니다. 새 상태가 값 타입을 포함해 여러 값이라면 `sealed record`로 묶어 `T`로 쓰세요. 그렇게 하면 필드마다 nullable을 두었을 때 생기는 불법적인 반쪽 상태도 함께 사라집니다.
+
+형태에서 따라 나오는 작은 계약이 셋 더 있습니다.
+
+- **캐리어는 반환값이지 보관할 값이 아닙니다.** `var pending = Judgement.Grant(state);`는 컴파일되지만 캐리어에는 public 멤버가 없어 그 결과로 할 수 있는 일이 없습니다. 판정을 만드는 자리에서 바로 변환하세요.
+- **`default` 캐리어는 예외를 던집니다.** `default(GrantedJudgement<T>)`와 `default(RejectedJudgement<TCode>)`는 팩터리를 거치지 않아 계약이 요구하는 상태가 비어 있으므로, 변환하면 조용히 거짓말하는 판정이 아니라 `InvalidOperationException`이 나옵니다. payload 없는 `GrantedJudgement`는 어차피 담는 것이 없으므로 `default`도 합법입니다.
+- **판정은 프로세스 밖으로 나가지 않습니다.** private 생성자와 get 전용 프로퍼티, 직렬화 계약 없음 — 프로세스 내부의 값입니다. 프로세스 경계를 넘는 것은 코드이지, 그 코드를 담은 판정이 아닙니다.
+
 ## 진단
 
 | ID | 심각도 | 보고 조건 |

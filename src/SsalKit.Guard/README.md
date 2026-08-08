@@ -247,6 +247,129 @@ Three things worth pointing out:
 - **`TryMap` in the `when` filter leaves unmapped exceptions alone.** They keep unwinding instead of being swallowed by a handler that has nothing useful to say about them, which is usually what you want at a boundary. `MapOrDefault(exception, GameStatusCode.Unspecified)` is the shorter form for when a fallback code is genuinely fine.
 - **The mapping stops at your enum.** Turning `GameStatusCode` into an HTTP status, a gRPC code, or a wire integer is your transport's business — which is exactly why the generated lookup returns `TCode` and nothing here is transport-shaped.
 
+## Judgements
+
+Everything above throws: the domain raises an exception, a boundary catches it and turns it into a code. That works right up to the places where throwing is not available — inside an actor's message loop, in a rule whose entire job is to be allowed to say no, in a batch that has to report on every item rather than stop at the first. A **judgement** is the other half of the same contract. It hands back the very code the exception would have carried, drawn from the same `TCode` enum, without throwing it.
+
+```csharp
+// Throwing: the boundary turns the exception into a code.
+throw GameErrors.UserNotFound($"player {id} no longer exists");
+
+// Judging: the rule hands the code back, and the caller decides.
+return Judgement.Reject(GameStatusCode.UserNotFound, $"player {id} no longer exists");
+```
+
+**This is not a `Result<T>`.** There is no `Match`, `Map`, `Bind`, `Select`, or `OrElse`, no LINQ, and no implicit conversion from `T`. A judgement is read with one `if`, and then it is over. Railway-oriented composition is a different library's business; this is the non-throwing half of an error-code contract, and it stops there.
+
+### Two forms
+
+| Type | Reports | Payload |
+|---|---|---|
+| `Judgement<TCode>` | passed, or one code and one message | none |
+| `Judgement<T, TCode>` | the new state, or one code and one message | `T? Granted` — `null` exactly when rejected |
+
+`TCode` comes last, following `Func<T, TResult>`, and carries the same `where TCode : struct, Enum` constraint the three attributes do; in practice it is the same enum the mapping table returns. `T` is a reference type, which is the enforcement device rather than a restriction — see **Limitations** below.
+
+Producing either one, with no type argument at any call site:
+
+```csharp
+// With a payload: the new state, or the one reason the rule refused.
+public static Judgement<Enlistment, GameStatusCode> Enlist(Roster roster, Player player)
+{
+    if (player.Level < roster.LevelFloor)
+    {
+        return Judgement.Reject(GameStatusCode.LevelTooLow, $"player {player.Id} is level {player.Level}");
+    }
+
+    if (roster.Enlisted >= roster.Capacity)
+    {
+        return Judgement.Reject(GameStatusCode.RosterFull, $"{roster.MatchId} is full");
+    }
+
+    return Judgement.Grant(new Enlistment(roster with { Enlisted = roster.Enlisted + 1 }, Slot: roster.Enlisted + 1));
+}
+
+// Without one — and since both branches of a conditional are target-typed, a whole rule fits in one expression.
+public static Judgement<GameStatusCode> CanTrade(Player player) =>
+    player.IsBanned
+        ? Judgement.Reject(GameStatusCode.Banned, "trading is suspended for this account")
+        : Judgement.Grant();
+```
+
+`Judgement.Grant` and `Judgement.Reject` do not return judgements. They return small opaque **carriers**, and an implicit conversion turns a carrier into whichever judgement the target type asks for. A rejection has no payload, so its carrier converts to *both* forms — which is exactly why `Reject` never has to name `T`, in the branch that in practice is written far more often than the granting one. Write the factories where a target type exists (a `return`, an assignment to a declared type, either branch of a conditional) and the type arguments never appear.
+
+A `null` payload or a `null` message is an `ArgumentNullException`; the empty string is a legal message.
+
+### Reading one
+
+`TryGetRejection` narrows both branches in a single call:
+
+```csharp
+Judgement<Enlistment, GameStatusCode> judgement = Enlist(roster, player);
+
+if (judgement.TryGetRejection(out GameStatusCode code, out string message))
+{
+    // `code` is GameStatusCode, not GameStatusCode? — no `?? Unspecified` for a code that is always there.
+    Sender.Tell(new RequestRejected(code, message));
+    return;
+}
+
+// No `!` and no second null test: ruling the rejection out narrowed Granted to non-null.
+Enlistment enlistment = judgement.Granted;
+```
+
+Both halves are `[MemberNotNullWhen]`: returning `false` means `Granted` is not null. `IsGranted` carries the mirror annotation, for when the rejection details are not wanted.
+
+Pattern matching the members is equally legal, and is the only option for the payload-free form:
+
+```csharp
+if (judgement.Granted is not { } enlistment)
+{
+    // RejectedWith is a GameStatusCode? here — which is the one thing TryGetRejection exists to spare you.
+    logger.LogWarning("refused with {Code}: {Reason}", judgement.RejectedWith, judgement.RejectionMessage);
+    return;
+}
+
+// Payload-free: there is nothing to unwrap, so match the nullable code.
+if (verdict.RejectedWith is { } code)
+{
+    Reply(code, verdict.RejectionMessage);
+    return;
+}
+```
+
+`ToString()` is short and stable — `Granted`, `Granted(state)`, or `Rejected(Code): message` — deliberately not the record default, which would dump the whole payload into your log line.
+
+### When every refusal in a domain carries one code
+
+The carriers are public, so a rule set whose refusals always use the same code needs three lines and nothing from this library:
+
+```csharp
+internal static class TitleJudgements
+{
+    public static RejectedJudgement<GameStatusCode> NotEarned(string message) =>
+        Judgement.Reject(GameStatusCode.TitleNotEarned, message);
+}
+
+// Fits either return type, exactly like Judgement.Reject does.
+return TitleJudgements.NotEarned($"take part in defeating {target} to earn this title");
+```
+
+### Limitations
+
+`Judgement<T, TCode>` makes a forgotten rejection check stop the build — the new state is reachable only through a `T?`, so using it without ruling the rejection out first is a null dereference. That is a nudge in the right direction rather than a guarantee, and it is worth being precise about where it stops.
+
+- **It depends on the consuming project's settings.** The missed check is a build error where `Nullable` is enabled *and* warnings are errors; a warning where only the first holds; and nothing at all otherwise.
+- **`Judgement<TCode>` cannot make anyone look.** There is no payload to unwrap, so a caller who ignores the verdict simply carries on. When a missed check has to stop the build, model the rule so that it returns the new state and use the payload-carrying form.
+- **Discarding `TryGetRejection`'s return value is not caught either.** Its outputs are non-nullable so that the rejection branch needs no `??`; the price is that they are meaningless until the result has been read. Reading them while ignoring the result is outside the contract, and v1 ships no diagnostic for it.
+- **A payload is a reference type on purpose.** `where T : class` is the device, not a restriction: the null check is the whole mechanism, and a payload that cannot be null would remove the reason the type exists. When the new state is several values — including value types — bundle them into a `sealed record` and use that as `T`. That also rules out the illegal half-states a bag of individually nullable fields would allow.
+
+Three smaller contracts that follow from the shape:
+
+- **Carriers are return values, not values to keep.** `var pending = Judgement.Grant(state);` compiles, but a carrier has no public members, so there is nothing to be done with the result. Convert it where the judgement is produced.
+- **A `default` carrier throws.** `default(GrantedJudgement<T>)` and `default(RejectedJudgement<TCode>)` never went through a factory and are missing state the contract requires, so converting one is an `InvalidOperationException` rather than a judgement that quietly lies. The payload-free `GrantedJudgement` holds nothing either way, so its `default` is legal.
+- **Judgements do not travel.** Private constructors, get-only properties, no serialization contract: they are in-process values. Codes cross process boundaries; the judgements carrying them do not.
+
 ## Diagnostics
 
 | ID | Severity | Reported when |
