@@ -3,8 +3,9 @@
 // Walks through the library in the order the pieces are meant to be met: the guard clauses and the
 // expression text they capture for free, the [ErrorCode] declarations at the bottom of this file and
 // the factory/throw helpers generated from them, the generated mapping table (including the
-// derived-before-base guarantee and externally registered BCL exceptions), and finally the whole
-// thing assembled into the service boundary the pattern exists for.
+// derived-before-base guarantee and externally registered BCL exceptions), the whole thing assembled
+// into the service boundary the pattern exists for, and finally the non-throwing half of the same
+// contract -- judgements, which hand those very codes back instead of throwing them.
 //
 // Everything below runs against the real source generator: this project references
 // SsalKit.Guard.Generator as an analyzer, exactly the way a consumer receives it inside the
@@ -157,6 +158,67 @@ Console.WriteLine("[RequireTeam]    [DoesNotReturn] on the throw helper ends the
 Console.WriteLine($"                 RequireTeam(seasoned) -> {RequireTeam(seasoned)}");
 Console.WriteLine("                 RequireTeam(player)   -> throws; and because that path is analysed as ended,");
 Console.WriteLine("                                          the nullable Team is known non-null after the call");
+Console.WriteLine();
+
+// ---------------------------------------------------------------------------------------
+// 6. Judgements -- the non-throwing half of the same contract. Some rules cannot raise an
+//    exception: one running inside an actor's message loop, or one whose entire job is to be
+//    allowed to say no. A judgement hands back the very code an exception would have carried,
+//    drawn from the same GameStatusCode enum everything above maps to. Note that not one factory
+//    call below spells a type argument: Reject infers the enum from its argument, and the return
+//    type it is written in supplies the rest.
+// ---------------------------------------------------------------------------------------
+Console.WriteLine("[Judgement]      a rule with a payload: the new state, or the one reason it refused");
+
+Player[] candidates =
+[
+    seasoned,
+    player,
+    new Player(Id: "p-9", Level: 51, Name: "Vale", Team: new Team("Red")),
+    new Player(Id: "p-13", Level: 27, Name: "Wren", Team: new Team("Red")),
+];
+
+// The granted payload is the point: it *is* the new state, so the caller keeps it and moves on,
+// while a rejection leaves the roster it already had exactly as it was.
+Roster current = new(MatchId: "m-88", Enlisted: 3, Capacity: 5, LevelFloor: 10);
+
+foreach (Player candidate in candidates)
+{
+    Judgement<Enlistment, GameStatusCode> judgement = Enlist(current, candidate);
+
+    // One call narrows both branches. Here `code` is GameStatusCode rather than GameStatusCode?,
+    // so the refusing branch needs no `?? Unspecified` fallback for a code that is always there.
+    if (judgement.TryGetRejection(out GameStatusCode code, out string message))
+    {
+        Console.WriteLine($"                 {candidate.Id,-5} refused  -> {code} ({(int)code}): {message}");
+        continue;
+    }
+
+    // And below it there is no `!` and no second null test: ruling the rejection out is what
+    // narrowed Granted to non-null, which is the whole reason the payload lives behind a T?.
+    Enlistment enlistment = judgement.Granted;
+    current = enlistment.Roster;
+
+    Console.WriteLine($"                 {candidate.Id,-5} enlisted -> slot {enlistment.Slot} of {current.Capacity} on {current.MatchId}");
+}
+Console.WriteLine();
+
+Console.WriteLine("[No payload]     a rule that only answers yes or no -- and cannot make the caller look");
+
+foreach (Player candidate in candidates)
+{
+    Console.WriteLine($"                 {candidate.Id,-5} -> {Announce(CanClaimTitle(candidate))}");
+}
+
+Console.WriteLine($"                 and ToString stays short: {CanClaimTitle(player)}");
+Console.WriteLine("                 nothing forces that check, though: with no payload to unwrap, a caller who");
+Console.WriteLine("                 ignores the verdict simply carries on. Rules whose omission must stop the");
+Console.WriteLine("                 build are modelled with a payload, like Enlist above.");
+Console.WriteLine();
+
+Console.WriteLine("[Fixed code]     every refusal above carries GameStatusCode.TitleNotEarned, so a three-line");
+Console.WriteLine("                 helper (TitleJudgements, at the bottom of this file) returns the carrier and");
+Console.WriteLine("                 each rule names only the reason -- this needs no library surface at all.");
 
 // Runs a guard clause that is expected to fail and prints the message it produced. The expression
 // text inside each message is the caller's own source, captured by the compiler.
@@ -210,11 +272,73 @@ static string RequireTeam(Player player)
     return player.Team.Name;
 }
 
+// A domain rule that produces new state. Both refusals return a carrier that fits this return type
+// without naming Enlistment -- a rejection has no payload, so the same carrier converts to either
+// judgement form. That is what removes the payload type from the branch written most often.
+static Judgement<Enlistment, GameStatusCode> Enlist(Roster roster, Player player)
+{
+    if (player.Level < roster.LevelFloor)
+    {
+        return Judgement.Reject(
+            GameStatusCode.LevelTooLow,
+            $"player {player.Id} is level {player.Level}; {roster.MatchId} starts at {roster.LevelFloor}");
+    }
+
+    if (roster.Enlisted >= roster.Capacity)
+    {
+        return Judgement.Reject(
+            GameStatusCode.RosterFull,
+            $"{roster.MatchId} already has all {roster.Capacity} places filled");
+    }
+
+    // Grant infers its payload type from the argument, exactly as it always could.
+    return Judgement.Grant(new Enlistment(roster with { Enlisted = roster.Enlisted + 1 }, Slot: roster.Enlisted + 1));
+}
+
+// A rule with nothing to hand back. Every refusal in the title domain is the same code, so the
+// three-line helper at the bottom of this file owns it and each site names only the reason. Both
+// branches of the conditional are target-typed to the return type, so the whole rule is one
+// expression with no type argument in sight.
+static Judgement<GameStatusCode> CanClaimTitle(Player player) =>
+    player.Level >= 40
+        ? Judgement.Grant()
+        : TitleJudgements.NotEarned($"player {player.Id} is level {player.Level}; the title is earned at 40");
+
+// The other legal way to read a judgement, and the only one available without a payload: match the
+// nullable code. TryGetRejection above exists because this shape hands back a GameStatusCode? that
+// every consumer would otherwise have to `??` away.
+static string Announce(Judgement<GameStatusCode> verdict) =>
+    verdict.RejectedWith is { } code
+        ? $"{code} ({(int)code}): {verdict.RejectionMessage}"
+        : "the title is claimed";
+
 /// <summary>A player of the pretend game domain this sample maps failures for.</summary>
 internal sealed record Player(string Id, int Level, string Name, Team? Team);
 
 /// <summary>A team a player may belong to.</summary>
 internal sealed record Team(string Name);
+
+/// <summary>The roster a match fills up, and the state the enlistment rule produces a new one of.</summary>
+internal sealed record Roster(string MatchId, int Enlisted, int Capacity, int LevelFloor);
+
+/// <summary>
+/// What a granted enlistment hands back. Two values, one of them an <see langword="int"/>, so they
+/// are bundled into a record rather than reached for one at a time: the payload of a
+/// <c>Judgement&lt;T, TCode&gt;</c> is a reference type because its null is the enforcement device,
+/// and bundling also rules out the half-states a pair of separately nullable fields would allow.
+/// </summary>
+internal sealed record Enlistment(Roster Roster, int Slot);
+
+/// <summary>
+/// The three-line recipe for a domain whose refusals always carry one code. Returning the carrier
+/// rather than a judgement is what lets it fit either judgement form, exactly like
+/// <c>Judgement.Reject</c> does -- so no library surface is needed for this.
+/// </summary>
+internal static class TitleJudgements
+{
+    public static RejectedJudgement<GameStatusCode> NotEarned(string message) =>
+        Judgement.Reject(GameStatusCode.TitleNotEarned, message);
+}
 
 /// <summary>
 /// The domain's error codes. An ordinary enum: the mapping hands one of these back and stops there,
@@ -227,6 +351,13 @@ internal enum GameStatusCode
     UserNotFound = 1001,
     InvalidTeam = 1002,
     ServerBusy = 2001,
+
+    // Handed back by the judgement rules rather than thrown. Nothing about a code says which way it
+    // travels: one enum serves both halves of the contract.
+    LevelTooLow = 3001,
+    RosterFull = 3002,
+    TitleNotEarned = 3003,
+
     GuardViolation = 9001,
 }
 

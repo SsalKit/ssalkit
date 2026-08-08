@@ -247,6 +247,129 @@ public Response Handle(Func<Response> operation)
 - **`when` フィルターの `TryMap` は、マップされない例外をそのまま通します。** 語ることのないハンドラーに飲み込まれるのではなく上へ伝播し続けるので、境界ではたいていそちらが望ましい挙動です。フォールバックのコードで十分な場面では、`MapOrDefault(exception, GameStatusCode.Unspecified)` が短い書き方になります。
 - **マッピングはあなたの enum で止まります。** `GameStatusCode` を HTTP ステータスや gRPC コード、ワイヤー上の整数に変換するのはトランスポート層の仕事です。生成されるルックアップが `TCode` を返し、このライブラリにトランスポートの匂いが一切ないのは、まさにそのためです。
 
+## 判定（Judgement）
+
+ここまではすべて「投げる」話でした。ドメインが例外を上げ、境界がそれを捕まえてコードへ変換します。ところが、投げるという選択肢がない場所があります。アクターのメッセージループの中、拒否することそのものが仕事である規則、最初の失敗で止まらず項目ごとに結果を返さなければならない一括処理などです。**判定（judgement）** は同じ契約のもう半分です。例外が運んだはずのまさにそのコードを、同じ `TCode` enum から取り出し、投げずに返します。
+
+```csharp
+// 投げる: 境界が例外をコードへ変換します。
+throw GameErrors.UserNotFound($"player {id} no longer exists");
+
+// 判定する: 規則がコードをそのまま返し、どうするかは呼び出し側が決めます。
+return Judgement.Reject(GameStatusCode.UserNotFound, $"player {id} no longer exists");
+```
+
+**これは `Result<T>` ではありません。** `Match`、`Map`、`Bind`、`Select`、`OrElse` はなく、LINQ もなく、`T` からの暗黙の変換もありません。判定は `if` 1 つで読めば、それで終わりです。レールウェイ指向の合成は別のライブラリの仕事であり、こちらはエラーコード契約の「投げない側」であって、そこで止まります。
+
+### 2 つの形
+
+| 型 | 伝えること | ペイロード |
+|---|---|---|
+| `Judgement<TCode>` | 通過、またはコード 1 つとメッセージ 1 つ | なし |
+| `Judgement<T, TCode>` | 新しい状態、またはコード 1 つとメッセージ 1 つ | `T? Granted` — 拒否のときだけちょうど `null` |
+
+`TCode` が最後に来るのは `Func<T, TResult>` の慣例に従ったもので、制約も 3 つの属性と同じ `where TCode : struct, Enum` です。実際にはマッピングテーブルが返すのと同じ enum を使うことになります。`T` が参照型なのは制限ではなく強制のための仕掛けです — 後述の **制限** を参照してください。
+
+どちらの形も、呼び出し箇所に型引数は 1 つも現れません。
+
+```csharp
+// ペイロードあり: 新しい状態か、拒否したただ 1 つの理由か。
+public static Judgement<Enlistment, GameStatusCode> Enlist(Roster roster, Player player)
+{
+    if (player.Level < roster.LevelFloor)
+    {
+        return Judgement.Reject(GameStatusCode.LevelTooLow, $"player {player.Id} is level {player.Level}");
+    }
+
+    if (roster.Enlisted >= roster.Capacity)
+    {
+        return Judgement.Reject(GameStatusCode.RosterFull, $"{roster.MatchId} is full");
+    }
+
+    return Judgement.Grant(new Enlistment(roster with { Enlisted = roster.Enlisted + 1 }, Slot: roster.Enlisted + 1));
+}
+
+// ペイロードなし — 条件演算子の両方の枝も対象の型へ変換されるので、規則 1 つが式 1 つに収まります。
+public static Judgement<GameStatusCode> CanTrade(Player player) =>
+    player.IsBanned
+        ? Judgement.Reject(GameStatusCode.Banned, "trading is suspended for this account")
+        : Judgement.Grant();
+```
+
+`Judgement.Grant` と `Judgement.Reject` が返すのは判定ではありません。小さく不透明な**キャリアー**を返し、暗黙の変換がそれを対象の型が求める判定へ変えます。拒否にはペイロードがないため、そのキャリアーは*どちらの形にも*変換されます — `Reject` が `T` を書かずに済むのはこれが理由で、実際には通過側よりはるかに多く書かれるのがその枝です。対象の型が存在する場所（`return` 文、型を明記した変数への代入、条件演算子の両方の枝）にファクトリーを書けば、型引数はそもそも登場しません。
+
+ペイロードが `null`、またはメッセージが `null` の場合は `ArgumentNullException` です。空文字列は正当なメッセージです。
+
+### 読み方
+
+`TryGetRejection` は 1 回の呼び出しで両方の枝を絞り込みます。
+
+```csharp
+Judgement<Enlistment, GameStatusCode> judgement = Enlist(roster, player);
+
+if (judgement.TryGetRejection(out GameStatusCode code, out string message))
+{
+    // ここでの `code` は GameStatusCode? ではなく GameStatusCode です — 常に存在するコードに `?? Unspecified` を足す必要はありません。
+    Sender.Tell(new RequestRejected(code, message));
+    return;
+}
+
+// `!` も 2 度目の null チェックもありません。拒否を除外したことが、そのまま Granted を非 null に絞り込んでいるからです。
+Enlistment enlistment = judgement.Granted;
+```
+
+どちらも `[MemberNotNullWhen]` のおかげです。`false` を返したということは `Granted` が null ではないという意味です。拒否の詳細が要らない場面のために、`IsGranted` にも逆向きの同じ注釈が付いています。
+
+メンバーを直接パターンマッチしても同じく正当で、ペイロードのない形ではそちらが唯一の方法です。
+
+```csharp
+if (judgement.Granted is not { } enlistment)
+{
+    // ここでの RejectedWith は GameStatusCode? です — TryGetRejection が肩代わりしてくれるのがこの 1 段のずれです。
+    logger.LogWarning("refused with {Code}: {Reason}", judgement.RejectedWith, judgement.RejectionMessage);
+    return;
+}
+
+// ペイロードなし: 開くものがないので、null 許容のコードをマッチします。
+if (verdict.RejectedWith is { } code)
+{
+    Reply(code, verdict.RejectionMessage);
+    return;
+}
+```
+
+`ToString()` は短く安定しています — `Granted`、`Granted(state)`、`Rejected(Code): message`。ペイロード全体をログ行にぶちまける record の既定実装は、あえて使っていません。
+
+### あるドメインの拒否が常に同じコードのとき
+
+キャリアーは public なので、拒否コードが常に 1 つだけの規則群は 3 行で済み、このライブラリから追加で受け取るものはありません。
+
+```csharp
+internal static class TitleJudgements
+{
+    public static RejectedJudgement<GameStatusCode> NotEarned(string message) =>
+        Judgement.Reject(GameStatusCode.TitleNotEarned, message);
+}
+
+// Judgement.Reject とまったく同じく、どちらの戻り値の型にも収まります。
+return TitleJudgements.NotEarned($"take part in defeating {target} to earn this title");
+```
+
+### 制限
+
+`Judgement<T, TCode>` は、拒否チェックを忘れるとビルドを止めます。新しい状態には `T?` を通してしか到達できないため、拒否を先に除外せずに使うことは null 参照の解除だからです。ただしこれは保証ではなく正しい方向への後押しであり、どこまでが範囲なのかははっきりさせておく価値があります。
+
+- **利用側プロジェクトの設定に依存します。** チェック漏れがビルドエラーになるのは、`Nullable` が有効で*かつ*警告がエラーである場合です。前者だけなら警告で終わり、どちらでもなければ何も起きません。
+- **`Judgement<TCode>` は誰にも見させることができません。** 開くペイロードがないため、判定を無視した呼び出し側はそのまま進みます。チェック漏れが必ずビルドを止めるべき規則なら、新しい状態を返すように設計してペイロードのある形を使ってください。
+- **`TryGetRejection` の戻り値を捨てることも捕捉されません。** out パラメーターを null 非許容にしてあるのは拒否側の枝で `??` を不要にするためで、その代償として、戻り値を読むまでは 2 つの値に意味がありません。戻り値を無視して out だけを読むのは契約の外であり、v1 はそれを捕らえる診断を提供しません。
+- **ペイロードが参照型なのは意図的です。** `where T : class` は制限ではなく仕掛けです。null チェックが強制のすべてなので、null になり得ないペイロードはこの型の存在理由を消してしまいます。新しい状態が値型を含む複数の値なら、`sealed record` にまとめて `T` として使ってください。そうすればフィールドごとに null 許容を並べたときに生まれる不正な半端状態も同時になくなります。
+
+この形から導かれる小さな契約が、さらに 3 つあります。
+
+- **キャリアーは戻り値であって、保持する値ではありません。** `var pending = Judgement.Grant(state);` はコンパイルできますが、キャリアーには public メンバーがないため、その結果にできることは何もありません。判定を作るその場で変換してください。
+- **`default` のキャリアーは例外を投げます。** `default(GrantedJudgement<T>)` と `default(RejectedJudgement<TCode>)` はファクトリーを通っておらず、契約が求める状態が欠けているため、変換すると静かに嘘をつく判定ではなく `InvalidOperationException` になります。ペイロードのない `GrantedJudgement` はどのみち何も持たないので、その `default` は正当です。
+- **判定はプロセスの外へ出ません。** private なコンストラクター、get 専用のプロパティ、シリアライズ契約なし — プロセス内部の値です。プロセス境界を越えるのはコードであって、それを運ぶ判定ではありません。
+
 ## 診断
 
 | ID | 重大度 | 報告される条件 |
