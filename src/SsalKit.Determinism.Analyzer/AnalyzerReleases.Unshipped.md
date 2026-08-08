@@ -12,3 +12,4 @@ SSALD004 | SsalKit.Determinism | Warning  | Per-process randomized hashing used 
 SSALD005 | SsalKit.Determinism | Warning  | Environment or process identity read inside a [Deterministic] scope
 SSALD006 | SsalKit.Determinism | Warning  | Scheduling or parallelism API used inside a [Deterministic] scope
 SSALD007 | SsalKit.Determinism | Warning  | [AllowNonDeterminism] applied outside any [Deterministic] scope
+SSALD008 | SsalKit.Determinism | Warning  | Unmarked member of this assembly called from a [Deterministic(Strict = true)] scope

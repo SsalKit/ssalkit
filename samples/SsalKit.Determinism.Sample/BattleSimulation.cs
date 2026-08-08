@@ -61,16 +61,19 @@ internal sealed record BattleState
 /// </list>
 /// <para>
 /// <c>[Deterministic]</c> is on the type, so the scope covers every member of it -- including the
-/// property initializers and the local function bodies. Note that it does not extend to types this
-/// one calls into: the analysis is shallow by design, so a helper type would have to be marked too.
+/// property initializers and the local function bodies. It does not extend to types this one calls
+/// into: the analysis is shallow by design, so a helper type has to be marked too. That is what
+/// <c>Strict = true</c> adds here -- see <see cref="DamageRules"/>, whose marking is no longer
+/// something anyone has to remember.
 /// </para>
 /// </remarks>
-[Deterministic]
+[Deterministic(Strict = true)]
 internal sealed class BattleSimulation
 {
     private const int WaveInterval = 3;
     private const int MaxPlayerHp = 100;
     private const int StartingEnemyHp = 200;
+    private const int GuardHeal = 3;
 
     /// <summary>
     /// The instant tick 0 corresponds to. A fixed literal, never a clock reading: it is what turns
@@ -134,7 +137,7 @@ internal sealed class BattleSimulation
         {
             if (entry.Event == BattleEvent.EnemyWave)
             {
-                _playerHp = Math.Max(0, _playerHp - _random.Next(3, 8));
+                _playerHp = DamageRules.Apply(_playerHp, _random.Next(3, 8));
                 _schedule = _schedule.Add(BattleEvent.EnemyWave, _tick + WaveInterval);
             }
         }
@@ -160,12 +163,52 @@ internal sealed class BattleSimulation
 
             case BattleCommand.Guard:
             default:
-                _playerHp = Math.Min(MaxPlayerHp, _playerHp + 3);
+                _playerHp = DamageRules.Heal(_playerHp, GuardHeal, MaxPlayerHp);
                 break;
         }
 
-        _enemyHp = Math.Max(0, _enemyHp - damage - injectedDamage);
+        _enemyHp = DamageRules.Apply(_enemyHp, damage + injectedDamage);
     }
+}
+
+/// <summary>
+/// The arithmetic the simulation leans on, in a type of its own -- and the reason
+/// <see cref="BattleSimulation"/> is marked <c>[Deterministic(Strict = true)]</c> rather than plain
+/// <c>[Deterministic]</c>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Because the analysis only sees direct calls, a plain <c>[Deterministic]</c> on the simulation
+/// says nothing whatsoever about this class: a <c>DateTime.UtcNow</c> added to one of these methods
+/// next month would sit in the simulation's hot path and produce no diagnostic at all. The marking
+/// below is what prevents that, and under <c>Strict</c> it is not optional -- delete it and the call
+/// sites in <see cref="BattleSimulation.Advance"/> become SSALD008, which
+/// <c>TreatWarningsAsErrors</c> turns into a failed build.
+/// </para>
+/// <para>
+/// What Strict checks is coverage, not purity: it never reads these method bodies, only whether a
+/// <c>[Deterministic]</c> sits over them. A helper that genuinely needs the clock is still allowed
+/// -- it is exempted where it is used, with <c>[AllowNonDeterminism]</c> on the calling member, or
+/// carved out inside a <c>[Deterministic]</c> type with the marking still above it. What does not
+/// work is an exemption floating on its own: with no <c>[Deterministic]</c> above it, it suppresses
+/// nothing and is reported as an orphan (SSALD007).
+/// </para>
+/// </remarks>
+[Deterministic]
+internal static class DamageRules
+{
+    /// <summary>Subtracts damage from a pool, clamped at zero.</summary>
+    /// <param name="hitPoints">The current pool.</param>
+    /// <param name="damage">The damage to apply.</param>
+    /// <returns>The remaining hit points.</returns>
+    public static int Apply(int hitPoints, int damage) => Math.Max(0, hitPoints - damage);
+
+    /// <summary>Adds healing to a pool, clamped at its maximum.</summary>
+    /// <param name="hitPoints">The current pool.</param>
+    /// <param name="amount">The healing to apply.</param>
+    /// <param name="maximum">The pool's upper bound.</param>
+    /// <returns>The resulting hit points.</returns>
+    public static int Heal(int hitPoints, int amount, int maximum) => Math.Min(maximum, hitPoints + amount);
 }
 
 /// <summary>

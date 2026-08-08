@@ -13,7 +13,7 @@ Opt-in compile-time diagnostics for non-deterministic APIs. `[Deterministic]` ma
 
 | Not detected | Why |
 |---|---|
-| Indirect calls | A `[Deterministic]` method calling an unmarked helper that reads `DateTime.Now` reports nothing. Mark the helper types too. |
+| Indirect calls | A `[Deterministic]` method calling an unmarked helper that reads `DateTime.Now` reports nothing. Mark the helper types too — `Strict = true` (`SSALD008`) checks that you did, but still never looks inside them. |
 | `Dictionary`/`HashSet` enumeration order | Deliberately out of scope for v1 — order-independent consumption cannot be told apart from order-dependent. |
 | Floating-point cross-platform differences (FMA, x87, vectorization) | Outside static analysis entirely. |
 | Culture-dependent formatting/parsing (`ToString()`, `Parse`) | Already covered by CA1304/CA1305/CA1310 — enable those instead of expecting it here. |
@@ -32,6 +32,7 @@ The whole runtime package is two attributes.
 |---|---|
 | Make a simulation core / replay path / cache-key computation analyzed | `[Deterministic]` on the type |
 | Analyze one method, constructor, or property only | `[Deterministic]` on that member |
+| Also require everything the scope calls in this assembly to carry a marking | `[Deterministic(Strict = true)]` on the type or member |
 | Exempt one member or nested type from an enclosing scope | `[AllowNonDeterminism(Justification = "...")]` |
 | Suppress one call site | `#pragma warning disable SSALD00x` |
 | Turn a whole category off / into an error | `.editorconfig`: `dotnet_diagnostic.SSALD006.severity = none` |
@@ -39,7 +40,11 @@ The whole runtime package is two attributes.
 
 ### `DeterministicAttribute` — `[AttributeUsage(Class | Struct | Method | Constructor | Property, Inherited = false)]`
 
-No properties. Applied to a type, the scope covers every member of that type **and every nested type**, lexically.
+Applied to a type, the scope covers every member of that type **and every nested type**, lexically.
+
+| Member | Contract |
+|---|---|
+| `bool Strict { get; init; }` | Default `false` = the behaviour of every scope written before it existed. `true` additionally reports `SSALD008` for members of the same assembly this scope references directly that no `[Deterministic]` covers. Nothing reads it at run time; it is a declaration the analyzer reads. |
 
 ### `AllowNonDeterminismAttribute` — `[AttributeUsage(Class | Struct | Method | Constructor | Property, Inherited = false)]`
 
@@ -68,6 +73,30 @@ No properties. Applied to a type, the scope covers every member of that type **a
 
 **Detection surface — four operation kinds, nothing else:** invocation, property reference, object creation, method-group reference. Symbol matching is on the `OriginalDefinition` (so generic members and reduced extension-method calls match), never on spelling.
 
+**Strict mode contract (`SSALD008`) — opt-in per scope, depth exactly 1.** The question is *"does a `[Deterministic]` cover this callee?"*, **not** *"is this callee deterministic?"* — the callee's body is never read and the call graph is never walked. The predicate is the same one `SSALD007` uses (`[Deterministic]` anywhere in the containing-symbol chain), applied to the callee instead of to an attribute application; sharing it is what stops the two rules from contradicting each other. Exactly two silent forms:
+
+1. **Callee covered** — `[Deterministic]` on it or on a containing type. Members inside it that genuinely need the clock are carved out with a nested `[AllowNonDeterminism]`, which is not an orphan because the marking above it exists. **This is the recommended shape.**
+2. **Caller-side exemption** — `[AllowNonDeterminism]` on the calling member, exactly as for a direct banned-API call.
+
+A bare `[AllowNonDeterminism]` on an uncovered helper is **neither**: it is an orphan (`SSALD007`) and it does not silence `SSALD008`, so both fire and point the same way.
+
+| Case | Behaviour |
+|---|---|
+| `Strict` on the winning marking | Nearest-wins like the rest of the scope. A nested `[Deterministic]` without `Strict` turns it **off** inside that nested scope — the supported way to relax it locally. |
+| Callee carries only `[AllowNonDeterminism]`, nothing above it | **Both** `SSALD007` (orphan) and `SSALD008` (uncovered) are reported. |
+| Callee carries `[AllowNonDeterminism]` nested inside a `[Deterministic]` type | Silent, and not an orphan. |
+| Calling member carries `[AllowNonDeterminism]` | Silent — the whole scope test short-circuits, as for `SSALD001`–`SSALD006`. |
+| Callee in another assembly (BCL, other SsalKit packages) | Silent. Those cannot be marked; reporting them would be unfixable. Cross-project within one solution is v1-excluded too. |
+| Interface member | Silent. `[Deterministic]` has no `Interface` target. |
+| Compiler-synthesized member (record `Equals`/`Deconstruct`/clone, implicit constructor, delegate `Invoke`) | Silent. No declaration to write the attribute on. |
+| Source-generated callee (`[GeneratedCode]`, or a `.g.cs`/`.generated.cs`/`.designer.cs`/`.g.i.cs` declaration) | Silent — the file is regenerated, so no attribute can be written into it. **Not** the same as generated code at the *call site*, which is analyzed and reported as usual; and a generator emitting into your own `[Deterministic] partial` type was always covered by the enclosing marking. |
+| Positional record property, positional record primary constructor | Silent. Roslyn reports these as explicitly declared (they point at the record header), but no code was written behind them. |
+| Auto-implemented property, `abstract`/`extern`/unimplemented `partial` | Silent. Nothing a marking would bring into the analysis. |
+| Field read | Silent. Not a registered operation kind, and `[Deterministic]` has no `Field` target. |
+| Lambda, local function, recursion, another member of the same type | Silent by construction — the callee's chain runs through the marking the caller is already inside. |
+| A reference the catalog also matches | Reports the `SSALD001`–`SSALD006` diagnostic only, never both. |
+| `nameof(...)` | Silent, same as for the catalog. |
+
 **Catalog contract v1 (fixed, not user-extensible).** A type the compilation does not reference is silently skipped — this is what keeps the package at zero dependencies while still banning `SsalKit.Randomness` entry points when that package *is* referenced.
 
 | Category | Banned members |
@@ -93,6 +122,9 @@ No properties. Applied to a type, the scope covers every member of that type **a
 
 - **DO NOT treat the analyzer's silence as proof that a scope is deterministic.** It sees direct calls only. Zero diagnostics means "no banned API is named here", nothing more.
 - **DO NOT expect indirect calls to be caught.** A `[Deterministic]` method calling an unmarked helper that reads the clock reports nothing. Mark the helper types `[Deterministic]` too — that is the intended usage pattern, not a workaround.
+- **DO NOT treat silence under `Strict = true` as proof of determinism either.** Strict mode checks that a decision was recorded about each callee; it never reads a callee's body and does not deepen the analysis by one line. It automates the "mark the helpers too" discipline — it does not replace it with a guarantee.
+- **DO NOT exempt a standalone helper by putting `[AllowNonDeterminism]` on it alone.** With no `[Deterministic]` above it the attribute is an orphan (`SSALD007`) and it does not silence `SSALD008` either — you get both diagnostics. Anchor the exemption inside a `[Deterministic]` type, or exempt the calling member.
+- **DO NOT turn `Strict` on globally as a first step.** It is opt-in per scope on purpose: it reports an absence rather than a banned API, so it is noisier than `SSALD001`–`SSALD007`. Start with the one core that has to be reproducible, not with every `[Deterministic]` in the codebase.
 - **DO NOT put `[Deterministic]` on an interface** — it is not a valid target and would not reach implementations if it were.
 - **DO NOT expect `[Deterministic]` on a base class to cover derived classes.** `Inherited = false` and no base-type walk. Mark each type.
 - **DO NOT assume `new Random(seed)` is acceptable because it is seeded.** It is banned on purpose: `System.Random`'s algorithm is not part of its contract and has changed between runtime versions, so a seed does not reproduce a sequence across processes or versions. Use `SsalKit.Randomness.DeterministicRandom`.
@@ -116,6 +148,7 @@ Prefix `SSALD`, category `SsalKit.Determinism`. **Every rule is a Warning**, rep
 | `SSALD005` | Machine, process, or thread identity read in scope. | Pass the value in as explicit configuration. |
 | `SSALD006` | Scheduling or parallelism API used in scope. | No substitute API — restructure the work to be sequential, or move it outside the scope and feed the result in. |
 | `SSALD007` | `[AllowNonDeterminism]` applied where no enclosing symbol has `[Deterministic]`. | Remove the attribute, or mark the enclosing type/member `[Deterministic]`. |
+| `SSALD008` | **Opt-in** (`Strict = true` only). A member of the same assembly is referenced directly from the scope and no `[Deterministic]` sits anywhere in its containing-symbol chain. | Mark that member (or its containing type) `[Deterministic]`, carving out members that need the clock with a nested `[AllowNonDeterminism]`; or exempt the **calling** member. A bare `[AllowNonDeterminism]` on the callee is an orphan and silences nothing. |
 
 ## 5. Canonical snippets
 
@@ -144,6 +177,30 @@ public sealed class BattleSimulation
 internal static class DamageRules
 {
     public static int Apply(int roll, int armor) => Math.Max(0, roll - armor);
+}
+```
+
+### Have the compiler check that the helpers are marked
+
+```csharp
+using SsalKit.Determinism;
+
+[Deterministic(Strict = true)]
+public sealed class ReplayRunner
+{
+    // SSALD008 until a [Deterministic] covers DamageTable: nothing has ever looked inside it.
+    public int Apply(int roll, int armor) => DamageTable.Lookup(roll, armor);
+}
+
+[Deterministic]
+internal static class DamageTable
+{
+    public static int Lookup(int roll, int armor) => Math.Max(0, roll - armor);
+
+    // The exemption is anchored under the [Deterministic] above, so it silences SSALD008 for
+    // callers AND is not an orphan. On an unmarked type, this attribute would be both.
+    [AllowNonDeterminism(Justification = "console output only; never feeds replayed state")]
+    public static void Log(int tick) => Console.WriteLine($"{DateTime.UtcNow:O} tick {tick}");
 }
 ```
 

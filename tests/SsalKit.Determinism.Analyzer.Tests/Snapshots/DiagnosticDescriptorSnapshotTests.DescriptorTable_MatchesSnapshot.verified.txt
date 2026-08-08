@@ -75,3 +75,14 @@ SchedulingAndParallelism
   HelpLinkUri: 
   CustomTags: 
 
+UnmarkedCallFromStrictScope
+  Id: SSALD008
+  Title: Uncovered member called from a strict [Deterministic] scope
+  MessageFormat: '{0}' is called from a [Deterministic(Strict = true)] scope but no [Deterministic] marking covers it, so its body is never analyzed. Mark '{1}' [Deterministic] to bring it into the contract, exempting individual members inside it with [AllowNonDeterminism] where they need it -- or mark the calling member [AllowNonDeterminism] if this call is itself the deliberate non-determinism
+  Category: SsalKit.Determinism
+  DefaultSeverity: Warning
+  IsEnabledByDefault: True
+  Description: This rule does not claim the member is non-deterministic -- nothing here has looked inside it, which is exactly the problem being reported. The analysis only ever sees direct calls, so a member no [Deterministic] marking covers is code that runs inside a deterministic core while no rule has ever been applied to it, and the wall clock or process randomness it may acquire next month will pass through in silence. The question is coverage, one hop deep: does any [Deterministic] sit on the member or on a type containing it? An [AllowNonDeterminism] on the member alone does not answer it -- with no [Deterministic] above it that attribute is an orphan, which SSALD007 reports for suppressing nothing. Exemptions belong in one of the two places that stay coherent: nested inside a [Deterministic] type, where they carve a member out of a contract that does cover it, or on the calling member, where the deliberate non-determinism actually is. What cannot be marked is never reported -- another assembly's members, interface members, compiler-synthesized members, and source-generated code -- and neither is a declaration with no body of its own, which covers auto-implemented properties, abstract and extern members, and everything about a positional record. Marking everything this reports still does not make silence a proof of determinism; it makes the shallow analysis cover the code that actually runs.
+  HelpLinkUri: 
+  CustomTags: 
+
