@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
@@ -13,9 +14,19 @@ namespace SsalKit.Randomness.Generator.Parsing;
 /// either the strings the emitter needs, or the member-level diagnostic that disqualified it.
 /// </summary>
 /// <remarks>
+/// <para>
 /// No <see cref="ISymbol"/>, <see cref="SyntaxNode"/>, or <see cref="Compilation"/> survives into
 /// the returned model -- only strings, enums, and <see cref="LocationInfo"/> -- which is what lets
 /// the incremental pipeline compare runs by value instead of re-emitting on every keystroke.
+/// </para>
+/// <para>
+/// The rules live behind the symbol-level <see cref="GetModel(ISymbol, ImmutableArray{AttributeData}, Location, CancellationToken)"/>
+/// overload rather than behind the <see cref="GeneratorAttributeSyntaxContext"/> one, because the
+/// decorated member does not always come from an attribute transform: an attribute written with the
+/// <c>property:</c> target lands on a symbol the attribute provider never reports (see
+/// <see cref="TargetRedirectedRandomWeightParser"/>), and every rule here has to apply to it just
+/// the same.
+/// </para>
 /// </remarks>
 internal static class RandomWeightMemberParser
 {
@@ -24,11 +35,38 @@ internal static class RandomWeightMemberParser
     private const string ExtensionClassSuffix = "RandomWeightExtensions";
     private const string HintNameSuffix = ".RandomWeight";
 
-    public static WeightedMemberModel? GetModel(GeneratorAttributeSyntaxContext context, CancellationToken cancellationToken)
+    /// <summary>
+    /// Parses the member an attribute transform reported: the ordinary path, for an attribute written
+    /// on a property or field declaration with no target specifier.
+    /// </summary>
+    /// <param name="context">The attribute transform's context.</param>
+    /// <param name="cancellationToken">Cancels the parse.</param>
+    /// <returns>The member model, or <see langword="null"/>; see the overload below.</returns>
+    public static WeightedMemberModel? GetModel(GeneratorAttributeSyntaxContext context, CancellationToken cancellationToken) =>
+        GetModel(context.TargetSymbol, context.Attributes, GetReportLocation(context), cancellationToken);
+
+    /// <summary>
+    /// Validates <paramref name="member"/> and, when it passes, builds its emission model.
+    /// </summary>
+    /// <param name="member">The decorated member: a property or a field.</param>
+    /// <param name="attributes">
+    /// The <c>[RandomWeight]</c> applications the named arguments are read from. All of them are
+    /// consulted, so an argument written on any one application counts (the language allows only
+    /// one per member, but the model must not depend on that).
+    /// </param>
+    /// <param name="reportLocation">Where a diagnostic about this member is reported.</param>
+    /// <param name="cancellationToken">Cancels the parse.</param>
+    /// <returns>
+    /// The model -- carrying either the emission model or a member-level diagnostic -- or
+    /// <see langword="null"/> when the member is not one this generator has anything to say about.
+    /// </returns>
+    public static WeightedMemberModel? GetModel(
+        ISymbol member,
+        ImmutableArray<AttributeData> attributes,
+        Location? reportLocation,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-
-        var member = context.TargetSymbol;
 
         // [AttributeUsage] already limits the attribute to properties and fields, so anything else
         // reaching here would be a compiler error at the application site; there is nothing useful
@@ -44,7 +82,7 @@ internal static class RandomWeightMemberParser
             return null;
         }
 
-        var location = LocationInfo.CreateFrom(GetReportLocation(context));
+        var location = LocationInfo.CreateFrom(reportLocation);
         var typeFqn = SymbolFacts.ToFqn(declaringType);
         var typeDisplayName = declaringType.ToDisplayString();
         var memberDisplayName = typeDisplayName + "." + member.Name;
@@ -55,8 +93,48 @@ internal static class RandomWeightMemberParser
             return new WeightedMemberModel(typeFqn, typeDisplayName, member.Name, location, Type: null, diagnostic);
         }
 
-        var typeModel = BuildTypeModel(context, declaringType, member, typeFqn, weightKind);
+        var typeModel = BuildTypeModel(attributes, declaringType, member, typeFqn, weightKind);
         return new WeightedMemberModel(typeFqn, typeDisplayName, member.Name, location, typeModel, Diagnostic: null);
+    }
+
+    /// <summary>
+    /// Builds the model for a member this generator rejects before the rules in
+    /// <see cref="Validate"/> can even be asked -- currently only SSALR007, where the attribute
+    /// landed on a symbol that has no writable name at all.
+    /// </summary>
+    /// <remarks>
+    /// The member still travels through the pipeline as a <see cref="WeightedMemberModel"/> rather
+    /// than being reported on the spot, because it counts towards the "one weight member per type"
+    /// rule (SSALR002) like any other decorated member. <paramref name="memberName"/> is therefore
+    /// the name as it appears in source, never a compiler-internal one: it is what SSALR002's member
+    /// list shows the user.
+    /// </remarks>
+    /// <param name="declaringType">The type the rejected member belongs to.</param>
+    /// <param name="memberName">The member's source-level name.</param>
+    /// <param name="reportLocation">Where the diagnostic is reported.</param>
+    /// <param name="descriptor">
+    /// The rule that fired. It must take the member's display name as <c>{0}</c> and a reason clause
+    /// as <c>{1}</c>, which is the shape the member-level rules share.
+    /// </param>
+    /// <param name="reason">The clause spliced in as <c>{1}</c>.</param>
+    /// <returns>A model carrying nothing but the diagnostic.</returns>
+    public static WeightedMemberModel CreateRejectedMemberModel(
+        INamedTypeSymbol declaringType,
+        string memberName,
+        Location? reportLocation,
+        DiagnosticDescriptor descriptor,
+        string reason)
+    {
+        var location = LocationInfo.CreateFrom(reportLocation);
+        var typeDisplayName = declaringType.ToDisplayString();
+
+        return new WeightedMemberModel(
+            SymbolFacts.ToFqn(declaringType),
+            typeDisplayName,
+            memberName,
+            location,
+            Type: null,
+            new DiagnosticInfo(descriptor, location, typeDisplayName + "." + memberName, reason));
     }
 
     /// <summary>
@@ -124,7 +202,7 @@ internal static class RandomWeightMemberParser
     }
 
     private static WeightedTypeModel BuildTypeModel(
-        GeneratorAttributeSyntaxContext context,
+        ImmutableArray<AttributeData> attributes,
         INamedTypeSymbol declaringType,
         ISymbol member,
         string typeFqn,
@@ -133,7 +211,7 @@ internal static class RandomWeightMemberParser
         var namespaceName = SymbolFacts.GetContainingNamespaceName(declaringType);
 
         var isPublic = SymbolFacts.IsEffectivelyPublic(declaringType)
-            && !IsNamedArgumentTrue(context, InternalExtensionsArgumentName);
+            && !IsNamedArgumentTrue(attributes, InternalExtensionsArgumentName);
 
         return new WeightedTypeModel(
             namespaceName,
@@ -142,7 +220,7 @@ internal static class RandomWeightMemberParser
             CSharpNaming.EscapeKeyword(member.Name),
             weightKind,
             isPublic,
-            IsNamedArgumentTrue(context, SharedSourceOverloadsArgumentName),
+            IsNamedArgumentTrue(attributes, SharedSourceOverloadsArgumentName),
             BuildHintName(typeFqn));
     }
 
@@ -174,9 +252,9 @@ internal static class RandomWeightMemberParser
     /// written, or was written as <see langword="false"/>, reads as <see langword="false"/> -- which
     /// is also the property's default, so the two are indistinguishable by design.
     /// </summary>
-    private static bool IsNamedArgumentTrue(GeneratorAttributeSyntaxContext context, string argumentName)
+    private static bool IsNamedArgumentTrue(ImmutableArray<AttributeData> attributes, string argumentName)
     {
-        foreach (var attribute in context.Attributes)
+        foreach (var attribute in attributes)
         {
             foreach (var namedArgument in attribute.NamedArguments)
             {

@@ -20,6 +20,15 @@ namespace SsalKit.Randomness.Generator;
 /// <c>WeightedRandomExtensions</c>, with the selector written for the consumer at compile time.
 /// </para>
 /// <para>
+/// The weight member is found through two pipeline branches. An attribute on a property or field is
+/// collected by <c>ForAttributeWithMetadataName</c>; one written with an attribute target specifier
+/// -- <c>[property: RandomWeight]</c> on a positional record parameter, or <c>[field:
+/// RandomWeight]</c> -- attaches to a symbol that provider structurally cannot report, and is
+/// collected by a second, syntax-driven branch instead (see
+/// <see cref="TargetRedirectedRandomWeightParser"/>). Both branches produce the same member models
+/// and are concatenated before grouping, so every rule -- SSALR002 included -- sees the whole set.
+/// </para>
+/// <para>
 /// Which methods a type gets depends on its weight member's type: an integral member yields
 /// <c>PickWeighted</c>, <c>PickManyWeighted</c>, <c>PickManyWeightedDistinct</c>, and
 /// <c>ToWeightedSampler</c>; a floating-point member yields <c>PickWeighted</c> alone, mirroring the
@@ -60,17 +69,29 @@ public sealed class RandomWeightGenerator : IIncrementalGenerator
                 transform: static (ctx, ct) => RandomWeightMemberParser.GetModel(ctx, ct))
             .WithTrackingName(TrackingNames.Members);
 
-        IncrementalValuesProvider<WeightedMemberModel> validMembers = members
-            .Where(static model => model is not null)!;
-
-        IncrementalValueProvider<ImmutableArray<WeightedMemberModel>> collected = validMembers
-            .Collect()
+        IncrementalValueProvider<ImmutableArray<WeightedMemberModel>> collected = Collect(members)
             .WithTrackingName(TrackingNames.CollectedMembers);
 
-        // Grouping by declaring type happens once, here: SSALR002 ("one weight member per type")
-        // is the one rule that cannot be decided while looking at a single member.
+        // The second branch: attribute applications the provider above cannot see because a target
+        // specifier moved them onto another symbol. It is syntax-driven, so its predicate visits
+        // every node of every changed tree -- which is why it is kept as narrow as possible and why
+        // the ordinary property/field case still goes through the attribute provider.
+        IncrementalValuesProvider<WeightedMemberModel?> redirectedMembers = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => TargetRedirectedRandomWeightParser.IsCandidate(node),
+                transform: static (ctx, ct) => TargetRedirectedRandomWeightParser.GetModel(ctx, ct))
+            .WithTrackingName(TrackingNames.RedirectedMembers);
+
+        IncrementalValueProvider<ImmutableArray<WeightedMemberModel>> collectedRedirected = Collect(redirectedMembers)
+            .WithTrackingName(TrackingNames.CollectedRedirectedMembers);
+
+        // Grouping by declaring type happens once, here, over both branches at once: SSALR002 ("one
+        // weight member per type") is the one rule that cannot be decided while looking at a single
+        // member, and a type can well declare one member through each branch.
         IncrementalValueProvider<RandomWeightAnalysisResult> analysis = collected
-            .Select(static (models, ct) => RandomWeightTypeGrouper.Analyze(models, ct))
+            .Combine(collectedRedirected)
+            .Select(static (branches, ct) =>
+                RandomWeightTypeGrouper.Analyze(Concat(branches.Left, branches.Right), ct))
             .WithTrackingName(TrackingNames.Analysis);
 
         // Two projections off that one node, so emission and diagnostics cache independently: an
@@ -102,6 +123,32 @@ public sealed class RandomWeightGenerator : IIncrementalGenerator
     }
 
     /// <summary>
+    /// Drops the members a transform declined to model and batches the rest.
+    /// </summary>
+    private static IncrementalValueProvider<ImmutableArray<WeightedMemberModel>> Collect(
+        IncrementalValuesProvider<WeightedMemberModel?> members)
+    {
+        IncrementalValuesProvider<WeightedMemberModel> present = members.Where(static model => model is not null)!;
+
+        return present.Collect();
+    }
+
+    /// <summary>
+    /// Joins the two branches' members, without allocating when either branch found nothing -- which
+    /// is the common case for the redirected branch.
+    /// </summary>
+    private static ImmutableArray<WeightedMemberModel> Concat(
+        ImmutableArray<WeightedMemberModel> members, ImmutableArray<WeightedMemberModel> redirected)
+    {
+        if (redirected.IsDefaultOrEmpty)
+        {
+            return members;
+        }
+
+        return members.IsDefaultOrEmpty ? redirected : members.AddRange(redirected);
+    }
+
+    /// <summary>
     /// Names assigned to each pipeline stage via <c>WithTrackingName</c>, so tests can inspect
     /// <see cref="IncrementalGeneratorRunStep"/> results (via
     /// <c>GeneratorDriverRunResult.Results[i].TrackedSteps</c>) to confirm the pipeline caches
@@ -111,6 +158,8 @@ public sealed class RandomWeightGenerator : IIncrementalGenerator
     {
         public const string Members = "Members";
         public const string CollectedMembers = "CollectedMembers";
+        public const string RedirectedMembers = "RedirectedMembers";
+        public const string CollectedRedirectedMembers = "CollectedRedirectedMembers";
         public const string Analysis = "Analysis";
         public const string Types = "Types";
         public const string Diagnostics = "Diagnostics";

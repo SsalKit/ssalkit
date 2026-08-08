@@ -11,3 +11,4 @@ SSALR003 | SsalKit.Randomness | Error    | [RandomWeight] member must be a reada
 SSALR004 | SsalKit.Randomness | Error    | [RandomWeight] member must be accessible to generated code
 SSALR005 | SsalKit.Randomness | Error    | [RandomWeight] cannot be applied to a member of a generic type
 SSALR006 | SsalKit.Randomness | Error    | [RandomWeight] cannot be applied to a member of a ref struct
+SSALR007 | SsalKit.Randomness | Error    | [RandomWeight] cannot be applied to a compiler-generated backing field

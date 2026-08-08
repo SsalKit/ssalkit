@@ -33,6 +33,17 @@ public sealed class IntWeightedItem
 }
 
 /// <summary>
+/// A positional record, where the attribute needs the <c>property:</c> target to reach the property
+/// the record synthesizes for the parameter. The generated extensions are the ordinary full surface;
+/// the <see cref="int"/> weight also puts the selector's cast to the runtime API's <see cref="long"/>
+/// in the path.
+/// </summary>
+public sealed record PositionalLootEntry(string ItemId, [property: RandomWeight] int Weight)
+{
+    public override string ToString() => ItemId;
+}
+
+/// <summary>
 /// The weight held in a field rather than a property (both are supported targets).
 /// </summary>
 public sealed class FieldWeightedItem(string name, long weight)

@@ -37,6 +37,28 @@ public class GeneratorSnapshotTests
         return Verifier.Verify(generated).UseDirectory("Snapshots");
     }
 
+    /// <summary>
+    /// The same file, from a positional record parameter's <c>[property: RandomWeight]</c>. This is
+    /// the shape the syntax-driven branch promotes to the record's synthesized property, and the
+    /// snapshot is what pins that promotion producing ordinary output -- same class name, same
+    /// receiver, same selector -- rather than anything that betrays where the attribute was written.
+    /// </summary>
+    [Fact]
+    public Task PositionalRecordParameter_WithPropertyTarget_GeneratesFullSurface()
+    {
+        const string source = """
+            using SsalKit.Randomness;
+
+            namespace Game.Loot;
+
+            public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight);
+            """;
+
+        var generated = GeneratorTestSupport.RunGenerator(source).AssertCompilesCleanlyAndGetSource();
+
+        return Verifier.Verify(generated).UseDirectory("Snapshots");
+    }
+
     [Fact]
     public Task IntField_GeneratesFullSurfaceWithLongCast()
     {

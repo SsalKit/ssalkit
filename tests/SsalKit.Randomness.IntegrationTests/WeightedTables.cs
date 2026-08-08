@@ -19,6 +19,8 @@ public static class WeightedTables
 
     public static readonly Func<IntWeightedItem, long> IntWeight = static x => (long)x.Weight;
 
+    public static readonly Func<PositionalLootEntry, long> PositionalWeight = static x => (long)x.Weight;
+
     public static readonly Func<FieldWeightedItem, long> FieldWeight = static x => (long)x.Weight;
 
     public static readonly Func<DoubleWeightedItem, double> DoubleWeight = static x => (double)x.Weight;
@@ -45,6 +47,18 @@ public static class WeightedTables
         new() { Name = "a", Weight = 5 },
         new() { Name = "b", Weight = 3 },
         new() { Name = "c", Weight = 2 },
+    ];
+
+    /// <summary>
+    /// The same spread as <see cref="Loot"/>, on the positional-record model, with four strictly
+    /// positive weights so a without-replacement draw of four is still legal.
+    /// </summary>
+    public static List<PositionalLootEntry> Positional() =>
+    [
+        new("common", 60),
+        new("uncommon", 30),
+        new("rare", 9),
+        new("legendary", 1),
     ];
 
     public static List<FieldWeightedItem> Fields() =>

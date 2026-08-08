@@ -77,4 +77,16 @@ internal static class DiagnosticDescriptors
         "[RandomWeight] cannot be applied to a member of a ref struct",
         "[RandomWeight] cannot be applied to '{0}' because its declaring type is a ref struct",
         "The generated extensions take an 'IReadOnlyList<T>' and delegate to generic runtime APIs, so the declaring type has to be usable as an ordinary generic type argument. A ref struct cannot be one: it can never be stored on the heap, which is exactly what a collection of it would require.");
+
+    /// <summary>
+    /// SSALR007: the attribute was written with the <c>field:</c> target, which puts it on a
+    /// compiler-generated backing field instead of on the member the selector would read. Message
+    /// argument 1 carries the fix for the shape it was written on -- an auto-property or a positional
+    /// record parameter.
+    /// </summary>
+    public static readonly DiagnosticDescriptor BackingFieldNotSupported = Factory.Error(
+        7,
+        "[RandomWeight] cannot be applied to a compiler-generated backing field",
+        "[RandomWeight] cannot be applied to '{0}' with the 'field:' target because the attribute then lands on the compiler-generated backing field, which the generated weight selector cannot name; {1}",
+        "The generated weight selector is a 'static x => (long)x.Member' lambda, so it can only read a member that can be written in C# at all. The 'field:' target moves the attribute off the property and onto its backing field, whose name ('<Weight>k__BackingField') is deliberately not a legal identifier -- so there is nothing the generator could delegate to, whatever else about the declaration is fine. Every such declaration does have a nameable weight member, which is what the fix names: an auto-property is the member itself, and a positional record parameter has the synthesized property the 'property:' target reaches.");
 }

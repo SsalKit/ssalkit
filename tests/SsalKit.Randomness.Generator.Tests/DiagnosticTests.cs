@@ -280,6 +280,168 @@ public class DiagnosticTests
         AssertSingleDiagnostic(source, "SSALR006");
     }
 
+    /// <summary>
+    /// SSALR007 on the two shapes a <c>field:</c> target can be written on. The reason clause differs
+    /// per shape, because the nameable member to decorate instead does: an auto-property is itself
+    /// that member, while a positional record parameter has the synthesized property behind
+    /// <c>property:</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "public sealed record LootEntry(string ItemId, [field: RandomWeight] long Weight);",
+        "write '[property: RandomWeight]' instead")]
+    [InlineData(
+        """
+        public sealed class LootEntry
+        {
+            [field: RandomWeight]
+            public long Weight { get; init; }
+        }
+        """,
+        "apply '[RandomWeight]' to the property itself, with no target specifier")]
+    public void SSALR007_TargetRedirectedToABackingField(string declaration, string expectedFix)
+    {
+        var source = Wrap(declaration);
+
+        var diagnostic = AssertSingleDiagnostic(source, "SSALR007");
+
+        Assert.Contains("'Game.Loot.LootEntry.Weight'", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains("the compiler-generated backing field", diagnostic.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains(expectedFix, diagnostic.GetMessage(), StringComparison.Ordinal);
+
+        // The member is named as the user wrote it. The symbol the attribute actually landed on is
+        // called '<Weight>k__BackingField', which would be both unhelpful here and wrong in
+        // SSALR002's member list.
+        Assert.DoesNotContain("BackingField", diagnostic.GetMessage(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A <c>field:</c> target on a manually implemented property is discarded by the compiler
+    /// (CS0657) -- there is no backing field for it to land on -- so the generator stays silent
+    /// rather than adding SSALR007 to an application that exists on no symbol.
+    /// </summary>
+    [Fact]
+    public void FieldTargetOnAManuallyImplementedProperty_IsSilent()
+    {
+        var source = Wrap("""
+            public sealed class LootEntry
+            {
+                private readonly long _weight;
+
+                [field: RandomWeight]
+                public long Weight => _weight;
+            }
+            """);
+
+        AssertSilence(source);
+    }
+
+    /// <summary>
+    /// A target specifier that names the declaration's own default target redirects nothing: the
+    /// attribute lands on the property or field itself, which the attribute provider reports. The
+    /// syntax-driven branch must therefore leave both alone -- claiming either would model the one
+    /// application twice and trip SSALR002 on a type that declares exactly one weight member.
+    /// </summary>
+    [Theory]
+    [InlineData("[property: RandomWeight]", "public long Weight { get; init; }")]
+    [InlineData("[field: RandomWeight]", "public long Weight;")]
+    public void ATargetNamingTheDeclarationsOwnDefault_IsModelledExactlyOnce(string attribute, string member)
+    {
+        var source = WrapInClass(attribute + "\n    " + member);
+
+        var result = GeneratorTestSupport.RunGenerator(source);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Single(result.GeneratedSources);
+        Assert.Empty(result.GetCompilationErrors());
+    }
+
+    /// <summary>
+    /// A <c>property:</c> target with no synthesized property to attach to: shadowed by a
+    /// user-declared member of the same name, or written on a non-record primary constructor. The
+    /// compiler reports CS0657 and discards the attribute, which then exists on no symbol at all, so
+    /// there is no weight member for the generator to have an opinion about.
+    /// </summary>
+    [Theory]
+    [InlineData("""
+        public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight)
+        {
+            public long Weight { get; init; }
+        }
+        """)]
+    [InlineData("""
+        public sealed class LootEntry(string itemId, [property: RandomWeight] long weight)
+        {
+            public string ItemId { get; } = itemId;
+
+            public long Weight { get; } = weight;
+        }
+        """)]
+    public void PropertyTargetWithNoSynthesizedProperty_IsSilent(string declaration) =>
+        AssertSilence(Wrap(declaration));
+
+    /// <summary>
+    /// Both targets on one parameter: two applications, two members, so SSALR007 (for the one on the
+    /// backing field) and SSALR002 (for there now being two) are reported together, and nothing is
+    /// generated. No special case makes this happen -- it falls out of the same rules that report a
+    /// valid member alongside an invalid one.
+    /// </summary>
+    [Fact]
+    public void BothTargetsOnOneParameter_ReportsSSALR007AndSSALR002()
+    {
+        var source = Wrap(
+            "public sealed record LootEntry(string ItemId, [property: RandomWeight][field: RandomWeight] long Weight);");
+
+        var result = GeneratorTestSupport.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+        Assert.Equal(
+            new[] { "SSALR002", "SSALR002", "SSALR007" },
+            result.Diagnostics.Select(d => d.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray());
+
+        // Each application is reported where it was written, so the two attributes on the one
+        // parameter are told apart.
+        Assert.Equal(2, result.Diagnostics.Select(d => d.Location.SourceSpan.Start).Distinct().Count());
+    }
+
+    /// <summary>
+    /// SSALR002 counts across both branches. The two providers are collected separately and merged
+    /// before grouping precisely so that "one weight member per type" stays a fact about the type
+    /// rather than about one provider's view of it.
+    /// </summary>
+    [Fact]
+    public void SSALR002_CountsMembersFromBothBranches()
+    {
+        var source = Wrap("""
+            public sealed record LootEntry(string ItemId, [property: RandomWeight] long Weight)
+            {
+                [RandomWeight]
+                public long Bonus { get; init; }
+            }
+            """);
+
+        var result = GeneratorTestSupport.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+        Assert.Equal(2, result.Diagnostics.Length);
+        Assert.All(result.Diagnostics, diagnostic => Assert.Equal("SSALR002", diagnostic.Id));
+        Assert.All(
+            result.Diagnostics,
+            diagnostic => Assert.Contains("'Bonus', 'Weight'", diagnostic.GetMessage(), StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The promoted property goes through the same rules as any other weight member, which is the
+    /// reason the syntax-driven branch reuses the shared parser rather than validating anything of its
+    /// own.
+    /// </summary>
+    [Theory]
+    [InlineData("public sealed record LootEntry<TItem>(TItem Item, [property: RandomWeight] long Weight);", "SSALR005")]
+    [InlineData("public sealed record LootEntry(string ItemId, [property: RandomWeight] decimal Weight);", "SSALR001")]
+    [InlineData("internal sealed record LootEntry([property: RandomWeight] string Weight);", "SSALR001")]
+    public void PromotedProperty_IsSubjectToTheOrdinaryRules(string declaration, string expectedId) =>
+        AssertSingleDiagnostic(Wrap(declaration), expectedId);
+
     [Fact]
     public void EveryDiagnosticUsesTheSsalKitRandomnessCategory()
     {
@@ -300,6 +462,31 @@ public class DiagnosticTests
             {{memberDeclaration}}
         }
         """;
+
+    /// <summary>
+    /// Puts a whole type declaration into the namespace the assertions here name, for the cases where
+    /// the declaration's own shape -- a positional record, a primary constructor -- is the subject.
+    /// </summary>
+    private static string Wrap(string typeDeclaration) => $"""
+        using SsalKit.Randomness;
+
+        namespace Game.Loot;
+
+        {typeDeclaration}
+        """;
+
+    /// <summary>
+    /// Asserts the generator neither generated nor reported anything, which is the contract for every
+    /// attribute application the compiler has already rejected: it is not the generator's place to
+    /// pile a second message onto a CS**** the user is going to fix anyway.
+    /// </summary>
+    private static void AssertSilence(string source)
+    {
+        var result = GeneratorTestSupport.RunGenerator(source);
+
+        Assert.Empty(result.GeneratedSources);
+        Assert.Empty(result.Diagnostics);
+    }
 
     /// <summary>
     /// Asserts exactly one SSALR diagnostic with the expected id and <c>Error</c> severity was
